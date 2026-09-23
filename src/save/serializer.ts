@@ -7,9 +7,11 @@ import type { ZoneAssignment } from '../zoning/types';
 import type { Building, Lot } from '../lots/types';
 import { PopulationSystem } from '../population/system';
 import type { PopulationSaveState } from '../population/types';
+import { EconomySystem } from '../economy/system';
+import type { EconomyState } from '../economy/types';
 import packageInfo from '../../package.json';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const GAME_VERSION = packageInfo.version;
 
 interface SaveFileBase {
@@ -51,8 +53,17 @@ export interface SaveFileV6 extends SaveFileBase {
   buildings: Building[];
   population: PopulationSaveState;
 }
+export interface SaveFileV7 extends SaveFileBase {
+  saveVersion: 7;
+  world: SaveFileBase['world'] & { terrain: TerrainState };
+  zoningAssignments: ZoneAssignment[];
+  lots: Lot[];
+  buildings: Building[];
+  population: PopulationSaveState;
+  economy: EconomyState;
+}
 
-export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6;
+export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7;
 
 export interface SerializableWorld {
   terrain: LegacyTerrainState | TerrainState;
@@ -62,9 +73,10 @@ export interface SerializableWorld {
   lots?: Lot[];
   buildings?: Building[];
   population?: PopulationSaveState;
+  economy?: EconomyState;
 }
 
-export const serializeWorld = (world: SerializableWorld): SaveFileV6 => ({
+export const serializeWorld = (world: SerializableWorld): SaveFileV7 => ({
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
@@ -79,6 +91,7 @@ export const serializeWorld = (world: SerializableWorld): SaveFileV6 => ({
   lots: structuredClone(world.lots ?? []),
   buildings: structuredClone(world.buildings ?? []),
   population: structuredClone(world.population ?? new PopulationSystem().save()),
+  economy: structuredClone(world.economy ?? new EconomySystem(undefined, world.gameClock.gameSeconds).save()),
 });
 
 const isSaveFileV1 = (value: unknown): value is SaveFileV1 => {
@@ -125,7 +138,17 @@ const isSaveFileV6 = (value: unknown): value is SaveFileV6 => {
     && Array.isArray(candidate.population.occupancies);
 };
 
-export const migrateSave = (value: unknown): SaveFileV6 => {
+const isSaveFileV7 = (value: unknown): value is SaveFileV7 => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SaveFileV7>;
+  return candidate.saveVersion === 7 && !!candidate.world && !!candidate.roadGraph
+    && !!candidate.gameClock && Array.isArray(candidate.zoningAssignments)
+    && Array.isArray(candidate.lots) && Array.isArray(candidate.buildings)
+    && !!candidate.population && Array.isArray(candidate.population.households)
+    && Array.isArray(candidate.population.occupancies) && !!candidate.economy;
+};
+
+const migrateToV6 = (value: unknown): SaveFileV6 => {
   if (isSaveFileV6(value)) return structuredClone(value);
   if (isSaveFileV5(value)) return { ...structuredClone(value), saveVersion: 6, gameVersion: GAME_VERSION,
     population: new PopulationSystem().save() };
@@ -166,10 +189,18 @@ export const migrateSave = (value: unknown): SaveFileV6 => {
     world: { ...migrated.world, terrain: new HeightmapTerrain(migrated.world.terrain).state() } };
 };
 
-export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; hasLotData: boolean; hasPopulationData: boolean } => {
-  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value);
-  const hasPopulationData = isSaveFileV6(value);
-  let save: SaveFileV6;
+export const migrateSave = (value: unknown): SaveFileV7 => {
+  if (isSaveFileV7(value)) return structuredClone(value);
+  const old = migrateToV6(value);
+  return { ...old, saveVersion: 7, gameVersion: GAME_VERSION,
+    economy: new EconomySystem(undefined, old.gameClock.gameSeconds).save() };
+};
+
+export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean } => {
+  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value);
+  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value);
+  const hasEconomyData = isSaveFileV7(value);
+  let save: SaveFileV7;
   try {
     save = migrateSave(value);
   } catch {
@@ -183,7 +214,9 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
     lots: structuredClone(save.lots),
     buildings: structuredClone(save.buildings),
     population: structuredClone(save.population),
+    economy: structuredClone(save.economy),
     hasLotData,
     hasPopulationData,
+    hasEconomyData,
   };
 };
