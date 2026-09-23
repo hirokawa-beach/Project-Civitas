@@ -47,6 +47,11 @@ export class GameRuntime {
     this.renderer.setDebugVisible(next);
     return next;
   }
+  toggleTrafficOverlay(): boolean {
+    const next = !this.renderer.getTrafficOverlay();
+    this.renderer.setTrafficOverlay(next);
+    return next;
+  }
   subscribeConstruction(listener: (status: ConstructionStatus) => void): () => void { return this.construction.subscribe(listener); }
   getLatestSnapshot(): WorldSnapshot | undefined { return this.simulation.latestSnapshot; }
 }

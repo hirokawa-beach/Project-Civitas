@@ -27,11 +27,12 @@ import type { Building, BuildingId, Lot } from '../lots/types';
 import type { WorldSnapshot } from '../shared/protocol';
 import { createChunks, worldToChunk, CHUNK_SIZE, HALF_WORLD_SIZE, type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
 import { HeightmapTerrain, TERRAIN_SAMPLE_SPACING } from '../terrain/heightmap';
-import { distance, normalize, subtract } from '../roads/geometry';
+import { distance, normalize, pointAtDistance, subtract } from '../roads/geometry';
 import type { RoadSegment } from '../roads/types';
 import type { ConstructionGuide } from '../roads/snapping';
 import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../zoning/types';
 import type { ScreenPoint } from '../zoning/interaction';
+import { selectVisibleVehicles } from '../traffic/visibleVehicles';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
   residential: '#67bd78',
@@ -63,6 +64,14 @@ export class GameRenderer {
   private readonly intersectionSignatures = new Map<RoadNodeId, string>();
   private readonly keys = new Set<string>();
   private readonly roadMaterial: StandardMaterial;
+  private readonly trafficMaterials: StandardMaterial[] = [];
+  private readonly vehicleMaterial: StandardMaterial;
+  private readonly vehicleMeshes: Mesh[] = [];
+  private trafficOverlay = false;
+  private appliedTrafficRevision = -1;
+  private lastVehicleCameraX = Number.NaN;
+  private lastVehicleCameraZ = Number.NaN;
+  private visibleVehicleCount = 0;
   private readonly terrainMaterial: StandardMaterial;
   private terrain?: HeightmapTerrain;
   private readonly terrainMeshes = new Map<ChunkDescriptor['id'], Mesh>();
@@ -140,6 +149,15 @@ export class GameRenderer {
     this.roadMaterial = new StandardMaterial('road-material', this.scene);
     this.roadMaterial.diffuseColor = Color3.FromHexString('#303735');
     this.roadMaterial.specularColor = Color3.Black();
+    for (const [index, color] of ['#387d6a', '#a1a050', '#c7783d', '#bd493f'].entries()) {
+      const material = new StandardMaterial(`traffic-level-${index}`, this.scene);
+      material.diffuseColor = Color3.FromHexString(color);
+      material.specularColor = Color3.Black();
+      this.trafficMaterials.push(material);
+    }
+    this.vehicleMaterial = new StandardMaterial('traffic-vehicle', this.scene);
+    this.vehicleMaterial.diffuseColor = Color3.FromHexString('#e9f5e9');
+    this.vehicleMaterial.specularColor = Color3.Black();
     this.intersectionMaterial = new StandardMaterial('intersection-material', this.scene);
     this.intersectionMaterial.diffuseColor = Color3.FromHexString('#333a38');
     this.intersectionMaterial.specularColor = Color3.Black();
@@ -220,7 +238,8 @@ export class GameRenderer {
     const roadChanged = snapshot.roadRevision !== this.appliedRoadRevision;
     const zoningChanged = snapshot.zoningRevision !== this.appliedZoningRevision;
     const lotChanged = snapshot.lotRevision !== this.appliedLotRevision;
-    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged) return;
+    const trafficChanged = snapshot.traffic.revision !== this.appliedTrafficRevision;
+    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged) return;
     const affectedRoadIds = terrainChanged && !roadChanged ? this.invalidateRoadsInChunks(terrainChunks) : [];
     if (roadChanged) {
       this.appliedRoadRevision = snapshot.roadRevision;
@@ -228,6 +247,11 @@ export class GameRenderer {
     if (roadChanged || terrainChanged) {
       this.syncRoadMeshes(snapshot.roadGraph.segments);
       this.syncIntersections(snapshot);
+    }
+    if (roadChanged || trafficChanged) this.syncRoadTrafficMaterials();
+    if (roadChanged || terrainChanged || trafficChanged) {
+      this.appliedTrafficRevision = snapshot.traffic.revision;
+      this.syncVisibleVehicles();
     }
     if (zoningChanged || terrainChanged) {
       this.appliedZoningRevision = snapshot.zoningRevision;
@@ -550,13 +574,61 @@ export class GameRenderer {
   setHoveredSegment(segmentId?: RoadSegmentId): void {
     if (this.hoveredSegmentId) {
       const previous = this.roadMeshes.get(this.hoveredSegmentId);
-      if (previous) previous.material = this.roadMaterial;
+      if (previous) previous.material = this.roadTrafficMaterial(this.hoveredSegmentId);
     }
     this.hoveredSegmentId = segmentId;
     if (segmentId) {
       const next = this.roadMeshes.get(segmentId);
       if (next) next.material = this.hoverMaterial;
     }
+  }
+
+  setTrafficOverlay(enabled: boolean): void {
+    this.trafficOverlay = enabled;
+    this.syncRoadTrafficMaterials();
+  }
+  getTrafficOverlay(): boolean { return this.trafficOverlay; }
+  getVisibleVehicleCount(): number { return this.visibleVehicleCount; }
+
+  private roadTrafficMaterial(segmentId: RoadSegmentId): StandardMaterial {
+    if (!this.trafficOverlay || !this.snapshot) return this.roadMaterial;
+    const ratio = this.snapshot.traffic.segments.find((item) => item.segmentId === segmentId)?.congestionRatio ?? 0;
+    return this.trafficMaterials[ratio < 0.35 ? 0 : ratio < 0.7 ? 1 : ratio < 1 ? 2 : 3];
+  }
+
+  private syncRoadTrafficMaterials(): void {
+    for (const [id, mesh] of this.roadMeshes) mesh.material = id === this.hoveredSegmentId
+      ? this.hoverMaterial : this.roadTrafficMaterial(id);
+  }
+
+  private syncVisibleVehicles(): void {
+    const snapshot = this.snapshot;
+    if (!snapshot) return;
+    const selected = selectVisibleVehicles(snapshot.traffic.visibleCandidates, snapshot.roadGraph.segments,
+      { x: this.camera.target.x, z: this.camera.target.z }, snapshot.traffic.visibleRadiusMeters,
+      snapshot.traffic.maxVisibleVehicles);
+    while (this.vehicleMeshes.length > selected.length) this.vehicleMeshes.pop()!.dispose();
+    while (this.vehicleMeshes.length < selected.length) {
+      const mesh = CreateBox(`visible-car-${this.vehicleMeshes.length}`, { width: 2, height: 1.3, depth: 3.8 }, this.scene);
+      mesh.material = this.vehicleMaterial;
+      mesh.isPickable = false;
+      this.vehicleMeshes.push(mesh);
+    }
+    const segmentById = new Map(snapshot.roadGraph.segments.map((segment) => [segment.id, segment]));
+    selected.forEach((candidate, index) => {
+      const segment = segmentById.get(candidate.segmentId)!;
+      const { point, tangent } = pointAtDistance(segment.geometry.points, candidate.along);
+      const side = candidate.direction === 'forward' ? 1 : -1;
+      const offset = Math.min(2.5, segment.width * 0.24) * side;
+      const x = point.x - tangent.z * offset;
+      const z = point.z + tangent.x * offset;
+      const mesh = this.vehicleMeshes[index];
+      mesh.position = new Vector3(x, this.getHeight(x, z) + 1.0, z);
+      mesh.rotation.y = Math.atan2(tangent.x * side, tangent.z * side);
+    });
+    this.visibleVehicleCount = selected.length;
+    this.lastVehicleCameraX = this.camera.target.x;
+    this.lastVehicleCameraZ = this.camera.target.z;
   }
 
   setDebugVisible(visible: boolean): void {
@@ -618,6 +690,8 @@ export class GameRenderer {
       this.camera.target.x = Math.max(-HALF_WORLD_SIZE, Math.min(HALF_WORLD_SIZE, this.camera.target.x + direction.x * speed));
       this.camera.target.z = Math.max(-HALF_WORLD_SIZE, Math.min(HALF_WORLD_SIZE, this.camera.target.z + direction.z * speed));
     }
+    if (this.snapshot && distance({ x: this.lastVehicleCameraX, z: this.lastVehicleCameraZ },
+      { x: this.camera.target.x, z: this.camera.target.z }) > 12) this.syncVisibleVehicles();
   }
 
   private syncRoadMeshes(segments: RoadSegment[]): void {
@@ -635,7 +709,7 @@ export class GameRenderer {
       const existing = this.roadMeshes.get(segment.id);
       existing?.dispose();
       const mesh = this.createRoadRibbon(segment.id, segment.geometry.points, segment.width, 0.18);
-      mesh.material = segment.id === this.hoveredSegmentId ? this.hoverMaterial : this.roadMaterial;
+      mesh.material = segment.id === this.hoveredSegmentId ? this.hoverMaterial : this.roadTrafficMaterial(segment.id);
       mesh.metadata = { type: 'road', segmentId: segment.id };
       this.roadMeshes.set(segment.id, mesh);
       this.roadSignatures.set(segment.id, signature);

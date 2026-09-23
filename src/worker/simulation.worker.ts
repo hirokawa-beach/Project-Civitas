@@ -9,6 +9,7 @@ let initialized = false;
 let previousTime = performance.now();
 let sentPopulationRevision = -1;
 let sentEconomyRevision = -1;
+let sentTrafficRevision = -1;
 
 const post = (message: WorkerToUIMessage): void => workerScope.postMessage(message);
 const notify = (message: string, level: 'info' | 'error' = 'info'): void => post({ type: 'notification', message, level });
@@ -92,6 +93,7 @@ setInterval(() => {
         post({ type: 'snapshot', snapshot: simulation.snapshot(includeTerrainHeightmap || needsTerrainUpdate) });
         sentPopulationRevision = simulation.population.revision;
         sentEconomyRevision = simulation.economy.revision;
+        sentTrafficRevision = simulation.traffic.revision;
         simulation.consumeTerrainUpdate();
         simulation.lots.takeDelta();
       } else {
@@ -111,6 +113,10 @@ setInterval(() => {
         if (simulation.economy.revision !== sentEconomyRevision) {
           post({ type: 'economy-update', economy: simulation.economyUpdate() });
           sentEconomyRevision = simulation.economy.revision;
+        }
+        if (simulation.traffic.revision !== sentTrafficRevision) {
+          post({ type: 'traffic-update', traffic: simulation.trafficUpdate() });
+          sentTrafficRevision = simulation.traffic.revision;
         }
         post({ type: 'clock-update', ...simulation.clockUpdate() });
       }
