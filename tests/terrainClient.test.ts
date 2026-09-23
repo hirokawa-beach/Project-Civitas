@@ -4,6 +4,23 @@ import { SimulationState } from '../src/simulation/state';
 import type { WorkerToUIMessage, WorldSnapshot } from '../src/shared/protocol';
 
 describe('terrain snapshot delivery', () => {
+  it('delivers population updates without resending roads or terrain', () => {
+    const fakeWorker = { onmessage: null as ((event: MessageEvent<WorkerToUIMessage>) => void) | null, postMessage: () => {} };
+    const client = new SimulationClient(fakeWorker as unknown as Worker);
+    const state = new SimulationState();
+    state.execute({ type: 'build-road', input: { geometry: { kind: 'straight', points: [{ x: -80, z: 0 }, { x: 80, z: 0 }] }, roadTypeId: 'small' } });
+    const cellId = state.snapshot().zoningCells.find((cell) => cell.depth === 0)!.id;
+    state.execute({ type: 'set-zone', cellIds: [cellId], zoneType: 'residential' });
+    state.tick(7);
+    fakeWorker.onmessage!({ data: { type: 'snapshot', snapshot: state.snapshot() } } as MessageEvent<WorkerToUIMessage>);
+    const originalGraph = client.latestSnapshot?.roadGraph;
+    const before = client.latestSnapshot!.population.totals.households;
+    state.tick(3);
+    fakeWorker.onmessage!({ data: { type: 'population-update', population: state.populationUpdate() } } as MessageEvent<WorkerToUIMessage>);
+    expect(client.latestSnapshot?.population.totals.households).toBe(before + 1);
+    expect(client.latestSnapshot?.roadGraph).toBe(originalGraph);
+  });
+
   it('keeps an updated full heightmap for a renderer that subscribes late', () => {
     const fakeWorker = { onmessage: null as ((event: MessageEvent<WorkerToUIMessage>) => void) | null, postMessage: () => {} };
     const client = new SimulationClient(fakeWorker as unknown as Worker);

@@ -23,6 +23,9 @@ export const BUILDING_DEFINITIONS: readonly BuildingDefinition[] = (
   height: zoneHeights[zoneType] + Math.min(lotWidthCells, lotDepthCells) * 2,
   assetPath: null,
   level: 1,
+  householdsPerCell: zoneType === 'residential' ? 2 : 0,
+  jobsPerCell: { residential: 0, commercial: 3, industrial: 4, office: 5 }[zoneType],
+  commercialCapacityPerCell: zoneType === 'commercial' ? 20 : 0,
 }))) satisfies BuildingDefinition[];
 
 const definitionsById = new Map(BUILDING_DEFINITIONS.map((definition) => [definition.id, definition]));

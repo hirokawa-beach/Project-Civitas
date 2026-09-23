@@ -23,7 +23,7 @@ describe('save serialization', () => {
     expect(decoded.zoningAssignments).toEqual(source.zoningAssignments);
     expect(decoded.terrain.heightmap).toHaveLength(257 * 257);
     expect(decoded.terrain.terrainVersion).toBe(1);
-    expect(encoded.saveVersion).toBe(5);
+    expect(encoded.saveVersion).toBe(6);
     expect(() => new RoadGraph(decoded.roadGraph).assertIntegrity()).not.toThrow();
   });
 
@@ -50,7 +50,7 @@ describe('save serialization', () => {
     const first = migrateSave(legacy);
     const second = migrateSave(legacy);
     expect(first).toEqual(second);
-    expect(first.saveVersion).toBe(5);
+    expect(first.saveVersion).toBe(6);
     expect(first.world.terrain.heightmap[0]).toBe(0);
     expect(first.roadGraph.segments[0]).toMatchObject({
       zoningLineageId: 'roadline-1',
@@ -70,7 +70,7 @@ describe('save serialization', () => {
     delete legacy.zoningAssignments;
     (legacy.world as { terrain: Record<string, unknown> }).terrain = { width: 1024, depth: 1024, baseHeight: 0 };
     const migrated = migrateSave(legacy);
-    expect(migrated.saveVersion).toBe(5);
+    expect(migrated.saveVersion).toBe(6);
     expect(migrated.zoningAssignments).toEqual([]);
     expect(deserializeWorld(legacy).roadGraph).toEqual(graph.snapshot());
   });

@@ -4,6 +4,7 @@ import type { GameSpeed, GameClockSnapshot } from '../simulation/gameClock';
 import type { SimulationCommandData, SimulationCommandResult } from '../simulation/commands';
 import type { ZoningCell } from '../zoning/types';
 import type { Building, Lot, LotId } from '../lots/types';
+import type { PopulationSnapshot } from '../population/types';
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
@@ -23,6 +24,7 @@ export interface WorldSnapshot {
   lotRevision: number;
   lots: Lot[];
   buildings: Building[];
+  population: PopulationSnapshot;
   lotReevaluatedCells: number;
   zoningUpdatedChunkIds: ChunkDescriptor['id'][];
   gameClock: GameClockSnapshot;
@@ -46,6 +48,7 @@ export type UIToWorkerMessage =
 export type WorkerToUIMessage =
   | { type: 'snapshot'; snapshot: WorldSnapshot }
   | { type: 'clock-update'; revision: number; gameClock: GameClockSnapshot; simulationTickMs: number }
+  | { type: 'population-update'; population: PopulationSnapshot }
   | { type: 'command-result'; requestId: string; ok: boolean; result?: SimulationCommandResult; error?: string }
   | { type: 'save-data'; requestId: string; save: SaveFile }
   | { type: 'notification'; level: 'info' | 'error'; message: string }

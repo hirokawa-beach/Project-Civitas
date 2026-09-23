@@ -5,9 +5,11 @@ import type { GameClockSnapshot } from '../simulation/gameClock';
 import type { LegacyTerrainState, TerrainState } from '../world/types';
 import type { ZoneAssignment } from '../zoning/types';
 import type { Building, Lot } from '../lots/types';
+import { PopulationSystem } from '../population/system';
+import type { PopulationSaveState } from '../population/types';
 import packageInfo from '../../package.json';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const GAME_VERSION = packageInfo.version;
 
 interface SaveFileBase {
@@ -41,8 +43,16 @@ export interface SaveFileV5 extends SaveFileBase {
   lots: Lot[];
   buildings: Building[];
 }
+export interface SaveFileV6 extends SaveFileBase {
+  saveVersion: 6;
+  world: SaveFileBase['world'] & { terrain: TerrainState };
+  zoningAssignments: ZoneAssignment[];
+  lots: Lot[];
+  buildings: Building[];
+  population: PopulationSaveState;
+}
 
-export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5;
+export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6;
 
 export interface SerializableWorld {
   terrain: LegacyTerrainState | TerrainState;
@@ -51,9 +61,10 @@ export interface SerializableWorld {
   zoningAssignments: ZoneAssignment[];
   lots?: Lot[];
   buildings?: Building[];
+  population?: PopulationSaveState;
 }
 
-export const serializeWorld = (world: SerializableWorld): SaveFileV5 => ({
+export const serializeWorld = (world: SerializableWorld): SaveFileV6 => ({
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
@@ -67,6 +78,7 @@ export const serializeWorld = (world: SerializableWorld): SaveFileV5 => ({
   zoningAssignments: structuredClone(world.zoningAssignments),
   lots: structuredClone(world.lots ?? []),
   buildings: structuredClone(world.buildings ?? []),
+  population: structuredClone(world.population ?? new PopulationSystem().save()),
 });
 
 const isSaveFileV1 = (value: unknown): value is SaveFileV1 => {
@@ -103,17 +115,32 @@ const isSaveFileV5 = (value: unknown): value is SaveFileV5 => {
     && Array.isArray(candidate.lots) && Array.isArray(candidate.buildings);
 };
 
-export const migrateSave = (value: unknown): SaveFileV5 => {
-  if (isSaveFileV5(value)) return structuredClone(value);
-  if (isSaveFileV4(value)) return { ...structuredClone(value), saveVersion: 5, gameVersion: GAME_VERSION, lots: [], buildings: [] };
+const isSaveFileV6 = (value: unknown): value is SaveFileV6 => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SaveFileV6>;
+  return candidate.saveVersion === 6 && !!candidate.world && !!candidate.roadGraph
+    && !!candidate.gameClock && Array.isArray(candidate.zoningAssignments)
+    && Array.isArray(candidate.lots) && Array.isArray(candidate.buildings)
+    && !!candidate.population && Array.isArray(candidate.population.households)
+    && Array.isArray(candidate.population.occupancies);
+};
+
+export const migrateSave = (value: unknown): SaveFileV6 => {
+  if (isSaveFileV6(value)) return structuredClone(value);
+  if (isSaveFileV5(value)) return { ...structuredClone(value), saveVersion: 6, gameVersion: GAME_VERSION,
+    population: new PopulationSystem().save() };
+  if (isSaveFileV4(value)) return { ...structuredClone(value), saveVersion: 6, gameVersion: GAME_VERSION,
+    lots: [], buildings: [], population: new PopulationSystem().save() };
   if (isSaveFileV3(value)) {
     const migrated = structuredClone(value);
-    return { ...migrated, saveVersion: 5, gameVersion: GAME_VERSION, lots: [], buildings: [],
+    return { ...migrated, saveVersion: 6, gameVersion: GAME_VERSION, lots: [], buildings: [],
+      population: new PopulationSystem().save(),
       world: { ...migrated.world, terrain: new HeightmapTerrain(migrated.world.terrain).state() } };
   }
   if (isSaveFileV2(value)) {
     const migrated = structuredClone(value);
-    return { ...migrated, saveVersion: 5, gameVersion: GAME_VERSION, zoningAssignments: [], lots: [], buildings: [],
+    return { ...migrated, saveVersion: 6, gameVersion: GAME_VERSION, zoningAssignments: [], lots: [], buildings: [],
+      population: new PopulationSystem().save(),
       world: { ...migrated.world, terrain: new HeightmapTerrain(migrated.world.terrain).state() } };
   }
   if (!isSaveFileV1(value)) throw new Error('No migration is available for this save version.');
@@ -134,13 +161,15 @@ export const migrateSave = (value: unknown): SaveFileV5 => {
     }
     segment.zoningStartOffset ??= 0;
   }
-  return { ...migrated, saveVersion: 5, gameVersion: GAME_VERSION, zoningAssignments: [], lots: [], buildings: [],
+  return { ...migrated, saveVersion: 6, gameVersion: GAME_VERSION, zoningAssignments: [], lots: [], buildings: [],
+    population: new PopulationSystem().save(),
     world: { ...migrated.world, terrain: new HeightmapTerrain(migrated.world.terrain).state() } };
 };
 
-export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; hasLotData: boolean } => {
-  const hasLotData = isSaveFileV5(value);
-  let save: SaveFileV5;
+export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; hasLotData: boolean; hasPopulationData: boolean } => {
+  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value);
+  const hasPopulationData = isSaveFileV6(value);
+  let save: SaveFileV6;
   try {
     save = migrateSave(value);
   } catch {
@@ -153,6 +182,8 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
     zoningAssignments: structuredClone(save.zoningAssignments),
     lots: structuredClone(save.lots),
     buildings: structuredClone(save.buildings),
+    population: structuredClone(save.population),
     hasLotData,
+    hasPopulationData,
   };
 };

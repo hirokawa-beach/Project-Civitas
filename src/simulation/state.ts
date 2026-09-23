@@ -1,5 +1,5 @@
 import { RoadGraph } from '../roads/roadGraph';
-import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV5 } from '../save/serializer';
+import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV6 } from '../save/serializer';
 import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
 import { createChunks, worldToChunk, HALF_WORLD_SIZE, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
@@ -10,6 +10,8 @@ import { ZoningSystem } from '../zoning/system';
 import { isTerrainSuitableForZone } from '../zoning/terrainSuitability';
 import { LotSystem } from '../lots/system';
 import type { Building, Lot, LotId } from '../lots/types';
+import { PopulationSystem } from '../population/system';
+import type { PopulationSnapshot } from '../population/types';
 import { AppliedTerrainStrokeCommand, CommandHistory, TerrainPresetCommand, commandFromData, type SimulationCommandData, type SimulationCommandResult, type TerrainEditBounds } from './commands';
 import { GameClock, type GameSpeed } from './gameClock';
 
@@ -19,6 +21,7 @@ export class SimulationState {
   readonly history = new CommandHistory();
   terrain = new HeightmapTerrain();
   lots = new LotSystem();
+  population = new PopulationSystem();
   private roadTerrainEditWeights = buildRoadTerrainProtection([]);
 
   private zoningCells: ZoningCell[] = [];
@@ -42,8 +45,12 @@ export class SimulationState {
   tick(realSeconds: number): boolean {
     const started = performance.now();
     this.clock.advance(realSeconds);
-    const buildingChanged = this.lots.advance(this.clock.gameSeconds);
-    if (buildingChanged) this.lotRevision += 1;
+    const buildingChanged = this.lots.advance(this.clock.gameSeconds, this.population.demandValues);
+    if (buildingChanged) {
+      this.lotRevision += 1;
+      this.syncPopulation();
+    }
+    this.population.tick(this.clock.gameSeconds);
     this.revision += 1;
     this.simulationTickMs = performance.now() - started;
     return buildingChanged;
@@ -181,6 +188,7 @@ export class SimulationState {
       lotRevision: this.lotRevision,
       lots: structuredClone(this.lots.lots),
       buildings: structuredClone(this.lots.buildings),
+      population: this.population.snapshot(),
       lotReevaluatedCells: this.lots.lastReevaluatedCells,
       zoningUpdatedChunkIds: [...this.zoningUpdatedChunkIds],
       gameClock: this.clock.snapshot(),
@@ -196,14 +204,16 @@ export class SimulationState {
     };
   }
 
-  serialize(): SaveFileV5 {
+  populationUpdate(): PopulationSnapshot { return this.population.snapshot(); }
+
+  serialize(): SaveFileV6 {
     const active = new Set(this.zoningCells.map((cell) => cell.id));
     const zoningAssignments: ZoneAssignment[] = [...this.zoneAssignments]
       .filter(([cellId]) => active.has(cellId))
       .map(([cellId, zoneType]) => ({ cellId, zoneType }))
       .sort((left, right) => left.cellId.localeCompare(right.cellId));
     return serializeWorld({ terrain: this.terrain.state(), roadGraph: this.graph.snapshot(), gameClock: this.clock.snapshot(), zoningAssignments,
-      lots: this.lots.lots, buildings: this.lots.buildings });
+      lots: this.lots.lots, buildings: this.lots.buildings, population: this.population.save() });
   }
 
   load(save: SaveFile): void {
@@ -240,6 +250,10 @@ export class SimulationState {
     if (world.hasLotData) validatedLots.restore(world.lots, world.buildings, validatedCells,
       (x, z) => validatedTerrain.getHeight(x, z), validatedClock.gameSeconds);
     else validatedLots.reconcile(validatedCells, (x, z) => validatedTerrain.getHeight(x, z), validatedClock.gameSeconds);
+    const validatedPopulation = new PopulationSystem();
+    if (world.hasPopulationData) validatedPopulation.restore(world.population, validatedLots.buildings,
+      validatedLots.lots, validatedClock.gameSeconds);
+    else validatedPopulation.syncBuildings(validatedLots.buildings, validatedLots.lots, validatedClock.gameSeconds);
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
@@ -250,6 +264,7 @@ export class SimulationState {
     this.history.clear();
     this.roadChanged();
     this.lots = validatedLots;
+    this.population = validatedPopulation;
     this.lotRevision += 1;
   }
 
@@ -277,6 +292,7 @@ export class SimulationState {
     const before = this.lots.revision;
     this.lots.refreshRoadAccess(graph.segments);
     if (this.lots.revision !== before) this.lotRevision += 1;
+    this.syncPopulation();
     this.roadRevision += 1;
     this.zoningRevision += 1;
     this.revision += 1;
@@ -299,6 +315,7 @@ export class SimulationState {
       this.lots.reconcile(this.zoningCells, (x, z) => this.terrain.getHeight(x, z), this.clock.gameSeconds,
         bounds ? { cellIds: affectedCellIds } : { chunkIds });
       this.lotRevision += 1;
+      this.syncPopulation();
     }
     for (const id of chunkIds) this.terrainUpdatedChunkIds.add(id);
     this.terrainRevision += 1;
@@ -317,6 +334,7 @@ export class SimulationState {
     this.lots.reconcile(this.zoningCells, (x, z) => this.terrain.getHeight(x, z), this.clock.gameSeconds, { cellIds });
     this.lots.refreshRoadAccess(this.graph.snapshot().segments);
     this.lotRevision += 1;
+    this.syncPopulation();
     this.zoningRevision += 1;
     this.revision += 1;
   }
@@ -329,6 +347,10 @@ export class SimulationState {
       const terrainSuitable = isTerrainSuitableForZone(cell, (x, z) => this.terrain.getHeight(x, z));
       return zoneType ? { ...geometry, zoneType, terrainHeight, terrainSuitable } : { ...geometry, terrainHeight, terrainSuitable };
     });
+  }
+
+  private syncPopulation(): void {
+    this.population.syncBuildings(this.lots.buildings, this.lots.lots, this.clock.gameSeconds);
   }
 
   private boundsForVertices(values: ReadonlyMap<number, number>): TerrainEditBounds | undefined {

@@ -87,6 +87,10 @@ export class SimulationClient {
         lotRevision: message.lotRevision, lots: [...lots.values()].sort((a, b) => a.id.localeCompare(b.id)),
         buildings: [...buildings.values()].sort((a, b) => a.id.localeCompare(b.id)), lotReevaluatedCells: message.lotReevaluatedCells };
       for (const listener of this.snapshotListeners) listener(this.latestSnapshot);
+    } else if (message.type === 'population-update') {
+      if (!this.latestSnapshot) return;
+      this.latestSnapshot = { ...this.latestSnapshot, population: message.population };
+      for (const listener of this.snapshotListeners) listener(this.latestSnapshot);
     } else if (message.type === 'clock-update') {
       if (!this.latestSnapshot) return;
       this.latestSnapshot = {

@@ -1,4 +1,4 @@
-# Project Civitas — Lots + Buildings (0.8.0)
+# Project Civitas — Population + Employment + RCIO Demand (0.9.0)
 
 ブラウザで動作する3D都市開発シミュレーションの第1弾Prototypeです。Simulation Workerが唯一のWorld Stateを所有し、Preact UIはCommandを送り、Babylon.js RendererはSnapshotだけを描画します。
 
@@ -8,9 +8,11 @@
 
 地形はWorkerが正本を持つ4m間隔の257×257 Heightmapです。Y座標はメートル単位の標高で、`getHeight(x,z)`／`getNormal(x,z)` を道路・区画表示と今後のシステムが使います。TERRAINツールではRaise／Lower／Flatten／Smoothをドラッグ操作でき、ブラシ径・強度、Flat／Hillsテスト地形を切り替えられます。1ドラッグが1つのUndo/Redoです。編集時は256mチャンク単位の変更だけをWorkerからRendererへ送り、地形・道路面・RCIO区画表示を追従させます。急勾配（12%超）の新規道路は無効です。区画IDと塗り分けは地形編集だけでは変更されません。
 
-同じRCIOの連続セルから道路に接するLotを決定論的に生成します。対応サイズは1×1、1×2、2×1、2×2、2×3、3×2、3×3、4×4セルです。Lotは標高と傾斜をサンプリングし、急斜面では建物を生成しません。建物DefinitionはSimulation側のデータで、現在のAssetはZoneType別の仮Boxです。建物はGameClockによりEmpty→Planned→Constructing→Occupiedと成長し、人口・需要・経済はまだありません。DebugのLot境界・道路側の辺と、カーソル下LotのID・サイズ・傾斜・建物状態を確認できます。
+同じRCIOの連続セルから道路に接するLotを決定論的に生成します。対応サイズは1×1、1×2、2×1、2×2、2×3、3×2、3×3、4×4セルです。Lotは標高と傾斜をサンプリングし、急斜面では建物を生成しません。建物DefinitionはSimulation側のデータで、現在のAssetはZoneType別の仮Boxです。建物はGameClockによりEmpty→Planned→Constructing→Occupiedと成長します。需要が25未満なら新規計画を待機させますが、既存建物は需要低下だけで消しません。DebugのLot境界・道路側の辺と、カーソル下LotのID・サイズ・傾斜・建物状態を確認できます。
 
-クイックセーブにはHeightmap・地形設定・Terrain versionに加え、Lot、Building、成長状態・タイマー・Definition参照を含めます。Save schemaはv5で、旧v1～v4セーブは移行時にLotを生成します。ゲーム版数とSave schemaは独立して管理します。交通、経済、水系、橋・高架・トンネル、鉄道はまだ対象外です。
+Occupied住宅には30ゲーム秒ごとに各建物1世帯ずつ入居します。個別Citizenを生成せず世帯単位で人口・労働力を管理し、45ゲーム秒ごとに住宅の労働力を商業・工業・オフィスの求人枠へ一巡で割り当てます。60ゲーム秒ごとに、空き住宅・求人・失業率・人口・用途別空き枠から0～100のRCIO需要を再計算します。左上のパネルには人口、世帯、就業・失業、空き求人、4需要を表示します。需要バーにカーソルを置くと寄与する計算項目が見られます。通勤経路・経済はまだありません。
+
+クイックセーブにはHeightmap・地形設定・Terrain version、Lot、Building、成長状態・タイマー・Definition参照に加え、世帯・建物別入居／求人・需要・更新タイマーを含めます。Save schemaはv6で、旧v1～v5セーブを移行します。ゲーム版数とSave schemaは独立して管理します。交通、経済、水系、橋・高架・トンネル、鉄道はまだ対象外です。
 
 ## 起動
 
@@ -57,7 +59,8 @@ npm test
 - `src/terrain`: Authority用Heightmap、補間・法線・ブラシ編集・チャンクパッチ
 - `src/zoning`: Road local座標系の8mセル候補、RCIO用途と塗り対象Hit Test
 - `src/lots`: Lotパッキング、Terrain適合性、建物Definitionと成長状態
-- `src/save`: version付きDTO、v1～v4→v5 migration、IndexedDB quick save
+- `src/population`: 世帯、建物別入居・求人、雇用割当、RCIO需要
+- `src/save`: version付きDTO、v1～v5→v6 migration、IndexedDB quick save
 - `src/ui`: World Stateを直接変更しない操作UI／Debug HUD
 
 Mapは1024m四方、Chunkは256m四方の4×4、1 world unit = 1mです。Small Roadは幅16m、対面2車線、速度上限40km/h、最小曲率半径24m、ゾーニング可能としてデータ定義されています。
