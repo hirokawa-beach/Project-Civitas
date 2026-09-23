@@ -33,6 +33,7 @@ import type { ConstructionGuide } from '../roads/snapping';
 import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../zoning/types';
 import type { ScreenPoint } from '../zoning/interaction';
 import { selectVisibleVehicles } from '../traffic/visibleVehicles';
+import { VehicleMotion, type VehiclePose } from '../traffic/vehicleMotion';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
   residential: '#67bd78',
@@ -66,7 +67,8 @@ export class GameRenderer {
   private readonly roadMaterial: StandardMaterial;
   private readonly trafficMaterials: StandardMaterial[] = [];
   private readonly vehicleMaterial: StandardMaterial;
-  private readonly vehicleMeshes: Mesh[] = [];
+  private readonly vehicleMeshes = new Map<string, Mesh>();
+  private readonly vehicleMotion = new VehicleMotion();
   private trafficOverlay = false;
   private appliedTrafficRevision = -1;
   private lastVehicleCameraX = Number.NaN;
@@ -196,7 +198,10 @@ export class GameRenderer {
 
     this.createChunkGrid();
     this.bindCameraKeys();
-    this.scene.onBeforeRenderObservable.add(() => this.updateCamera());
+    this.scene.onBeforeRenderObservable.add(() => {
+      const delta = this.updateCamera();
+      this.animateVisibleVehicles(delta);
+    });
     this.engine.runRenderLoop(() => {
       if (this.disposed) return;
       const started = performance.now();
@@ -251,7 +256,7 @@ export class GameRenderer {
     if (roadChanged || trafficChanged) this.syncRoadTrafficMaterials();
     if (roadChanged || terrainChanged || trafficChanged) {
       this.appliedTrafficRevision = snapshot.traffic.revision;
-      this.syncVisibleVehicles();
+      this.syncVisibleVehicles(roadChanged || terrainChanged);
     }
     if (zoningChanged || terrainChanged) {
       this.appliedZoningRevision = snapshot.zoningRevision;
@@ -601,34 +606,55 @@ export class GameRenderer {
       ? this.hoverMaterial : this.roadTrafficMaterial(id);
   }
 
-  private syncVisibleVehicles(): void {
+  private syncVisibleVehicles(snap = false): void {
     const snapshot = this.snapshot;
     if (!snapshot) return;
     const selected = selectVisibleVehicles(snapshot.traffic.visibleCandidates, snapshot.roadGraph.segments,
       { x: this.camera.target.x, z: this.camera.target.z }, snapshot.traffic.visibleRadiusMeters,
       snapshot.traffic.maxVisibleVehicles);
-    while (this.vehicleMeshes.length > selected.length) this.vehicleMeshes.pop()!.dispose();
-    while (this.vehicleMeshes.length < selected.length) {
-      const mesh = CreateBox(`visible-car-${this.vehicleMeshes.length}`, { width: 2, height: 1.3, depth: 3.8 }, this.scene);
-      mesh.material = this.vehicleMaterial;
-      mesh.isPickable = false;
-      this.vehicleMeshes.push(mesh);
-    }
     const segmentById = new Map(snapshot.roadGraph.segments.map((segment) => [segment.id, segment]));
-    selected.forEach((candidate, index) => {
+    const targets = new Map<string, VehiclePose>();
+    for (const candidate of selected) {
       const segment = segmentById.get(candidate.segmentId)!;
       const { point, tangent } = pointAtDistance(segment.geometry.points, candidate.along);
       const side = candidate.direction === 'forward' ? 1 : -1;
       const offset = Math.min(2.5, segment.width * 0.24) * side;
       const x = point.x - tangent.z * offset;
       const z = point.z + tangent.x * offset;
-      const mesh = this.vehicleMeshes[index];
-      mesh.position = new Vector3(x, this.getHeight(x, z) + 1.0, z);
-      mesh.rotation.y = Math.atan2(tangent.x * side, tangent.z * side);
-    });
-    this.visibleVehicleCount = selected.length;
+      targets.set(candidate.tripId, { x, y: this.getHeight(x, z) + 1.0, z,
+        yaw: Math.atan2(tangent.x * side, tangent.z * side) });
+    }
+    this.vehicleMotion.sync(targets, snap);
+    for (const [id, mesh] of this.vehicleMeshes) if (!targets.has(id)) {
+      mesh.dispose();
+      this.vehicleMeshes.delete(id);
+    }
+    for (const id of this.vehicleMotion.ids) if (!this.vehicleMeshes.has(id)) {
+      const mesh = CreateBox(`visible-car-${id}`, { width: 2, height: 1.3, depth: 3.8 }, this.scene);
+      mesh.material = this.vehicleMaterial;
+      mesh.isPickable = false;
+      this.vehicleMeshes.set(id, mesh);
+    }
+    this.applyVehiclePoses();
+    this.visibleVehicleCount = this.vehicleMeshes.size;
     this.lastVehicleCameraX = this.camera.target.x;
     this.lastVehicleCameraZ = this.camera.target.z;
+  }
+
+  private animateVisibleVehicles(realSeconds: number): void {
+    if (!this.snapshot || this.vehicleMeshes.size === 0) return;
+    this.vehicleMotion.advance(realSeconds, this.snapshot.gameClock.speed,
+      this.snapshot.traffic.sampleIntervalGameSeconds);
+    this.applyVehiclePoses();
+  }
+
+  private applyVehiclePoses(): void {
+    for (const [id, mesh] of this.vehicleMeshes) {
+      const pose = this.vehicleMotion.pose(id);
+      if (!pose) continue;
+      mesh.position.set(pose.x, pose.y, pose.z);
+      mesh.rotation.y = pose.yaw;
+    }
   }
 
   setDebugVisible(visible: boolean): void {
@@ -673,7 +699,7 @@ export class GameRenderer {
     window.addEventListener('keyup', (event) => this.keys.delete(event.code));
   }
 
-  private updateCamera(): void {
+  private updateCamera(): number {
     const delta = Math.min(0.05, this.engine.getDeltaTime() / 1000);
     const fast = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     const speed = (fast ? 135 : 52) * delta * Math.max(0.6, this.camera.radius / 320);
@@ -692,6 +718,7 @@ export class GameRenderer {
     }
     if (this.snapshot && distance({ x: this.lastVehicleCameraX, z: this.lastVehicleCameraZ },
       { x: this.camera.target.x, z: this.camera.target.z }) > 12) this.syncVisibleVehicles();
+    return delta;
   }
 
   private syncRoadMeshes(segments: RoadSegment[]): void {

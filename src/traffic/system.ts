@@ -170,7 +170,8 @@ export class TrafficSystem {
       }
     }
     return {
-      revision: this.revision, activeTrips, logicalVehicles, averageRoadSpeed: this.averageRoadSpeed,
+      revision: this.revision, sampleIntervalGameSeconds: this.config.trafficIntervalGameSeconds,
+      activeTrips, logicalVehicles, averageRoadSpeed: this.averageRoadSpeed,
       congestedSegmentCount: this.congestedSegmentCount, outsideConnections: this.outside,
       segments: this.segmentStates, visibleCandidates,
       maxVisibleVehicles: this.config.maxVisibleVehicles, visibleRadiusMeters: this.config.visibleRadiusMeters,
