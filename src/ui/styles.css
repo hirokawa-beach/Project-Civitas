@@ -36,7 +36,13 @@ button { font: inherit; }
 .file-actions { margin-left: auto; display: flex; gap: 4px; }
 .file-actions button { height: 32px; padding: 0 14px; font: 600 10px Consolas, monospace; letter-spacing: 0.12em; }
 
-.debug-panel { position: absolute; top: 96px; right: 18px; width: 220px; max-height: calc(100vh - 124px); overflow-y: auto; padding: 15px 16px 13px; }
+.debug-panel { position: absolute; top: 270px; right: 18px; width: 220px; max-height: calc(100vh - 298px); overflow-y: auto; padding: 15px 16px 13px; }
+.traffic-panel { position: absolute; top: 96px; right: 18px; width: 220px; padding: 12px 15px; }
+.traffic-panel .panel-title { justify-content: space-between; margin-bottom: 8px; }
+.traffic-panel .panel-title button { padding: 4px 6px; font: 600 8px Consolas, monospace; letter-spacing: .05em; }
+.traffic-metrics { display: grid; gap: 6px; color: var(--muted); font: 600 9px Consolas, monospace; letter-spacing: .02em; }
+.traffic-metrics span { display: flex; justify-content: space-between; gap: 6px; }
+.traffic-metrics b { color: #e9eee8; font-weight: 600; }
 .city-stats { position: absolute; top: 96px; left: 18px; width: 240px; padding: 14px 15px; }
 .city-stats .panel-title { margin-bottom: 10px; }
 .city-totals { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px 12px; }
@@ -137,6 +143,7 @@ kbd { color: #dbe7df; font: inherit; }
   .clock-block > span { display: none; }
   .file-actions { margin-left: 10px; }
   .debug-panel { right: 12px; }
+  .traffic-panel { right: 12px; }
   .snap-palette { bottom: 102px; }
   .zone-palette .zone-choice { min-width: 35px; justify-content: center; }
   .zone-palette .zone-choice small { display: none; }
@@ -148,7 +155,8 @@ kbd { color: #dbe7df; font: inherit; }
   .identity strong, .identity small { display: none; }
   .city-stats { top: 88px; width: 180px; padding: 11px; }
   .economy-panel { top: 330px; width: 180px; max-height: 150px; padding: 11px; }
-  .debug-panel { top: 88px; right: 12px; width: 180px; max-height: min(350px, calc(100vh - 300px)); padding: 11px; }
+  .traffic-panel { top: 88px; right: 12px; width: 180px; padding: 11px; }
+  .debug-panel { top: 252px; right: 12px; width: 180px; max-height: min(350px, calc(100vh - 280px)); padding: 11px; }
   .debug-panel dl { font-size: 8px; }
   .construction-readout { left: 12px; width: min(330px, calc(100vw - 24px)); }
 }

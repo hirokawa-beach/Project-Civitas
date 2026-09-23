@@ -95,6 +95,10 @@ export class SimulationClient {
       if (!this.latestSnapshot) return;
       this.latestSnapshot = { ...this.latestSnapshot, economy: message.economy };
       for (const listener of this.snapshotListeners) listener(this.latestSnapshot);
+    } else if (message.type === 'traffic-update') {
+      if (!this.latestSnapshot) return;
+      this.latestSnapshot = { ...this.latestSnapshot, traffic: message.traffic };
+      for (const listener of this.snapshotListeners) listener(this.latestSnapshot);
     } else if (message.type === 'clock-update') {
       if (!this.latestSnapshot) return;
       this.latestSnapshot = {

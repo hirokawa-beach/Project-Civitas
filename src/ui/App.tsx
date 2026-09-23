@@ -21,6 +21,7 @@ interface Metrics {
   chunk: { x: number; z: number };
   terrainMeshMs: number;
   terrainFrameMs: number;
+  visibleVehicles: number;
 }
 
 const formatClock = (seconds: number): string => {
@@ -65,9 +66,10 @@ const SNAP_CONTROLS: ReadonlyArray<{ key: SnapSettingKey; label: string; title: 
 export function App({ runtime, simulation }: AppProps) {
   const [snapshot, setSnapshot] = useState<WorldSnapshot | undefined>(simulation.latestSnapshot);
   const [construction, setConstruction] = useState<ConstructionStatus>();
-  const [metrics, setMetrics] = useState<Metrics>({ fps: 0, frameTime: 0, chunk: { x: 2, z: 2 }, terrainMeshMs: 0, terrainFrameMs: 0 });
+  const [metrics, setMetrics] = useState<Metrics>({ fps: 0, frameTime: 0, chunk: { x: 2, z: 2 }, terrainMeshMs: 0, terrainFrameMs: 0, visibleVehicles: 0 });
   const [saveBytes, setSaveBytes] = useState(0);
   const [debugVisible, setDebugVisible] = useState(true);
+  const [trafficOverlay, setTrafficOverlay] = useState(false);
   const [toast, setToast] = useState<{ message: string; error?: boolean }>();
 
   useEffect(() => simulation.subscribe(setSnapshot), [simulation]);
@@ -80,6 +82,7 @@ export function App({ runtime, simulation }: AppProps) {
       chunk: runtime.renderer.getCurrentChunk(),
       terrainMeshMs: runtime.renderer.getTerrainMeshUpdateMs(),
       terrainFrameMs: runtime.renderer.getTerrainUpdateFrameMs(),
+      visibleVehicles: runtime.renderer.getVisibleVehicleCount(),
     }), 350);
     return () => window.clearInterval(timer);
   }, [runtime]);
@@ -124,7 +127,7 @@ export function App({ runtime, simulation }: AppProps) {
       <header class="topbar panel">
         <div class="identity">
           <span class="identity-mark" aria-hidden="true">C</span>
-          <div><strong>PROJECT CIVITAS</strong><small>BASIC CITY ECONOMY / PROTOTYPE</small></div>
+          <div><strong>PROJECT CIVITAS</strong><small>ROAD TRAFFIC / PROTOTYPE</small></div>
         </div>
         <div class="clock-block">
           <span>{clock}</span>
@@ -180,6 +183,18 @@ export function App({ runtime, simulation }: AppProps) {
         </details>
       </aside>}
 
+      {snapshot && <aside class="traffic-panel panel" aria-label="Road traffic">
+        <div class="panel-title">ROAD TRAFFIC <button class={trafficOverlay ? 'active' : ''}
+          aria-pressed={trafficOverlay} onClick={() => setTrafficOverlay(runtime.toggleTrafficOverlay())}>OVERLAY</button></div>
+        <div class="traffic-metrics">
+          <span>ACTIVE TRIPS <b>{snapshot.traffic.activeTrips}</b></span>
+          <span>LOGICAL VEHICLES <b>{snapshot.traffic.logicalVehicles}</b></span>
+          <span>VISIBLE VEHICLES <b>{metrics.visibleVehicles}</b></span>
+          <span>AVERAGE SPEED <b>{snapshot.traffic.averageRoadSpeed.toFixed(1)} km/h</b></span>
+          <span>CONGESTED ROADS <b>{snapshot.traffic.congestedSegmentCount}</b></span>
+        </div>
+      </aside>}
+
       {debugVisible && snapshot && (
         <aside class="debug-panel panel">
           <div class="panel-title"><span>LIVE SYSTEMS</span><i /></div>
@@ -212,6 +227,10 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>JOBS OPEN</dt><dd>{snapshot.population.totals.availableJobs}</dd>
             <dt>FUNDS / NET</dt><dd>{money(snapshot.economy.funds)} / {money(snapshot.economy.lastCycleNet)}</dd>
             <dt>INCOME / EXPENSE</dt><dd>{money(snapshot.economy.totalIncome)} / {money(snapshot.economy.totalExpenses)}</dd>
+            <dt>TRIPS / VEHICLES</dt><dd>{snapshot.traffic.activeTrips} / {snapshot.traffic.logicalVehicles}</dd>
+            <dt>VISIBLE / LIMIT</dt><dd>{metrics.visibleVehicles} / {snapshot.traffic.maxVisibleVehicles}</dd>
+            <dt>AVG SPEED / JAM</dt><dd>{snapshot.traffic.averageRoadSpeed.toFixed(1)} km/h / {snapshot.traffic.congestedSegmentCount}</dd>
+            <dt>OUTSIDE LINKS</dt><dd>{snapshot.traffic.outsideConnections.length}</dd>
             <dt>ECONOMY CYCLE</dt><dd>{snapshot.economy.lastEconomyTickGameSeconds} → {snapshot.economy.nextCycleAtGameSeconds}s</dd>
             {snapshot.economy.transactions.slice(-5).reverse().map((transaction) => <>
               <dt title={`${transaction.kind} at ${transaction.gameSeconds}s`}>{transaction.kind.replaceAll('_', ' ')}</dt>

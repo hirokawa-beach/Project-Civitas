@@ -9,9 +9,11 @@ import { PopulationSystem } from '../population/system';
 import type { PopulationSaveState } from '../population/types';
 import { EconomySystem } from '../economy/system';
 import type { EconomyState } from '../economy/types';
+import { TrafficSystem } from '../traffic/system';
+import type { TrafficSaveState } from '../traffic/types';
 import packageInfo from '../../package.json';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 export const GAME_VERSION = packageInfo.version;
 
 interface SaveFileBase {
@@ -62,8 +64,18 @@ export interface SaveFileV7 extends SaveFileBase {
   population: PopulationSaveState;
   economy: EconomyState;
 }
+export interface SaveFileV8 extends SaveFileBase {
+  saveVersion: 8;
+  world: SaveFileBase['world'] & { terrain: TerrainState };
+  zoningAssignments: ZoneAssignment[];
+  lots: Lot[];
+  buildings: Building[];
+  population: PopulationSaveState;
+  economy: EconomyState;
+  traffic: TrafficSaveState;
+}
 
-export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7;
+export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8;
 
 export interface SerializableWorld {
   terrain: LegacyTerrainState | TerrainState;
@@ -74,9 +86,10 @@ export interface SerializableWorld {
   buildings?: Building[];
   population?: PopulationSaveState;
   economy?: EconomyState;
+  traffic?: TrafficSaveState;
 }
 
-export const serializeWorld = (world: SerializableWorld): SaveFileV7 => ({
+export const serializeWorld = (world: SerializableWorld): SaveFileV8 => ({
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
@@ -92,6 +105,7 @@ export const serializeWorld = (world: SerializableWorld): SaveFileV7 => ({
   buildings: structuredClone(world.buildings ?? []),
   population: structuredClone(world.population ?? new PopulationSystem().save()),
   economy: structuredClone(world.economy ?? new EconomySystem(undefined, world.gameClock.gameSeconds).save()),
+  traffic: structuredClone(world.traffic ?? new TrafficSystem(world.roadGraph, undefined, world.gameClock.gameSeconds).save()),
 });
 
 const isSaveFileV1 = (value: unknown): value is SaveFileV1 => {
@@ -148,6 +162,18 @@ const isSaveFileV7 = (value: unknown): value is SaveFileV7 => {
     && Array.isArray(candidate.population.occupancies) && !!candidate.economy;
 };
 
+const isSaveFileV8 = (value: unknown): value is SaveFileV8 => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SaveFileV8>;
+  return candidate.saveVersion === 8 && !!candidate.world && !!candidate.roadGraph
+    && !!candidate.gameClock && Array.isArray(candidate.zoningAssignments)
+    && Array.isArray(candidate.lots) && Array.isArray(candidate.buildings)
+    && !!candidate.population && Array.isArray(candidate.population.households)
+    && Array.isArray(candidate.population.occupancies) && !!candidate.economy
+    && !!candidate.traffic && Array.isArray(candidate.traffic.trips)
+    && Array.isArray(candidate.traffic.outsideConnections);
+};
+
 const migrateToV6 = (value: unknown): SaveFileV6 => {
   if (isSaveFileV6(value)) return structuredClone(value);
   if (isSaveFileV5(value)) return { ...structuredClone(value), saveVersion: 6, gameVersion: GAME_VERSION,
@@ -189,18 +215,26 @@ const migrateToV6 = (value: unknown): SaveFileV6 => {
     world: { ...migrated.world, terrain: new HeightmapTerrain(migrated.world.terrain).state() } };
 };
 
-export const migrateSave = (value: unknown): SaveFileV7 => {
+const migrateToV7 = (value: unknown): SaveFileV7 => {
   if (isSaveFileV7(value)) return structuredClone(value);
   const old = migrateToV6(value);
   return { ...old, saveVersion: 7, gameVersion: GAME_VERSION,
     economy: new EconomySystem(undefined, old.gameClock.gameSeconds).save() };
 };
 
-export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean } => {
-  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value);
-  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value);
-  const hasEconomyData = isSaveFileV7(value);
-  let save: SaveFileV7;
+export const migrateSave = (value: unknown): SaveFileV8 => {
+  if (isSaveFileV8(value)) return structuredClone(value);
+  const old = migrateToV7(value);
+  return { ...old, saveVersion: 8, gameVersion: GAME_VERSION,
+    traffic: new TrafficSystem(old.roadGraph, undefined, old.gameClock.gameSeconds).save() };
+};
+
+export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean } => {
+  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value);
+  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value);
+  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value);
+  const hasTrafficData = isSaveFileV8(value);
+  let save: SaveFileV8;
   try {
     save = migrateSave(value);
   } catch {
@@ -215,8 +249,10 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
     buildings: structuredClone(save.buildings),
     population: structuredClone(save.population),
     economy: structuredClone(save.economy),
+    traffic: structuredClone(save.traffic),
     hasLotData,
     hasPopulationData,
     hasEconomyData,
+    hasTrafficData,
   };
 };
