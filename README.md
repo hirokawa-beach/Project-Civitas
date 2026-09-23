@@ -1,5 +1,80 @@
 # Project Civitas — Lots + Buildings (0.8.0)
 
+[English](#english) | [日本語](#日本語)
+
+## English
+
+Project Civitas is an early prototype of a browser-based 3D city-building simulation. It focuses on roads, terrain, zoning, and the first stage of lot and building growth.
+
+The simulation worker owns the authoritative world state. The Preact interface sends commands, and the Babylon.js renderer displays snapshots from the simulation.
+
+### Features
+
+- Draw roads as straight segments, single curves, S-curves, or continuous circular arcs. Road geometry is stored as polylines, independent of the drawing mode. Small Roads have a minimum curve radius of 24 m.
+- Zone road-frontage cells for residential, commercial, industrial, and office use (RCIO). Paint with a brush or a drag-to-select box; zoning edits support undo and redo.
+- Edit a 1024 m × 1024 m heightmap with raise, lower, flatten, and smooth terrain tools. Terrain is stored at 4 m spacing, and edits update in 256 m chunks. New roads with grades above 12% are rejected.
+- Generate deterministic, road-accessible lots from adjacent cells of the same zone. Supported footprints range from 1×1 to 4×4 cells. Buildings progress through Empty, Planned, Constructing, and Occupied states.
+- Save and load the world in the browser with IndexedDB, including terrain, lots, buildings, and construction progress. Save schema v5 migrates saves from versions v1–v4.
+
+### Current scope
+
+This is a prototype. Building assets are placeholder boxes, and population, demand, and economy are not implemented. Traffic, water, bridges, elevated roads, tunnels, and railways are also outside the current scope. Roads follow the terrain surface; cut-and-fill, retaining walls, and automatic grade correction are not implemented.
+
+### Run locally
+
+Requirements: Node.js and npm.
+
+```sh
+npm install
+npm run dev
+```
+
+Production build and unit tests:
+
+```sh
+npm run build
+npm test
+```
+
+To explicitly try WebGL2, add `?renderer=webgl2` to the app URL.
+
+### Controls
+
+- `WASD`: move the camera; `Shift`: move faster
+- Mouse wheel: zoom; middle mouse drag: orbit
+- Left-click: place a road point or confirm a road deletion
+- Right-click: remove the last placed point; if only the start point is set, clear it
+- `Escape`: cancel the current road operation
+- `Ctrl+Z` / `Ctrl+Y`: undo / redo
+- **Straight:** choose a start and end point. After placement, continue from the previous endpoint.
+- **1-Curve:** choose a start point, its outgoing direction, and an endpoint. The direction point is not a required waypoint.
+- **2-Curve:** choose a start point, its outgoing direction, an approach direction, and an endpoint. Useful for S-shaped connections between offset roads.
+- **Continuous:** choose a start point, initial direction, and endpoint. The direction click's distance does not affect the arc. A single arc over 180° is not supported.
+- Switch road modes while continuing from the previous endpoint and tangent.
+- **ZONING:** choose R, C, I, O, or Erase. Brush paints by clicking or dragging; Box selects cells under the dragged rectangle.
+- **TERRAIN:** choose Raise, Lower, Flatten, or Smooth and drag to edit. Moving the pointer without dragging does not change terrain. Right-click or press `Escape` to return to road mode. Size controls brush diameter; Strength controls the edit rate. Flatten moves terrain toward the elevation at the start of the drag.
+- **FLAT / HILLS:** apply a terrain test preset without removing roads or zoning.
+- Zoning drags form one undoable action and share history with road edits.
+- In the **SNAP** palette, toggle node, segment, endpoint extension guide, 15° angle, parallel, perpendicular, and 8 m distance snapping independently.
+- Road previews show width, centerline, tangent guides, angle, distance, and whether the placement is valid.
+
+### Architecture and world scale
+
+- `src/simulation`, `src/worker`: authoritative state, game clock, command history, and snapshots
+- `src/roads`: road graph, curve geometry, validation, snapping, splitting, intersections, and preview spatial index
+- `src/renderer`: Babylon.js terrain, road meshes, previews, debug layer, and camera
+- `src/terrain`: heightmap, interpolation, normals, brush edits, and chunk patches
+- `src/zoning`: road-relative 8 m cell generation, RCIO zones, and hit testing
+- `src/lots`: lot packing, terrain suitability, building definitions, and growth states
+- `src/save`: versioned save data, migrations, and IndexedDB storage
+- `src/ui`: controls and debug HUD; the UI does not modify world state directly
+
+The map is 1024 m square, divided into sixteen 256 m chunks. One world unit equals one metre. A Small Road is 16 m wide, with two opposing lanes and a 40 km/h speed limit; these values are data definitions.
+
+Roadside zoning cells are spaced 8 m apart. Curves use road-width quadrilaterals to reduce overlap. Cells that intersect roads, intersection clearances, or higher-priority cells are excluded. Cell IDs and center alignment remain stable when a road is split.
+
+## 日本語
+
 ブラウザで動作する3D都市開発シミュレーションの第1弾Prototypeです。Simulation Workerが唯一のWorld Stateを所有し、Preact UIはCommandを送り、Babylon.js RendererはSnapshotだけを描画します。
 
 道路施工には直線・1カーブ・2カーブ・連続カーブがあります。1カーブは始終端の接線を使う三次曲線、2カーブは中央で位置と接線を共有する2本の三次曲線、連続カーブは最初に指定した方向と終点から求める円弧で施工します。確定した線形はモードに依存しないPolylineとしてRoad Graphへ保存します。Small Roadの最小曲率半径は24mです。
