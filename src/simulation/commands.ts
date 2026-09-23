@@ -5,6 +5,9 @@ import type { ZoneBrush, ZoneType } from '../zoning/types';
 import type { ChunkDescriptor, TerrainPreset } from '../world/types';
 import { HeightmapTerrain } from '../terrain/heightmap';
 import { exceedsTerrainGrade } from '../roads/validation';
+import { polylineLength } from '../roads/geometry';
+import { getRoadType } from '../roads/roadTypes';
+import type { EconomySystem } from '../economy/system';
 
 export type SimulationCommandData =
   | { type: 'build-road'; input: BuildRoadInput }
@@ -86,14 +89,34 @@ abstract class SnapshotCommand implements SimulationCommand {
 
 export class BuildRoadCommand extends SnapshotCommand {
   readonly label = 'Build road';
-  constructor(private readonly input: BuildRoadInput, assignments?: Map<ZoningCellId, ZoneType>, private readonly terrainHeight?: (x: number, z: number) => number) { super(assignments); }
+  private paidCost = 0;
+  constructor(private readonly input: BuildRoadInput, assignments?: Map<ZoningCellId, ZoneType>,
+    private readonly terrainHeight?: (x: number, z: number) => number,
+    private readonly economy?: EconomySystem, private readonly gameSeconds?: () => number) { super(assignments); }
   protected apply(graph: RoadGraph): SimulationCommandResult {
     const result = graph.buildRoad(this.input);
     if (this.terrainHeight && result.createdSegmentIds.some((id) => {
       const segment = graph.segments.get(id);
       return segment && exceedsTerrainGrade(segment.geometry.points, this.terrainHeight!);
     })) throw new Error('Road grade is too steep for surface placement.');
+    if (this.economy) {
+      const actualLength = result.createdSegmentIds.reduce((sum, id) => sum + polylineLength(graph.segments.get(id)!.geometry.points), 0);
+      const cost = Math.round(actualLength * getRoadType(this.input.roadTypeId).constructionCostPerMeter);
+      this.economy.chargeRoad(cost, this.gameSeconds?.() ?? 0);
+      this.paidCost = cost;
+    }
     return { type: 'build-road', ...result };
+  }
+
+  undo(graph: RoadGraph): void {
+    super.undo(graph);
+    if (this.economy) this.economy.refundRoad(this.paidCost, this.gameSeconds?.() ?? 0);
+  }
+
+  redo(graph: RoadGraph): SimulationCommandResult {
+    const result = super.redo(graph);
+    if (this.economy) this.economy.chargeRoad(this.paidCost, this.gameSeconds?.() ?? 0, true);
+    return result;
   }
 }
 
@@ -246,9 +269,10 @@ export class CommandHistory {
   }
 }
 
-export const commandFromData = (data: SimulationCommandData, assignments: Map<ZoningCellId, ZoneType>, terrainHeight?: (x: number, z: number) => number): SimulationCommand => {
+export const commandFromData = (data: SimulationCommandData, assignments: Map<ZoningCellId, ZoneType>,
+  terrainHeight?: (x: number, z: number) => number, economy?: EconomySystem, gameSeconds?: () => number): SimulationCommand => {
   switch (data.type) {
-    case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight);
+    case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds);
     case 'remove-road': return new RemoveRoadCommand(data.segmentId, assignments);
     case 'set-zone': return new SetZoneCommand(data.cellIds, data.zoneType, assignments);
   }

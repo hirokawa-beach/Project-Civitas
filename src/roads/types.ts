@@ -44,6 +44,8 @@ export interface RoadTypeDefinition {
   minimumCurveRadius: number;
   lanes: ReadonlyArray<{ direction: Lane['direction']; index: number }>;
   zoningAllowed: boolean;
+  constructionCostPerMeter: number;
+  maintenanceCostPerMeter: number;
 }
 
 export interface RoadGraphSnapshot {

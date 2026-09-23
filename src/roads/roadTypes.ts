@@ -12,6 +12,8 @@ export const ROAD_TYPES: Readonly<Record<string, RoadTypeDefinition>> = {
       { direction: 'backward', index: 0 },
     ],
     zoningAllowed: true,
+    constructionCostPerMeter: 20,
+    maintenanceCostPerMeter: 1,
   },
 };
 

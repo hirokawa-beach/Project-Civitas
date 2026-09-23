@@ -27,6 +27,7 @@ import { RoadSpatialIndex } from './spatialIndex';
 import { cellIntersectsScreenRect, pointInZoningCell, screenRect, ZoningCellIndex, type ScreenPoint, type ScreenRect } from '../zoning/interaction';
 import type { LotId } from '../lots/types';
 import type { ZoneBrush, ZoneType } from '../zoning/types';
+import { roadConstructionCost } from '../economy/system';
 
 export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain';
 export type RoadMode = 'straight' | 'one-curve' | 'two-curve' | 'continuous';
@@ -44,6 +45,8 @@ export interface ConstructionStatus {
   roadMode: RoadMode;
   prompt: string;
   length: number;
+  estimatedCost?: number;
+  fundsAfterConstruction?: number;
   valid: boolean;
   snap: ConstructionSnapKind;
   guides: ConstructionGuide[];
@@ -91,6 +94,7 @@ export class ConstructionController {
   private indexedRoadRevision = -1;
   private indexedZoningRevision = -1;
   private indexedTerrainRevision = -1;
+  private indexedEconomyRevision = -1;
   private zoneBrush: ZoneBrush = 'residential';
   private zoneMode: ZonePaintMode = 'brush';
   private zonePainting = false;
@@ -133,6 +137,10 @@ export class ConstructionController {
       this.zoningIndex.rebuild(snapshot.zoningCells);
       this.indexedZoningRevision = snapshot.zoningRevision;
       this.indexedTerrainRevision = snapshot.terrainRevision;
+      changed = true;
+    }
+    if (snapshot.economy.revision !== this.indexedEconomyRevision) {
+      this.indexedEconomyRevision = snapshot.economy.revision;
       changed = true;
     }
     if (changed && this.cursor) this.refreshAt(this.cursor);
@@ -334,7 +342,8 @@ export class ConstructionController {
       && !(this.roadMode === 'continuous' && curve && this.continuousEndTangentMismatch(currentSnap, curve))
       && !(this.roadMode === 'one-curve' && curve
         && !isOneCurveSuitable(this.start, current, curve.startTangent, curve.endTangent, roadType.width * 1.5));
-    if (!validation.valid || !modeValid) return;
+    const cost = roadConstructionCost(points, roadType.id);
+    if (!validation.valid || !modeValid || (this.snapshot && this.snapshot.economy.funds < cost)) return;
     void this.commitRoad(points, current, currentSnap);
   };
 
@@ -530,6 +539,9 @@ export class ConstructionController {
     const nearbyGraph = this.nearbyGraph(points, 24);
     const intersections = this.findIntersections(points, nearbyGraph.segments);
     const roadType = getRoadType('small');
+    const estimatedCost = roadConstructionCost(points, roadType.id);
+    const fundsAfterConstruction = (this.snapshot?.economy.funds ?? 0) - estimatedCost;
+    const affordable = !this.snapshot || fundsAfterConstruction >= 0;
     const validation = validateRoadCandidate(nearbyGraph, points, {
       candidateWidth: roadType.width,
       minimumCurveRadius: curve ? roadType.minimumCurveRadius : 0,
@@ -543,7 +555,7 @@ export class ConstructionController {
     const continuousTangentMismatch = this.roadMode === 'continuous' && curve
       ? this.continuousEndTangentMismatch(snap, curve)
       : false;
-    const valid = validation.valid && !oneCurveUnsuitable && !exceedsHalfTurn && !continuousTangentMismatch;
+    const valid = validation.valid && !oneCurveUnsuitable && !exceedsHalfTurn && !continuousTangentMismatch && affordable;
     const guides = [...snap.guides];
     if (curve) {
       guides.push({
@@ -605,8 +617,12 @@ export class ConstructionController {
               ? 'Cannot build · split arcs beyond 180°'
               : continuousTangentMismatch
                 ? 'Cannot join smoothly · adjust endpoint or use 2-CURVE'
+              : !affordable
+                ? 'Cannot build · Not enough funds'
               : `Cannot build · ${this.validationMessage(validation.reasons[0])}`,
       length,
+      estimatedCost,
+      fundsAfterConstruction,
       valid,
       snap: snap.type,
       guides,

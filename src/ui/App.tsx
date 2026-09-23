@@ -30,6 +30,7 @@ const formatClock = (seconds: number): string => {
   const minutes = Math.floor((time % 3600) / 60).toString().padStart(2, '0');
   return `DAY ${day} · ${hours}:${minutes}`;
 };
+const money = (amount: number): string => amount.toLocaleString();
 
 const toolLabel = (status: ConstructionStatus): string => {
   if (status.tool === 'demolish') return 'DEMOLISH';
@@ -123,7 +124,7 @@ export function App({ runtime, simulation }: AppProps) {
       <header class="topbar panel">
         <div class="identity">
           <span class="identity-mark" aria-hidden="true">C</span>
-          <div><strong>PROJECT CIVITAS</strong><small>POPULATION + DEMAND / PROTOTYPE</small></div>
+          <div><strong>PROJECT CIVITAS</strong><small>BASIC CITY ECONOMY / PROTOTYPE</small></div>
         </div>
         <div class="clock-block">
           <span>{clock}</span>
@@ -163,6 +164,22 @@ export function App({ runtime, simulation }: AppProps) {
         </div>
       </aside>}
 
+      {snapshot && <aside class="economy-panel panel" aria-label="City economy">
+        <div class="panel-title">CITY FINANCE</div>
+        <div class="economy-funds"><span>CURRENT FUNDS</span><strong class={snapshot.economy.funds < 0 ? 'negative' : ''}>{money(snapshot.economy.funds)}</strong></div>
+        <div class="economy-summary">
+          <span>LAST INCOME <b>+{money(snapshot.economy.lastCycleIncome)}</b></span>
+          <span>LAST EXPENSES <b>−{money(snapshot.economy.lastCycleExpenses)}</b></span>
+          <span>LAST NET <b class={snapshot.economy.lastCycleNet < 0 ? 'negative' : ''}>{snapshot.economy.lastCycleNet >= 0 ? '+' : ''}{money(snapshot.economy.lastCycleNet)}</b></span>
+        </div>
+        <details class="economy-details">
+          <summary>LAST CYCLE BREAKDOWN</summary>
+          {(['residential', 'commercial', 'industrial', 'office'] as ZoneType[]).map((zone) =>
+            <div><span>{zone.toUpperCase()} TAX</span><b>{money(snapshot.economy.lastCycleTaxes[zone])}</b></div>)}
+          <div><span>ROAD MAINTENANCE</span><b>−{money(snapshot.economy.lastCycleRoadMaintenance)}</b></div>
+        </details>
+      </aside>}
+
       {debugVisible && snapshot && (
         <aside class="debug-panel panel">
           <div class="panel-title"><span>LIVE SYSTEMS</span><i /></div>
@@ -193,6 +210,13 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>POP / HOUSEHOLDS</dt><dd>{snapshot.population.totals.population} / {snapshot.population.totals.households}</dd>
             <dt>EMPLOYED / UNEMP.</dt><dd>{snapshot.population.totals.employed} / {snapshot.population.totals.unemployed}</dd>
             <dt>JOBS OPEN</dt><dd>{snapshot.population.totals.availableJobs}</dd>
+            <dt>FUNDS / NET</dt><dd>{money(snapshot.economy.funds)} / {money(snapshot.economy.lastCycleNet)}</dd>
+            <dt>INCOME / EXPENSE</dt><dd>{money(snapshot.economy.totalIncome)} / {money(snapshot.economy.totalExpenses)}</dd>
+            <dt>ECONOMY CYCLE</dt><dd>{snapshot.economy.lastEconomyTickGameSeconds} → {snapshot.economy.nextCycleAtGameSeconds}s</dd>
+            {snapshot.economy.transactions.slice(-5).reverse().map((transaction) => <>
+              <dt title={`${transaction.kind} at ${transaction.gameSeconds}s`}>{transaction.kind.replaceAll('_', ' ')}</dt>
+              <dd>{transaction.amount >= 0 ? '+' : ''}{money(transaction.amount)}</dd>
+            </>)}
             {(['residential', 'commercial', 'industrial', 'office'] as ZoneType[]).map((zone) => <>
               <dt>{zone.slice(0, 1).toUpperCase()} DEMAND</dt><dd title={Object.entries(snapshot.population.demand.factors[zone]).map(([key, points]) => `${key} ${points.toFixed(1)}`).join(', ')}>{snapshot.population.demand.values[zone]} / 100</dd>
             </>)}
@@ -225,6 +249,8 @@ export function App({ runtime, simulation }: AppProps) {
         {construction?.tool === 'road' && construction.length > 0 && (
           <div class="readout-data">
             <span>{construction.length.toFixed(1)} m</span>
+            {construction.estimatedCost !== undefined && <span>COST {money(construction.estimatedCost)}</span>}
+            {construction.fundsAfterConstruction !== undefined && <span>AFTER {money(construction.fundsAfterConstruction)}</span>}
             {construction.roadMode !== 'straight' && construction.curveRadius > 0 && (
               <span>R MIN {construction.curveRadius.toFixed(1)} m</span>
             )}
