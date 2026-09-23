@@ -6,8 +6,10 @@ import { closestPointOnPolyline } from '../roads/geometry';
 import { buildingDefinition, definitionForLot } from './definitions';
 import { generateLots } from './generator';
 import type { Building, BuildingGrowthState, Lot, LotId } from './types';
+import type { ZoneType } from '../zoning/types';
 
 const LOCAL_HALO = 40;
+export const MIN_GROWTH_DEMAND = 25;
 const DURATION: Record<Exclude<BuildingGrowthState, 'Occupied'>, number> = {
   Empty: 10, Planned: 20, Constructing: 40,
 };
@@ -128,7 +130,7 @@ export class LotSystem {
     }
   }
 
-  advance(now: number): boolean {
+  advance(now: number, demand?: Readonly<Record<ZoneType, number>>): boolean {
     if (now < this.nextDue) return false;
     const changed: Building[] = [];
     for (const building of this.buildingsById.values()) {
@@ -136,6 +138,10 @@ export class LotSystem {
       while (building.nextTransitionAt !== null && building.nextTransitionAt <= now) {
         const current = building.state;
         if (current === 'Occupied') break;
+        if (current === 'Empty' && demand && (demand[buildingDefinition(building.definitionId)!.zoneType] ?? 0) < MIN_GROWTH_DEMAND) {
+          building.nextTransitionAt = now + DURATION.Empty;
+          break;
+        }
         building.state = nextState[current];
         building.stateEnteredAt = building.nextTransitionAt;
         building.nextTransitionAt = building.state === 'Occupied' ? null : building.stateEnteredAt + DURATION[building.state];

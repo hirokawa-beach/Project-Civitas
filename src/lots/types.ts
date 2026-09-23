@@ -43,6 +43,9 @@ export interface BuildingDefinition {
   height: number;
   assetPath: string | null;
   level: number;
+  householdsPerCell: number;
+  jobsPerCell: number;
+  commercialCapacityPerCell: number;
 }
 
 export interface Building {

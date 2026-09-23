@@ -123,7 +123,7 @@ export function App({ runtime, simulation }: AppProps) {
       <header class="topbar panel">
         <div class="identity">
           <span class="identity-mark" aria-hidden="true">C</span>
-          <div><strong>PROJECT CIVITAS</strong><small>LOTS + BUILDINGS / PROTOTYPE</small></div>
+          <div><strong>PROJECT CIVITAS</strong><small>POPULATION + DEMAND / PROTOTYPE</small></div>
         </div>
         <div class="clock-block">
           <span>{clock}</span>
@@ -140,6 +140,28 @@ export function App({ runtime, simulation }: AppProps) {
           <button onClick={load}>LOAD</button>
         </div>
       </header>
+
+      {snapshot && <aside class="city-stats panel" aria-label="Population and RCIO demand">
+        <div class="panel-title">CITY LIFE</div>
+        <div class="city-totals">
+          <div><strong>{snapshot.population.totals.population.toLocaleString()}</strong><span>POPULATION</span></div>
+          <div><strong>{snapshot.population.totals.households.toLocaleString()}</strong><span>HOUSEHOLDS</span></div>
+          <div><strong>{snapshot.population.totals.employed.toLocaleString()}</strong><span>EMPLOYED</span></div>
+          <div><strong>{snapshot.population.totals.unemployed.toLocaleString()}</strong><span>UNEMPLOYED</span></div>
+        </div>
+        <div class="city-jobs">AVAILABLE JOBS <strong>{snapshot.population.totals.availableJobs.toLocaleString()}</strong></div>
+        <div class="demand-list">
+          {(['residential', 'commercial', 'industrial', 'office'] as ZoneType[]).map((zone) => {
+            const value = snapshot.population.demand.values[zone];
+            const factors = snapshot.population.demand.factors[zone];
+            return <div class="demand-row" title={Object.entries(factors).map(([key, points]) => `${key}: ${points >= 0 ? '+' : ''}${points.toFixed(1)}`).join(' · ')}>
+              <span>{zone.slice(0, 1).toUpperCase()}</span>
+              <div class={`demand-track demand-${zone}`}><i style={{ width: `${value}%` }} /></div>
+              <b>{value}</b>
+            </div>;
+          })}
+        </div>
+      </aside>}
 
       {debugVisible && snapshot && (
         <aside class="debug-panel panel">
@@ -168,15 +190,28 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>R / C / I / O</dt><dd>{zoneCounts.residential} / {zoneCounts.commercial} / {zoneCounts.industrial} / {zoneCounts.office}</dd>
             <dt>ZONE CHUNKS</dt><dd>{snapshot.zoningUpdatedChunkIds?.length ?? 0}</dd>
             <dt>LOTS / BUILDINGS</dt><dd>{snapshot.lots.length} / {snapshot.buildings.length}</dd>
+            <dt>POP / HOUSEHOLDS</dt><dd>{snapshot.population.totals.population} / {snapshot.population.totals.households}</dd>
+            <dt>EMPLOYED / UNEMP.</dt><dd>{snapshot.population.totals.employed} / {snapshot.population.totals.unemployed}</dd>
+            <dt>JOBS OPEN</dt><dd>{snapshot.population.totals.availableJobs}</dd>
+            {(['residential', 'commercial', 'industrial', 'office'] as ZoneType[]).map((zone) => <>
+              <dt>{zone.slice(0, 1).toUpperCase()} DEMAND</dt><dd title={Object.entries(snapshot.population.demand.factors[zone]).map(([key, points]) => `${key} ${points.toFixed(1)}`).join(', ')}>{snapshot.population.demand.values[zone]} / 100</dd>
+            </>)}
             <dt>LOT CELLS RECHECKED</dt><dd>{snapshot.lotReevaluatedCells}</dd>
             {(() => {
               const lot = snapshot.lots.find((candidate) => candidate.id === construction?.hoveredLotId);
               const building = snapshot.buildings.find((candidate) => candidate.id === lot?.buildingId);
+              const occupancy = snapshot.population.occupancies.find((candidate) => candidate.buildingId === building?.id);
               return lot ? <>
                 <dt>LOT ID</dt><dd title={lot.id}>{lot.id.slice(0, 22)}…</dd>
                 <dt>LOT SIZE / ACCESS</dt><dd>{lot.widthCells}×{lot.depthCells} / {lot.roadAccess.roadSegmentId}</dd>
                 <dt>SLOPE / BASE</dt><dd>{(lot.slope * 100).toFixed(0)}% / {lot.baseElevation.toFixed(1)} m</dd>
                 <dt>BUILDING ID / STATE</dt><dd title={building?.id}>{building ? `${building.id.slice(0, 18)}… / ${building.state}` : 'Unbuildable'}</dd>
+                {occupancy && <>
+                  <dt>BUILDING POP</dt><dd>{occupancy.currentPopulation} / {occupancy.populationCapacity}</dd>
+                  <dt>HOUSEHOLDS</dt><dd>{occupancy.currentHouseholds} / {occupancy.householdCapacity}</dd>
+                  <dt>JOBS FILLED / OPEN</dt><dd>{occupancy.filledJobs} / {occupancy.availableJobs}</dd>
+                  <dt>JOB CAPACITY</dt><dd>{occupancy.totalJobs}</dd>
+                </>}
               </> : null;
             })()}
             <dt>PREVIEW SCAN</dt><dd>{construction?.candidateSegments ?? 0} / {(construction?.analysisMs ?? 0).toFixed(2)} ms</dd>

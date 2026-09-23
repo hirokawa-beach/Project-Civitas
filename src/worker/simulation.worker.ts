@@ -7,6 +7,7 @@ const simulation = new SimulationState();
 const pending: UIToWorkerMessage[] = [];
 let initialized = false;
 let previousTime = performance.now();
+let sentPopulationRevision = -1;
 
 const post = (message: WorkerToUIMessage): void => workerScope.postMessage(message);
 const notify = (message: string, level: 'info' | 'error' = 'info'): void => post({ type: 'notification', message, level });
@@ -88,6 +89,7 @@ setInterval(() => {
     if (initialized) {
       if (needsFullSnapshot) {
         post({ type: 'snapshot', snapshot: simulation.snapshot(includeTerrainHeightmap || needsTerrainUpdate) });
+        sentPopulationRevision = simulation.population.revision;
         simulation.consumeTerrainUpdate();
         simulation.lots.takeDelta();
       } else {
@@ -99,6 +101,10 @@ setInterval(() => {
             buildingUpdates: update.buildingUpdates, removedBuildingIds: update.removedBuildingIds,
             lotReevaluatedCells: update.lotReevaluatedCells,
             terrainEditMs: update.terrainEditMs, messageBytes: update.messageBytes });
+        }
+        if (simulation.population.revision !== sentPopulationRevision) {
+          post({ type: 'population-update', population: simulation.populationUpdate() });
+          sentPopulationRevision = simulation.population.revision;
         }
         post({ type: 'clock-update', ...simulation.clockUpdate() });
       }
