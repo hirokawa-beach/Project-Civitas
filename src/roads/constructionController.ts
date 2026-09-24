@@ -28,8 +28,10 @@ import { cellIntersectsScreenRect, pointInZoningCell, screenRect, ZoningCellInde
 import type { LotId } from '../lots/types';
 import type { ZoneBrush, ZoneType } from '../zoning/types';
 import { roadConstructionCost } from '../economy/system';
+import type { ServiceType } from '../services/types';
+import { SERVICE_DEFINITIONS, planServicePlacement } from '../services/system';
 
-export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain';
+export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain' | 'service';
 export type RoadMode = 'straight' | 'one-curve' | 'two-curve' | 'continuous';
 export type ZonePaintMode = 'brush' | 'box';
 
@@ -68,6 +70,7 @@ export interface ConstructionStatus {
   terrainHeight?: number;
   terrainNormal?: { x: number; y: number; z: number };
   hoveredLotId?: LotId;
+  serviceType?: ServiceType;
 }
 
 const DEFAULT_STATUS: ConstructionStatus = {
@@ -78,6 +81,8 @@ export class ConstructionController {
   private tool: ActiveTool = 'road';
   private roadMode: RoadMode = 'straight';
   private snapshot?: WorldSnapshot;
+  private indexedServiceRevision = -1;
+  private indexedLotRevision = -1;
   private start?: Vec2;
   private startIntent?: RoadEndpointIntent;
   private controlPoints: Vec2[] = [];
@@ -106,6 +111,7 @@ export class ConstructionController {
   private terrainMode: TerrainBrushMode = 'raise';
   private terrainSize = 48;
   private terrainStrength = 12;
+  private serviceType: ServiceType = 'electricity';
   private terrainPointerId?: number;
   private lastTerrainPoint?: Vec2;
   private lastTerrainTime = 0;
@@ -143,6 +149,11 @@ export class ConstructionController {
       this.indexedEconomyRevision = snapshot.economy.revision;
       changed = true;
     }
+    if (snapshot.services.revision !== this.indexedServiceRevision || snapshot.lotRevision !== this.indexedLotRevision) {
+      this.indexedServiceRevision = snapshot.services.revision;
+      this.indexedLotRevision = snapshot.lotRevision;
+      changed = true;
+    }
     if (changed && this.cursor) this.refreshAt(this.cursor);
   }
 
@@ -158,8 +169,15 @@ export class ConstructionController {
       terrainMode: this.terrainMode,
       terrainSize: this.terrainSize,
       terrainStrength: this.terrainStrength,
-      prompt: tool === 'road' ? 'Click to set a starting point' : tool === 'zone' ? this.zonePrompt() : tool === 'terrain' ? 'Drag to sculpt terrain' : 'Hover a road and click to demolish',
+      serviceType: this.serviceType,
+      prompt: tool === 'road' ? 'Click to set a starting point' : tool === 'zone' ? this.zonePrompt() : tool === 'terrain' ? 'Drag to sculpt terrain' : tool === 'service' ? 'Choose an empty lot location beside a road' : 'Hover a road and click to demolish',
     });
+  }
+
+  setServiceType(type: ServiceType): void {
+    this.serviceType = type;
+    this.setTool('service');
+    if (this.cursor) this.refreshAt(this.cursor);
   }
 
   setTerrainMode(mode: TerrainBrushMode): void {
@@ -205,6 +223,7 @@ export class ConstructionController {
     this.controlPoints = [];
     this.stickySnap = undefined;
     this.renderer.setPreview(undefined);
+    this.renderer.setServicePreview();
     if (this.cursor) this.refreshAt(this.cursor);
     else this.emit({ ...DEFAULT_STATUS, tool: 'road', roadMode: mode, prompt: this.start ? 'Move to continue construction' : 'Click to set a starting point' });
   }
@@ -229,12 +248,16 @@ export class ConstructionController {
     this.tangentHint = undefined;
     this.stickySnap = undefined;
     this.renderer.setPreview(undefined);
+    this.renderer.setServicePreview();
     this.clearZoneInteraction();
     this.clearTerrainInteraction(true);
     this.renderer.setTerrainBrushPreview();
     this.renderer.setHoveredSegment(undefined);
     this.hoveredSegmentId = undefined;
-    this.emit({ ...DEFAULT_STATUS, tool: this.tool, roadMode: this.roadMode, zoneBrush: this.zoneBrush, zoneMode: this.zoneMode, prompt: this.tool === 'road' ? 'Click to set a starting point' : this.tool === 'zone' ? this.zonePrompt() : this.tool === 'terrain' ? 'Drag to sculpt terrain' : 'Hover a road and click to demolish' });
+    this.emit({ ...DEFAULT_STATUS, tool: this.tool, roadMode: this.roadMode, zoneBrush: this.zoneBrush, zoneMode: this.zoneMode,
+      serviceType: this.serviceType, prompt: this.tool === 'road' ? 'Click to set a starting point' : this.tool === 'zone'
+        ? this.zonePrompt() : this.tool === 'terrain' ? 'Drag to sculpt terrain' : this.tool === 'service'
+          ? 'Choose an empty lot location beside a road' : 'Hover a road and click to demolish' });
   }
 
   dispose(): void {
@@ -291,6 +314,14 @@ export class ConstructionController {
       return;
     }
     if (!this.cursor) return;
+    if (this.tool === 'service') {
+      if (picked) this.refreshAt(picked);
+      if (!this.status.valid) return;
+      this.commandPending = true;
+      void this.simulation.execute({ type: 'place-service', serviceType: this.serviceType, position: { ...this.cursor } })
+        .finally(() => { this.commandPending = false; if (this.cursor) this.refreshAt(this.cursor); });
+      return;
+    }
     if (this.tool === 'zone') {
       this.zonePainting = true;
       this.zonePointerId = event.pointerId;
@@ -384,7 +415,7 @@ export class ConstructionController {
 
   private readonly onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
-    if (this.tool === 'terrain') {
+    if (this.tool === 'terrain' || this.tool === 'service') {
       this.setTool('road');
       return;
     }
@@ -399,7 +430,7 @@ export class ConstructionController {
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.code === 'Escape') {
-      if (this.tool === 'terrain') this.setTool('road');
+      if (this.tool === 'terrain' || this.tool === 'service') this.setTool('road');
       else this.cancel();
     }
     if (event.ctrlKey && event.code === 'KeyZ') {
@@ -416,6 +447,17 @@ export class ConstructionController {
 
   private refreshAt(rawPoint: Vec2): void {
     const analysisStarted = performance.now();
+    if (this.tool === 'service') {
+      const plan = this.snapshot ? planServicePlacement(this.serviceType, rawPoint, this.snapshot.roadGraph,
+        this.snapshot.lots, this.snapshot.zoningCells, this.snapshot.services.facilities,
+        (x, z) => this.renderer.getHeight(x, z)) : { facility: undefined, valid: false, reason: 'World is loading.' };
+      this.renderer.setHoveredSegment(undefined);
+      this.renderer.setServicePreview(plan.facility, plan.valid);
+      this.emit({ ...DEFAULT_STATUS, tool: 'service', roadMode: this.roadMode, serviceType: this.serviceType,
+        prompt: plan.valid ? `Click to place ${SERVICE_DEFINITIONS[this.serviceType].buildingName} on this lot` : (plan.reason ?? 'Invalid lot'),
+        valid: plan.valid, analysisMs: performance.now() - analysisStarted });
+      return;
+    }
     if (this.tool === 'terrain') {
       this.renderer.setTerrainBrushPreview(rawPoint, this.terrainSize);
       this.emit({ ...DEFAULT_STATUS, tool: 'terrain', roadMode: this.roadMode, prompt: this.terrainPointerId === undefined ? 'Drag to sculpt terrain' : 'Sculpting terrain',

@@ -34,12 +34,18 @@ import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../z
 import type { ScreenPoint } from '../zoning/interaction';
 import { selectVisibleVehicles } from '../traffic/visibleVehicles';
 import { VehicleMotion, type VehiclePose } from '../traffic/vehicleMotion';
+import type { ServiceFacility, ServiceType } from '../services/types';
+import { SERVICE_DEFINITIONS } from '../services/system';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
   residential: '#67bd78',
   commercial: '#5b99e8',
   industrial: '#e7ae54',
   office: '#a77acf',
+};
+const SERVICE_COLORS: Record<ServiceType, string> = {
+  electricity: '#f5d35e', water: '#56b6df', garbage: '#879b65', fire: '#e76d5c',
+  police: '#627ed5', healthcare: '#e9a0aa', education: '#bb9ee5', parks: '#5fd393',
 };
 
 export interface RoadPreviewVisual {
@@ -98,10 +104,15 @@ export class GameRenderer {
   private readonly buildingMeshes = new Map<BuildingId, Mesh[]>();
   private readonly buildingSignatures = new Map<BuildingId, string>();
   private readonly buildingMaterials = {} as Record<ZoneType | 'planned' | 'constructing' | 'foundation', StandardMaterial>;
+  private readonly serviceMaterials = {} as Record<ServiceType, StandardMaterial>;
+  private readonly serviceMeshes = new Map<string, Mesh[]>();
+  private readonly serviceSignatures = new Map<string, string>();
+  private appliedServiceRevision = -1;
   private appliedLotRevision = -1;
   private readonly lotDebugMeshes = new Map<ChunkDescriptor['id'], LinesMesh[]>();
   private readonly lotDebugSignatures = new Map<ChunkDescriptor['id'], string>();
   private zonePreviewMesh?: Mesh;
+  private servicePreviewMesh?: Mesh;
   private previewMesh?: Mesh;
   private previewCenterlineMesh?: LinesMesh;
   private previewEdgeMesh?: LinesMesh;
@@ -244,7 +255,8 @@ export class GameRenderer {
     const zoningChanged = snapshot.zoningRevision !== this.appliedZoningRevision;
     const lotChanged = snapshot.lotRevision !== this.appliedLotRevision;
     const trafficChanged = snapshot.traffic.revision !== this.appliedTrafficRevision;
-    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged) return;
+    const serviceChanged = snapshot.services.revision !== this.appliedServiceRevision;
+    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged && !serviceChanged) return;
     const affectedRoadIds = terrainChanged && !roadChanged ? this.invalidateRoadsInChunks(terrainChunks) : [];
     if (roadChanged) {
       this.appliedRoadRevision = snapshot.roadRevision;
@@ -266,6 +278,10 @@ export class GameRenderer {
       this.syncBuildings(snapshot.lots, snapshot.buildings);
       this.appliedLotRevision = snapshot.lotRevision;
     }
+    if (serviceChanged || terrainChanged) {
+      this.syncServices(snapshot);
+      this.appliedServiceRevision = snapshot.services.revision;
+    }
     if (this.debugVisible) {
       if (roadChanged || zoningChanged) this.rebuildDebugGeometry();
       else if (terrainChanged) {
@@ -278,6 +294,71 @@ export class GameRenderer {
   }
 
   getHeight(x: number, z: number): number { return this.terrain?.getHeight(x, z) ?? 0; }
+
+  private syncServices(snapshot: WorldSnapshot): void {
+    const active = new Set(snapshot.services.facilities.map((facility) => facility.id));
+    for (const [id, meshes] of this.serviceMeshes) if (!active.has(id)) {
+      for (const mesh of meshes) mesh.dispose();
+      this.serviceMeshes.delete(id);
+      this.serviceSignatures.delete(id);
+    }
+    for (const facility of snapshot.services.facilities) {
+      const signature = JSON.stringify([facility.type, facility.position, facility.lot]);
+      if (this.serviceSignatures.get(facility.id) === signature) continue;
+      for (const mesh of this.serviceMeshes.get(facility.id) ?? []) mesh.dispose();
+      if (!this.serviceMaterials[facility.type]) {
+        const material = new StandardMaterial(`service-${facility.type}`, this.scene);
+        material.diffuseColor = Color3.FromHexString(SERVICE_COLORS[facility.type]);
+        material.specularColor = Color3.Black();
+        this.serviceMaterials[facility.type] = material;
+      }
+      const definition = SERVICE_DEFINITIONS[facility.type];
+      const { width, depth, rotation, baseElevation } = facility.lot;
+      const meshes: Mesh[] = [];
+      const addBox = (name: string, w: number, d: number, h: number, lx: number, lz: number, bottom: number,
+        material: StandardMaterial): void => {
+        const mesh = CreateBox(`${name}-${facility.id}`, { width: w, depth: d, height: h }, this.scene);
+        const cosine = Math.cos(rotation); const sine = Math.sin(rotation);
+        mesh.position.set(facility.position.x + lx * cosine - lz * sine, bottom + h / 2,
+          facility.position.z + lx * sine + lz * cosine);
+        mesh.rotation.y = -rotation;
+        mesh.material = material;
+        mesh.isPickable = false;
+        meshes.push(mesh);
+      };
+      const foundationHeight = Math.max(0.5, baseElevation - this.getHeight(facility.position.x, facility.position.z) + 0.5);
+      addBox('service-lot', width, depth, foundationHeight, 0, 0,
+        baseElevation + 0.1 - foundationHeight, this.buildingMaterials.foundation);
+      if (facility.type === 'parks') {
+        addBox('park-ground', width - 2, depth - 2, 0.3, 0, 0, baseElevation + 0.1, this.serviceMaterials.parks);
+        for (const [index, lx, lz] of [[0, -8, -8], [1, 8, -8], [2, -8, 8], [3, 8, 8]]) {
+          const cosine = Math.cos(rotation); const sine = Math.sin(rotation);
+          const tree = CreateSphere(`park-tree-${facility.id}-${index}`, { diameter: 4.5, segments: 8 }, this.scene);
+          tree.position.set(facility.position.x + lx * cosine - lz * sine, baseElevation + 3.2,
+            facility.position.z + lx * sine + lz * cosine);
+          tree.material = this.serviceMaterials.parks;
+          tree.isPickable = false;
+          meshes.push(tree);
+        }
+      } else {
+        addBox('service-building', width - 3, depth - 3, definition.height, 0, 0,
+          baseElevation + 0.2, this.serviceMaterials[facility.type]);
+        addBox('service-roof', width - 2, depth - 2, 0.8, 0, 0,
+          baseElevation + 0.2 + definition.height, this.buildingMaterials.foundation);
+        if (facility.type === 'electricity') addBox('power-stack', 3, 3, 8, width / 4, 0,
+          baseElevation + 0.2 + definition.height, this.buildingMaterials.foundation);
+        if (facility.type === 'water') {
+          const tank = CreateCylinder(`water-tank-${facility.id}`, { diameter: 7, height: 4, tessellation: 20 }, this.scene);
+          tank.position.set(facility.position.x, baseElevation + definition.height + 2.2, facility.position.z);
+          tank.material = this.serviceMaterials.water;
+          tank.isPickable = false;
+          meshes.push(tank);
+        }
+      }
+      this.serviceMeshes.set(facility.id, meshes);
+      this.serviceSignatures.set(facility.id, signature);
+    }
+  }
   getNormal(x: number, z: number): { x: number; y: number; z: number } { return this.terrain?.getNormal(x, z) ?? { x: 0, y: 1, z: 0 }; }
   getTerrainMeshUpdateMs(): number { return this.terrainMeshUpdateMs; }
   getTerrainUpdateFrameMs(): number { return this.terrainUpdateFrameMs; }
@@ -422,6 +503,19 @@ export class GameRenderer {
     this.zonePreviewMesh?.dispose();
     this.zonePreviewMesh = this.createZoneMesh('zoning-brush-preview', cells, 0.42);
     if (this.zonePreviewMesh) this.zonePreviewMesh.material = this.zonePreviewMaterials[brush ?? 'erase'];
+  }
+
+  setServicePreview(facility?: ServiceFacility, valid = false): void {
+    this.servicePreviewMesh?.dispose();
+    this.servicePreviewMesh = undefined;
+    if (!facility) return;
+    const { width, depth, rotation, baseElevation } = facility.lot;
+    const mesh = CreateBox('service-lot-preview', { width, depth, height: 0.5 }, this.scene);
+    mesh.position.set(facility.position.x, baseElevation + 0.4, facility.position.z);
+    mesh.rotation.y = -rotation;
+    mesh.material = valid ? this.previewValidMaterial : this.previewInvalidMaterial;
+    mesh.isPickable = false;
+    this.servicePreviewMesh = mesh;
   }
 
   private makeZoneMaterial(name: string, hex: string, alpha: number): StandardMaterial {

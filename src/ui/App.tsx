@@ -9,6 +9,8 @@ import type { WorldSnapshot } from '../shared/protocol';
 import type { GameSpeed } from '../simulation/gameClock';
 import type { ZoneBrush, ZoneType } from '../zoning/types';
 import type { TerrainBrushMode } from '../world/types';
+import { SERVICE_TYPES } from '../services/types';
+import { SERVICE_DEFINITIONS } from '../services/system';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -37,6 +39,7 @@ const toolLabel = (status: ConstructionStatus): string => {
   if (status.tool === 'demolish') return 'DEMOLISH';
   if (status.tool === 'zone') return `${status.zoneBrush ? status.zoneBrush.toUpperCase() : 'ERASE'} ZONING`;
   if (status.tool === 'terrain') return `${(status.terrainMode ?? 'raise').toUpperCase()} TERRAIN`;
+  if (status.tool === 'service') return SERVICE_DEFINITIONS[status.serviceType ?? 'electricity'].buildingName.toUpperCase();
   switch (status.roadMode) {
     case 'straight': return 'STRAIGHT ROAD';
     case 'one-curve': return '1-CURVE ROAD';
@@ -127,7 +130,7 @@ export function App({ runtime, simulation }: AppProps) {
       <header class="topbar panel">
         <div class="identity">
           <span class="identity-mark" aria-hidden="true">C</span>
-          <div><strong>PROJECT CIVITAS</strong><small>ROAD TRAFFIC / PROTOTYPE</small></div>
+          <div><strong>PROJECT CIVITAS</strong><small>CITY SERVICES / PROTOTYPE</small></div>
         </div>
         <div class="clock-block">
           <span>{clock}</span>
@@ -180,7 +183,22 @@ export function App({ runtime, simulation }: AppProps) {
           {(['residential', 'commercial', 'industrial', 'office'] as ZoneType[]).map((zone) =>
             <div><span>{zone.toUpperCase()} TAX</span><b>{money(snapshot.economy.lastCycleTaxes[zone])}</b></div>)}
           <div><span>ROAD MAINTENANCE</span><b>−{money(snapshot.economy.lastCycleRoadMaintenance)}</b></div>
+          <div><span>SERVICE MAINTENANCE</span><b>−{money(snapshot.economy.lastCycleServiceMaintenance)}</b></div>
         </details>
+      </aside>}
+
+      {snapshot && <aside class="services-panel panel" aria-label="City services">
+        <div class="panel-title">CITY SERVICES <span>{snapshot.services.facilities.length} FACILITIES</span></div>
+        <div class="service-metrics">{SERVICE_TYPES.map((type) => {
+          const metric = snapshot.services.coverage[type];
+          return <div class="service-row" title={`${metric.supplied}/${metric.demand} demand, ${metric.capacity} capacity, ${metric.activeFacilities}/${metric.facilities} road-connected facilities`}>
+            <span>{SERVICE_DEFINITIONS[type].label.toUpperCase()}</span><i><em style={{ width: `${metric.percent}%` }} /></i><b>{metric.percent}%</b>
+          </div>;
+        })}</div>
+        <div class="service-maintenance">MAINTENANCE / CYCLE <b>−{money(snapshot.services.maintenancePerCycle)}</b></div>
+        {construction?.tool === 'service' && snapshot.services.facilities.length > 0 && <details class="service-list"><summary>MANAGE FACILITIES</summary>
+          {snapshot.services.facilities.map((facility) => <div><span>{SERVICE_DEFINITIONS[facility.type].buildingName} · {facility.id}</span><button title={`Remove ${facility.id}`} onClick={() => void simulation.execute({ type: 'remove-service', facilityId: facility.id })}>REMOVE</button></div>)}
+        </details>}
       </aside>}
 
       {snapshot && <aside class="traffic-panel panel" aria-label="Road traffic">
@@ -232,6 +250,11 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>AVG SPEED / JAM</dt><dd>{snapshot.traffic.averageRoadSpeed.toFixed(1)} km/h / {snapshot.traffic.congestedSegmentCount}</dd>
             <dt>OUTSIDE LINKS</dt><dd>{snapshot.traffic.outsideConnections.length}</dd>
             <dt>ECONOMY CYCLE</dt><dd>{snapshot.economy.lastEconomyTickGameSeconds} → {snapshot.economy.nextCycleAtGameSeconds}s</dd>
+            <dt>SERVICE COST</dt><dd>{money(snapshot.services.maintenancePerCycle)} / cycle</dd>
+            <dt>SERVICE LOTS / BUILDINGS</dt><dd>{snapshot.services.facilities.length} / {snapshot.services.facilities.length}</dd>
+            {SERVICE_TYPES.map((type) => <>
+              <dt>{type.toUpperCase()}</dt><dd>{snapshot.services.coverage[type].supplied} / {snapshot.services.coverage[type].demand} demand · {snapshot.services.coverage[type].capacity} capacity</dd>
+            </>)}
             {snapshot.economy.transactions.slice(-5).reverse().map((transaction) => <>
               <dt title={`${transaction.kind} at ${transaction.gameSeconds}s`}>{transaction.kind.replaceAll('_', ' ')}</dt>
               <dd>{transaction.amount >= 0 ? '+' : ''}{money(transaction.amount)}</dd>
@@ -262,7 +285,7 @@ export function App({ runtime, simulation }: AppProps) {
         </aside>
       )}
 
-      <div class={`construction-readout panel ${construction?.valid ? 'is-valid' : ''}`}>
+      <div class={`construction-readout panel ${construction?.valid ? 'is-valid' : ''} ${construction?.tool === 'service' ? 'service-mode' : ''}`}>
         <div class="mode-tag">{construction ? toolLabel(construction) : 'CONNECTING'}</div>
         <strong>{construction?.prompt ?? 'Starting simulation worker…'}</strong>
         {construction?.tool === 'road' && construction.length > 0 && (
@@ -303,6 +326,9 @@ export function App({ runtime, simulation }: AppProps) {
           </button>
           <button class={construction?.tool === 'terrain' ? 'tool active' : 'tool'} onClick={() => runtime.setTool('terrain')}>
             <span class="tool-icon terrain-icon">⌁</span><small>TERRAIN</small>
+          </button>
+          <button class={construction?.tool === 'service' ? 'tool active' : 'tool'} onClick={() => runtime.setTool('service')}>
+            <span class="tool-icon service-icon">✚</span><small>SERVICES</small>
           </button>
         </div>
         <div class="dock-divider" />
@@ -364,6 +390,12 @@ export function App({ runtime, simulation }: AppProps) {
           <button onClick={() => runtime.setTerrainPreset('hills')}>HILLS</button>
         </div>
       )}
+
+      {construction?.tool === 'service' && <div class="service-palette panel" role="group" aria-label="City service facilities">
+        {SERVICE_TYPES.map((type) => <button class={construction.serviceType === type ? 'active' : ''}
+          aria-pressed={construction.serviceType === type} title={`${SERVICE_DEFINITIONS[type].buildingName}: ${money(SERVICE_DEFINITIONS[type].constructionCost)} construction, ${money(SERVICE_DEFINITIONS[type].maintenancePerCycle)} per cycle`}
+          onClick={() => runtime.setServiceType(type)}>{SERVICE_DEFINITIONS[type].buildingName.toUpperCase()}</button>)}
+      </div>}
 
       {construction?.tool === 'zone' && construction.zoneSelectionRect && (
         <div class="zone-selection-rect" style={{

@@ -43,7 +43,7 @@ export class EconomySystem {
       lastCycleIncome: 0, lastCycleExpenses: 0, lastCycleNet: 0,
       lastEconomyTickGameSeconds: startGameSeconds,
       nextCycleAtGameSeconds: startGameSeconds + config.cycleGameSeconds,
-      lastCycleTaxes: emptyTaxes(), lastCycleRoadMaintenance: 0,
+      lastCycleTaxes: emptyTaxes(), lastCycleRoadMaintenance: 0, lastCycleServiceMaintenance: 0,
       transactions: [], nextTransactionId: 1,
     };
   }
@@ -69,7 +69,21 @@ export class EconomySystem {
     this.record('ROAD_CONSTRUCTION_REFUND', cost, gameSeconds);
   }
 
-  tick(gameSeconds: number, population: PopulationTotals, roads: readonly RoadSegment[]): boolean {
+  chargeService(cost: number, gameSeconds: number, redo = false): void {
+    if (!whole(cost) || cost < 0 || (!redo && !this.canAfford(cost))) throw new Error('Not enough funds.');
+    this.state.funds -= cost;
+    this.state.totalExpenses += cost;
+    this.record('SERVICE_CONSTRUCTION', -cost, gameSeconds);
+  }
+
+  refundService(cost: number, gameSeconds: number): void {
+    if (!whole(cost) || cost < 0) throw new Error('Invalid service refund.');
+    this.state.funds += cost;
+    this.state.totalExpenses -= cost;
+    this.record('SERVICE_CONSTRUCTION', cost, gameSeconds);
+  }
+
+  tick(gameSeconds: number, population: PopulationTotals, roads: readonly RoadSegment[], serviceMaintenance = 0): boolean {
     if (gameSeconds < this.state.nextCycleAtGameSeconds) return false;
     const units: Record<ZoneType, number> = {
       residential: population.households,
@@ -83,7 +97,8 @@ export class EconomySystem {
       taxes[zone] = Math.floor(units[zone] * taxableBasePerUnit * taxRate.numerator / taxRate.denominator);
     }
     const income = ZONES.reduce((sum, zone) => sum + taxes[zone], 0);
-    const maintenance = roadMaintenanceCost(roads);
+    const roadMaintenance = roadMaintenanceCost(roads);
+    const maintenance = roadMaintenance + serviceMaintenance;
     // When a worker frame crosses more than one due cycle, apply each exactly once.
     while (gameSeconds >= this.state.nextCycleAtGameSeconds) {
       const due = this.state.nextCycleAtGameSeconds;
@@ -94,11 +109,13 @@ export class EconomySystem {
       this.state.lastCycleExpenses = maintenance;
       this.state.lastCycleNet = income - maintenance;
       this.state.lastCycleTaxes = { ...taxes };
-      this.state.lastCycleRoadMaintenance = maintenance;
+      this.state.lastCycleRoadMaintenance = roadMaintenance;
+      this.state.lastCycleServiceMaintenance = serviceMaintenance;
       this.state.lastEconomyTickGameSeconds = due;
       this.state.nextCycleAtGameSeconds += this.state.config.cycleGameSeconds;
       for (const zone of ZONES) if (taxes[zone] > 0) this.record(`TAX_${zone.toUpperCase()}` as EconomyTransactionKind, taxes[zone], due);
-      if (maintenance > 0) this.record('ROAD_MAINTENANCE', -maintenance, due);
+      if (roadMaintenance > 0) this.record('ROAD_MAINTENANCE', -roadMaintenance, due);
+      if (serviceMaintenance > 0) this.record('SERVICE_MAINTENANCE', -serviceMaintenance, due);
       this.revision += 1;
     }
     return true;
@@ -113,9 +130,9 @@ export class EconomySystem {
         || !whole(tax.taxRate?.denominator) || tax.taxRate.denominator < 1; })
       || ![saved.funds, saved.totalIncome, saved.totalExpenses, saved.lastCycleIncome, saved.lastCycleExpenses,
         saved.lastCycleNet, saved.lastEconomyTickGameSeconds, saved.nextCycleAtGameSeconds,
-        saved.lastCycleRoadMaintenance, saved.nextTransactionId].every(whole)
+        saved.lastCycleRoadMaintenance, saved.lastCycleServiceMaintenance, saved.nextTransactionId].every(whole)
       || saved.totalIncome < 0 || saved.totalExpenses < 0 || saved.lastCycleIncome < 0 || saved.lastCycleExpenses < 0
-      || saved.lastCycleRoadMaintenance < 0 || saved.nextTransactionId < 1
+      || saved.lastCycleRoadMaintenance < 0 || saved.lastCycleServiceMaintenance < 0 || saved.nextTransactionId < 1
       || saved.lastCycleNet !== saved.lastCycleIncome - saved.lastCycleExpenses
       || saved.lastEconomyTickGameSeconds > gameSeconds
       || saved.nextCycleAtGameSeconds <= saved.lastEconomyTickGameSeconds

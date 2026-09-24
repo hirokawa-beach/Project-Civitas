@@ -7,6 +7,7 @@ import type { Building, Lot, LotId } from '../lots/types';
 import type { PopulationSnapshot } from '../population/types';
 import type { EconomySnapshot } from '../economy/types';
 import type { TrafficSnapshot } from '../traffic/types';
+import type { ServiceSnapshot } from '../services/types';
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
@@ -29,6 +30,7 @@ export interface WorldSnapshot {
   population: PopulationSnapshot;
   economy: EconomySnapshot;
   traffic: TrafficSnapshot;
+  services: ServiceSnapshot;
   lotReevaluatedCells: number;
   zoningUpdatedChunkIds: ChunkDescriptor['id'][];
   gameClock: GameClockSnapshot;
@@ -55,6 +57,7 @@ export type WorkerToUIMessage =
   | { type: 'population-update'; population: PopulationSnapshot }
   | { type: 'economy-update'; economy: EconomySnapshot }
   | { type: 'traffic-update'; traffic: TrafficSnapshot }
+  | { type: 'service-update'; services: ServiceSnapshot }
   | { type: 'command-result'; requestId: string; ok: boolean; result?: SimulationCommandResult; error?: string }
   | { type: 'save-data'; requestId: string; save: SaveFile }
   | { type: 'notification'; level: 'info' | 'error'; message: string }

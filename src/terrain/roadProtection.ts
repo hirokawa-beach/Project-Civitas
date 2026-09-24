@@ -1,6 +1,7 @@
 import type { RoadSegment } from '../roads/types';
 import { HALF_WORLD_SIZE } from '../world/types';
 import { TERRAIN_COLUMNS, TERRAIN_SAMPLE_SPACING } from './heightmap';
+import type { ServiceFacility } from '../services/types';
 
 // Keep the vertices used to interpolate the road surface fixed as well as the
 // road itself. Fade edits in beyond the shoulder to avoid a hard terrain step.
@@ -42,4 +43,30 @@ export function buildRoadTerrainProtection(roads: readonly Pick<RoadSegment, 'ge
     }
   }
   return editWeights;
+}
+
+/** Keep built service lots level while terrain brushes fade in beyond their edges. */
+export function protectServiceLots(weights: Float32Array, facilities: readonly ServiceFacility[]): void {
+  for (const facility of facilities) {
+    const { corners, width, depth } = facility.lot;
+    const origin = corners[0];
+    const ux = (corners[1].x - origin.x) / width; const uz = (corners[1].z - origin.z) / width;
+    const vx = (corners[3].x - origin.x) / depth; const vz = (corners[3].z - origin.z) / depth;
+    const left = clampIndex(Math.floor((Math.min(...corners.map((point) => point.x)) - 16 + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING));
+    const right = clampIndex(Math.ceil((Math.max(...corners.map((point) => point.x)) + 16 + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING));
+    const top = clampIndex(Math.floor((Math.min(...corners.map((point) => point.z)) - 16 + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING));
+    const bottom = clampIndex(Math.ceil((Math.max(...corners.map((point) => point.z)) + 16 + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING));
+    for (let row = top; row <= bottom; row += 1) for (let column = left; column <= right; column += 1) {
+      const x = column * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE - origin.x;
+      const z = row * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE - origin.z;
+      const along = x * ux + z * uz;
+      const across = x * vx + z * vz;
+      const outside = Math.hypot(Math.max(0, -along, along - width), Math.max(0, -across, across - depth));
+      if (outside >= 16) continue;
+      const fade = Math.max(0, (outside - 4) / 12);
+      const smooth = fade * fade * (3 - 2 * fade);
+      const index = row * TERRAIN_COLUMNS + column;
+      weights[index] = Math.min(weights[index], smooth);
+    }
+  }
 }

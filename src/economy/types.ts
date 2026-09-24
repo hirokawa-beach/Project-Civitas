@@ -3,7 +3,7 @@ import type { ZoneType } from '../zoning/types';
 export type TaxZone = ZoneType;
 export type EconomyTransactionKind =
   | 'TAX_RESIDENTIAL' | 'TAX_COMMERCIAL' | 'TAX_INDUSTRIAL' | 'TAX_OFFICE'
-  | 'ROAD_CONSTRUCTION' | 'ROAD_CONSTRUCTION_REFUND' | 'ROAD_MAINTENANCE';
+  | 'ROAD_CONSTRUCTION' | 'ROAD_CONSTRUCTION_REFUND' | 'ROAD_MAINTENANCE' | 'SERVICE_CONSTRUCTION' | 'SERVICE_MAINTENANCE';
 
 export interface EconomyTransaction {
   id: number;
@@ -38,6 +38,7 @@ export interface EconomyState {
   nextCycleAtGameSeconds: number;
   lastCycleTaxes: Record<TaxZone, number>;
   lastCycleRoadMaintenance: number;
+  lastCycleServiceMaintenance: number;
   transactions: EconomyTransaction[];
   nextTransactionId: number;
 }
