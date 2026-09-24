@@ -14,13 +14,20 @@ import type { ServiceFacility, ServiceType } from '../services/types';
 import type { Vec2 } from '../world/types';
 import type { Lot } from '../lots/types';
 import type { ZoningCell } from '../zoning/types';
+import type { TransitSystem } from '../transit/system';
+import type { TransitLineInput, TransitSaveState, TransitStop, TransitLine } from '../transit/types';
 
 export type SimulationCommandData =
   | { type: 'build-road'; input: BuildRoadInput }
   | { type: 'remove-road'; segmentId: RoadSegmentId }
   | { type: 'set-zone'; cellIds: ZoningCellId[]; zoneType: ZoneBrush }
   | { type: 'place-service'; serviceType: ServiceType; position: Vec2 }
-  | { type: 'remove-service'; facilityId: string };
+  | { type: 'remove-service'; facilityId: string }
+  | { type: 'place-bus-stop'; position: Vec2; name?: string }
+  | { type: 'remove-bus-stop'; stopId: string }
+  | { type: 'create-bus-line'; input: TransitLineInput }
+  | { type: 'update-bus-line'; lineId: string; input: TransitLineInput }
+  | { type: 'remove-bus-line'; lineId: string };
 
 export type SimulationCommandResult =
   | ({ type: 'build-road' } & BuildRoadResult)
@@ -29,13 +36,18 @@ export type SimulationCommandResult =
   | { type: 'edit-terrain'; chunkIds: ChunkDescriptor['id'][] }
   | { type: 'set-terrain-preset'; preset: TerrainPreset }
   | { type: 'place-service'; facility: ServiceFacility }
-  | { type: 'remove-service'; facilityId: string };
+  | { type: 'remove-service'; facilityId: string }
+  | { type: 'place-bus-stop'; stop: TransitStop }
+  | { type: 'remove-bus-stop'; stopId: string }
+  | { type: 'create-bus-line'; line: TransitLine }
+  | { type: 'update-bus-line'; line: TransitLine }
+  | { type: 'remove-bus-line'; lineId: string };
 
 export interface TerrainEditBounds { minX: number; maxX: number; minZ: number; maxZ: number }
 
 export interface SimulationCommand {
   readonly label: string;
-  readonly domain: 'road' | 'zone' | 'terrain' | 'service';
+  readonly domain: 'road' | 'zone' | 'terrain' | 'service' | 'transit';
   readonly affectedCellIds?: readonly ZoningCellId[];
   readonly affectedChunkIds?: readonly ChunkDescriptor['id'][];
   readonly affectedTerrainBounds?: TerrainEditBounds;
@@ -270,6 +282,44 @@ export class RemoveServiceCommand implements SimulationCommand {
   }
 }
 
+export class TransitCommand implements SimulationCommand {
+  readonly domain = 'transit' as const;
+  readonly label: string;
+  private before?: TransitSaveState;
+  private after?: TransitSaveState;
+  private result?: SimulationCommandResult;
+  constructor(private readonly data: Extract<SimulationCommandData, { type: 'place-bus-stop' | 'remove-bus-stop' | 'create-bus-line' | 'update-bus-line' | 'remove-bus-line' }>,
+    private readonly transit: TransitSystem, private readonly gameSeconds: () => number) {
+    this.label = data.type;
+  }
+  execute(): SimulationCommandResult {
+    this.before = this.transit.save();
+    try {
+      switch (this.data.type) {
+        case 'place-bus-stop': this.result = { type: 'place-bus-stop', stop: this.transit.placeStop(this.data.position, this.data.name) }; break;
+        case 'remove-bus-stop': this.transit.removeStop(this.data.stopId); this.result = { type: 'remove-bus-stop', stopId: this.data.stopId }; break;
+        case 'create-bus-line': this.result = { type: 'create-bus-line', line: this.transit.createLine(this.data.input, this.gameSeconds()) }; break;
+        case 'update-bus-line': this.result = { type: 'update-bus-line', line: this.transit.updateLine(this.data.lineId, this.data.input, this.gameSeconds()) }; break;
+        case 'remove-bus-line': this.transit.removeLine(this.data.lineId); this.result = { type: 'remove-bus-line', lineId: this.data.lineId }; break;
+      }
+      this.after = this.transit.save();
+      return this.result;
+    } catch (error) {
+      this.transit.restore(this.before, this.gameSeconds());
+      throw error;
+    }
+  }
+  undo(): void {
+    if (!this.before) throw new Error('Transit command was not executed.');
+    this.transit.restore(this.before, this.gameSeconds());
+  }
+  redo(): SimulationCommandResult {
+    if (!this.after || !this.result) throw new Error('Transit command was not executed.');
+    this.transit.restore(this.after, this.gameSeconds());
+    return this.result;
+  }
+}
+
 export class CommandHistory {
   private readonly undoStack: SimulationCommand[] = [];
   private readonly redoStack: SimulationCommand[] = [];
@@ -334,7 +384,7 @@ export class CommandHistory {
 
 export const commandFromData = (data: SimulationCommandData, assignments: Map<ZoningCellId, ZoneType>,
   terrainHeight?: (x: number, z: number) => number, economy?: EconomySystem, gameSeconds?: () => number,
-  services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[]): SimulationCommand => {
+  services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[], transit?: TransitSystem): SimulationCommand => {
   switch (data.type) {
     case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds, services);
     case 'remove-road': return new RemoveRoadCommand(data.segmentId, assignments);
@@ -345,5 +395,12 @@ export const commandFromData = (data: SimulationCommandData, assignments: Map<Zo
     case 'remove-service':
       if (!services) throw new Error('Service system is unavailable.');
       return new RemoveServiceCommand(data.facilityId, services);
+    case 'place-bus-stop':
+    case 'remove-bus-stop':
+    case 'create-bus-line':
+    case 'update-bus-line':
+    case 'remove-bus-line':
+      if (!transit || !gameSeconds) throw new Error('Transit system is unavailable.');
+      return new TransitCommand(data, transit, gameSeconds);
   }
 };

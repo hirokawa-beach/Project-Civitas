@@ -13,9 +13,11 @@ import { TrafficSystem } from '../traffic/system';
 import type { TrafficSaveState } from '../traffic/types';
 import { ServiceSystem } from '../services/system';
 import type { ServiceSaveState } from '../services/types';
+import { TransitSystem } from '../transit/system';
+import type { TransitSaveState } from '../transit/types';
 import packageInfo from '../../package.json';
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 export const GAME_VERSION = packageInfo.version;
 
 interface SaveFileBase {
@@ -87,8 +89,12 @@ export interface SaveFileV9 extends SaveFileBase {
   traffic: TrafficSaveState;
   services: ServiceSaveState;
 }
+export interface SaveFileV10 extends Omit<SaveFileV9, 'saveVersion'> {
+  saveVersion: 10;
+  transit: TransitSaveState;
+}
 
-export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9;
+export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9 | SaveFileV10;
 
 export interface SerializableWorld {
   terrain: LegacyTerrainState | TerrainState;
@@ -101,9 +107,10 @@ export interface SerializableWorld {
   economy?: EconomyState;
   traffic?: TrafficSaveState;
   services?: ServiceSaveState;
+  transit?: TransitSaveState;
 }
 
-export const serializeWorld = (world: SerializableWorld): SaveFileV9 => ({
+export const serializeWorld = (world: SerializableWorld): SaveFileV10 => ({
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
@@ -121,6 +128,7 @@ export const serializeWorld = (world: SerializableWorld): SaveFileV9 => ({
   economy: structuredClone(world.economy ?? new EconomySystem(undefined, world.gameClock.gameSeconds).save()),
   traffic: structuredClone(world.traffic ?? new TrafficSystem(world.roadGraph, undefined, world.gameClock.gameSeconds).save()),
   services: structuredClone(world.services ?? new ServiceSystem().save()),
+  transit: structuredClone(world.transit ?? new TransitSystem(world.roadGraph, undefined, world.gameClock.gameSeconds).save()),
 });
 
 const isSaveFileV1 = (value: unknown): value is SaveFileV1 => {
@@ -254,7 +262,7 @@ const migrateToV8 = (value: unknown): SaveFileV8 => {
     traffic: new TrafficSystem(old.roadGraph, undefined, old.gameClock.gameSeconds).save() };
 };
 
-export const migrateSave = (value: unknown): SaveFileV9 => {
+const migrateToV9 = (value: unknown): SaveFileV9 => {
   if (isSaveFileV9(value)) return structuredClone(value);
   const old = migrateToV8(value);
   return { ...old, saveVersion: 9, gameVersion: GAME_VERSION,
@@ -262,13 +270,32 @@ export const migrateSave = (value: unknown): SaveFileV9 => {
     services: new ServiceSystem().save() };
 };
 
-export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; services: ServiceSaveState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean; hasServiceData: boolean } => {
-  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value);
-  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value);
-  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value);
-  const hasTrafficData = isSaveFileV8(value) || isSaveFileV9(value);
-  const hasServiceData = isSaveFileV9(value);
-  let save: SaveFileV9;
+const isSaveFileV10 = (value: unknown): value is SaveFileV10 => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SaveFileV10>;
+  return candidate.saveVersion === 10 && !!candidate.world && !!candidate.roadGraph
+    && !!candidate.gameClock && Array.isArray(candidate.zoningAssignments)
+    && Array.isArray(candidate.lots) && Array.isArray(candidate.buildings)
+    && !!candidate.population && !!candidate.economy && !!candidate.traffic
+    && !!candidate.services && !!candidate.transit && Array.isArray(candidate.transit.stops)
+    && Array.isArray(candidate.transit.lines);
+};
+
+export const migrateSave = (value: unknown): SaveFileV10 => {
+  if (isSaveFileV10(value)) return structuredClone(value);
+  const old = migrateToV9(value);
+  return { ...old, saveVersion: 10, gameVersion: GAME_VERSION,
+    transit: new TransitSystem(old.roadGraph, undefined, old.gameClock.gameSeconds).save() };
+};
+
+export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; services: ServiceSaveState; transit: TransitSaveState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean; hasServiceData: boolean; hasTransitData: boolean } => {
+  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
+  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
+  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
+  const hasTrafficData = isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
+  const hasServiceData = isSaveFileV9(value) || isSaveFileV10(value);
+  const hasTransitData = isSaveFileV10(value);
+  let save: SaveFileV10;
   try {
     save = migrateSave(value);
   } catch {
@@ -285,10 +312,12 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
     economy: structuredClone(save.economy),
     traffic: structuredClone(save.traffic),
     services: structuredClone(save.services),
+    transit: structuredClone(save.transit),
     hasLotData,
     hasPopulationData,
     hasEconomyData,
     hasTrafficData,
     hasServiceData,
+    hasTransitData,
   };
 };

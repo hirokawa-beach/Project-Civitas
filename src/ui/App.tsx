@@ -11,6 +11,8 @@ import type { ZoneBrush, ZoneType } from '../zoning/types';
 import type { TerrainBrushMode } from '../world/types';
 import { SERVICE_TYPES } from '../services/types';
 import { SERVICE_DEFINITIONS } from '../services/system';
+import type { TransitLine } from '../transit/types';
+import { TRANSIT_VEHICLE_TYPES } from '../transit/system';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -40,6 +42,7 @@ const toolLabel = (status: ConstructionStatus): string => {
   if (status.tool === 'zone') return `${status.zoneBrush ? status.zoneBrush.toUpperCase() : 'ERASE'} ZONING`;
   if (status.tool === 'terrain') return `${(status.terrainMode ?? 'raise').toUpperCase()} TERRAIN`;
   if (status.tool === 'service') return SERVICE_DEFINITIONS[status.serviceType ?? 'electricity'].buildingName.toUpperCase();
+  if (status.tool === 'bus-stop') return 'BUS STOP';
   switch (status.roadMode) {
     case 'straight': return 'STRAIGHT ROAD';
     case 'one-curve': return '1-CURVE ROAD';
@@ -74,6 +77,14 @@ export function App({ runtime, simulation }: AppProps) {
   const [debugVisible, setDebugVisible] = useState(true);
   const [trafficOverlay, setTrafficOverlay] = useState(false);
   const [toast, setToast] = useState<{ message: string; error?: boolean }>();
+  const [editingLineId, setEditingLineId] = useState<string>();
+  const [lineName, setLineName] = useState('Bus Line 1');
+  const [lineStopIds, setLineStopIds] = useState<string[]>([]);
+  const [serviceStartHour, setServiceStartHour] = useState(0);
+  const [serviceEndHour, setServiceEndHour] = useState(24);
+  const [frequencyMinutes, setFrequencyMinutes] = useState(2);
+  const [vehicleTypeId, setVehicleTypeId] = useState('standard');
+  const [lineColor, setLineColor] = useState('#f2c75c');
 
   useEffect(() => simulation.subscribe(setSnapshot), [simulation]);
   useEffect(() => runtime.subscribeConstruction(setConstruction), [runtime]);
@@ -124,13 +135,32 @@ export function App({ runtime, simulation }: AppProps) {
     }
   };
   const setSpeed = (speed: GameSpeed) => simulation.setSpeed(speed);
+  const editLine = (line: TransitLine) => {
+    setEditingLineId(line.id); setLineName(line.name); setLineStopIds([...line.stopIds]);
+    setServiceStartHour(line.serviceStartSeconds / 3600); setServiceEndHour(line.serviceEndSeconds / 3600);
+    setFrequencyMinutes(line.frequencySeconds / 60); setVehicleTypeId(line.vehicleTypeId); setLineColor(line.color);
+  };
+  const clearLineEditor = () => {
+    setEditingLineId(undefined); setLineName(`Bus Line ${(snapshot?.transit.lines.length ?? 0) + 1}`);
+    setLineStopIds([]); setServiceStartHour(0); setServiceEndHour(24);
+    setFrequencyMinutes(2); setVehicleTypeId('standard'); setLineColor('#f2c75c');
+  };
+  const saveLine = async () => {
+    const input = { name: lineName, stopIds: lineStopIds, serviceStartSeconds: Math.round(serviceStartHour * 3600),
+      serviceEndSeconds: Math.round(serviceEndHour * 3600), frequencySeconds: Math.round(frequencyMinutes * 60),
+      vehicleTypeId, color: lineColor };
+    const response = await simulation.execute(editingLineId
+      ? { type: 'update-bus-line', lineId: editingLineId, input }
+      : { type: 'create-bus-line', input });
+    if (response.ok) { setToast({ message: editingLineId ? 'Bus line updated.' : 'Bus line created.' }); clearLineEditor(); }
+  };
 
   return (
     <div class="hud-root" aria-label="Project Civitas controls">
       <header class="topbar panel">
         <div class="identity">
           <span class="identity-mark" aria-hidden="true">C</span>
-          <div><strong>PROJECT CIVITAS</strong><small>CITY SERVICES / PROTOTYPE</small></div>
+          <div><strong>PROJECT CIVITAS</strong><small>PUBLIC TRANSIT / PROTOTYPE</small></div>
         </div>
         <div class="clock-block">
           <span>{clock}</span>
@@ -213,6 +243,41 @@ export function App({ runtime, simulation }: AppProps) {
         </div>
       </aside>}
 
+      {snapshot && <aside class="transit-panel panel" aria-label="Bus transit">
+        <div class="panel-title">BUS TRANSIT <span>{snapshot.transit.lines.length} LINES</span></div>
+        <div class="transit-totals">
+          <span>STOPS <b>{snapshot.transit.stops.length}</b></span>
+          <span>WAITING <b>{snapshot.transit.waitingPassengers}</b></span>
+          <span>RIDERSHIP <b>{snapshot.transit.ridership}</b></span>
+          <span>BUSES <b>{snapshot.transit.activeVehicles}</b></span>
+        </div>
+        {construction?.tool === 'bus-stop' && <div class="transit-editor">
+          <div class="transit-section-title">STOPS · CLICK ROADSIDES TO ADD</div>
+          <div class="transit-stop-list">{snapshot.transit.stops.map((stop) => <div class="transit-stop-row">
+            <button title={`Add ${stop.name} to line`} onClick={() => setLineStopIds((current) => current.includes(stop.id) ? current : [...current, stop.id])}>+ {stop.name}</button>
+            <small>{stop.direction === 'forward' ? '→' : '←'} · {snapshot.transit.stopMetrics.find((item) => item.stopId === stop.id)?.waiting ?? 0} WAIT</small>
+            <button title={`Remove ${stop.name}`} onClick={() => void simulation.execute({ type: 'remove-bus-stop', stopId: stop.id })}>×</button>
+          </div>)}</div>
+          <div class="transit-section-title">{editingLineId ? `EDIT ${editingLineId}` : 'NEW LINE'}</div>
+          <label>NAME <input aria-label="Bus line name" value={lineName} maxLength={80} onInput={(event) => setLineName(event.currentTarget.value)} /></label>
+          <div class="transit-order">{lineStopIds.map((id, index) => <button title="Remove stop from line order" onClick={() => setLineStopIds((ids) => ids.filter((_, item) => item !== index))}>{index + 1}. {snapshot.transit.stops.find((stop) => stop.id === id)?.name ?? id} ×</button>)}</div>
+          <div class="transit-fields">
+            <label>START <input aria-label="Service start hour" type="number" min="0" max="23" step="1" value={serviceStartHour} onInput={(event) => setServiceStartHour(Number(event.currentTarget.value))} /></label>
+            <label>END <input aria-label="Service end hour" type="number" min="1" max="24" step="1" value={serviceEndHour} onInput={(event) => setServiceEndHour(Number(event.currentTarget.value))} /></label>
+            <label>EVERY MIN <input aria-label="Bus frequency minutes" type="number" min="0.5" max="120" step="0.5" value={frequencyMinutes} onInput={(event) => setFrequencyMinutes(Number(event.currentTarget.value))} /></label>
+            <label>VEHICLE <select aria-label="Bus vehicle type" value={vehicleTypeId} onChange={(event) => setVehicleTypeId(event.currentTarget.value)}>{Object.values(TRANSIT_VEHICLE_TYPES).map((type) => <option value={type.id}>{type.name} · {type.capacity}</option>)}</select></label>
+            <label>COLOR <input aria-label="Bus line color" type="color" value={lineColor} onInput={(event) => setLineColor(event.currentTarget.value)} /></label>
+          </div>
+          <div class="transit-actions"><button class="active" disabled={lineStopIds.length < 2} onClick={() => void saveLine()}>{editingLineId ? 'UPDATE LINE' : 'CREATE LINE'}</button><button onClick={clearLineEditor}>CLEAR</button></div>
+          <div class="transit-section-title">LINES</div>
+          {snapshot.transit.lines.map((line) => <div class="transit-line-row">
+            <i style={{ background: line.color }} /><span>{line.name} · {line.stopIds.length} stops · {line.frequencySeconds / 60} min</span>
+            <button title={`Edit ${line.name}`} onClick={() => editLine(line)}>EDIT</button>
+            <button title={`Remove ${line.name}`} onClick={() => void simulation.execute({ type: 'remove-bus-line', lineId: line.id })}>×</button>
+          </div>)}
+        </div>}
+      </aside>}
+
       {debugVisible && snapshot && (
         <aside class="debug-panel panel">
           <div class="panel-title"><span>LIVE SYSTEMS</span><i /></div>
@@ -252,6 +317,9 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>ECONOMY CYCLE</dt><dd>{snapshot.economy.lastEconomyTickGameSeconds} → {snapshot.economy.nextCycleAtGameSeconds}s</dd>
             <dt>SERVICE COST</dt><dd>{money(snapshot.services.maintenancePerCycle)} / cycle</dd>
             <dt>SERVICE LOTS / BUILDINGS</dt><dd>{snapshot.services.facilities.length} / {snapshot.services.facilities.length}</dd>
+            <dt>BUS STOPS / LINES</dt><dd>{snapshot.transit.stops.length} / {snapshot.transit.lines.length}</dd>
+            <dt>BUS RIDERS / WAITING</dt><dd>{snapshot.transit.ridership} / {snapshot.transit.waitingPassengers}</dd>
+            <dt>ACTIVE BUSES / ROUTE CACHE</dt><dd>{snapshot.transit.activeVehicles} / {snapshot.transit.routeCacheSize}</dd>
             {SERVICE_TYPES.map((type) => <>
               <dt>{type.toUpperCase()}</dt><dd>{snapshot.services.coverage[type].supplied} / {snapshot.services.coverage[type].demand} demand · {snapshot.services.coverage[type].capacity} capacity</dd>
             </>)}
@@ -329,6 +397,9 @@ export function App({ runtime, simulation }: AppProps) {
           </button>
           <button class={construction?.tool === 'service' ? 'tool active' : 'tool'} onClick={() => runtime.setTool('service')}>
             <span class="tool-icon service-icon">✚</span><small>SERVICES</small>
+          </button>
+          <button class={construction?.tool === 'bus-stop' ? 'tool active' : 'tool'} onClick={() => runtime.setTool('bus-stop')}>
+            <span class="tool-icon bus-icon">▣</span><small>BUS</small>
           </button>
         </div>
         <div class="dock-divider" />

@@ -5,6 +5,7 @@ import type { Lot } from '../lots/types';
 import type { BuildingOccupancy, PopulationSnapshot } from '../population/types';
 import { HALF_WORLD_SIZE } from '../world/types';
 import { RoadRouter } from './routing';
+import type { TransitSystem } from '../transit/system';
 import type { LaneTraffic, LogicalTrip, OutsideConnection, RouteLeg, SegmentTraffic, TrafficConfig,
   TrafficSaveState, TrafficSnapshot, TripEndpoint, TripPurpose, VisibleVehicleCandidate } from './types';
 
@@ -42,6 +43,7 @@ export class TrafficSystem {
   private generatorCursor = 0;
   private averageRoadSpeed = 0;
   private congestedSegmentCount = 0;
+  private transit?: TransitSystem;
   revision = 0;
 
   constructor(graph: RoadGraphSnapshot, readonly config: TrafficConfig = DEFAULT_TRAFFIC_CONFIG, startGameSeconds = 0) {
@@ -58,6 +60,7 @@ export class TrafficSystem {
   get trips(): LogicalTrip[] { return [...this.tripsById.values()].map((trip) => structuredClone(trip)); }
   get outside(): OutsideConnection[] { return structuredClone(this.outsideConnections); }
   get segmentStates(): SegmentTraffic[] { return [...this.segmentTraffic.values()].map((item) => structuredClone(item)); }
+  setTransitSystem(transit: TransitSystem): void { this.transit = transit; }
   isDue(gameSeconds: number): boolean {
     return gameSeconds >= this.nextGenerationAtGameSeconds || gameSeconds >= this.nextTrafficAtGameSeconds;
   }
@@ -248,6 +251,15 @@ export class TrafficSystem {
     const add = (origin: TripEndpoint, destination: TripEndpoint, purpose: TripPurpose, count: number): void => {
       if (added >= remainingSlots || origin.id === destination.id) return;
       const route = this.router.route(origin, destination, this.segmentTraffic);
+      if (this.transit && origin.kind === 'building' && destination.kind === 'building') {
+        const roadCost = route ? route.reduce((sum, leg) => {
+          const speed = this.segmentTraffic.get(leg.segmentId)?.averageSpeed
+            ?? this.segmentById.get(leg.segmentId)?.speedLimit ?? 30;
+          return sum + legLength(leg) / Math.max(1, speed / 3.6) / this.config.vehicleSpeedScale;
+        }, 0) : Infinity;
+        if (this.transit.offerTrip(origin, destination, count,
+          roadCost + this.transit.config.parkingPenaltyGameSeconds, gameSeconds, this.segmentStates)) return;
+      }
       const trip: LogicalTrip = { id: `trip-${this.nextTripSerial++}`,
         origin: structuredClone(origin), destination: structuredClone(destination), purpose,
         departureGameSeconds: gameSeconds, mode: 'car', routeState: route ? 'routed' : 'unreachable',
