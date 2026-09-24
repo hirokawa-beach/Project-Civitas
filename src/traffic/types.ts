@@ -91,6 +91,7 @@ export interface TrafficSaveState {
 
 export interface TrafficSnapshot {
   revision: number;
+  sampleIntervalGameSeconds: number;
   activeTrips: number;
   logicalVehicles: number;
   averageRoadSpeed: number;
