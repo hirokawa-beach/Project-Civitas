@@ -1,7 +1,10 @@
 import { HALF_WORLD_SIZE, type Vec2 } from '../world/types';
 import { minimumPolylineRadius } from './curveGeometry';
 import { distance, dot, polylineLength, segmentIntersection, subtract } from './geometry';
+import { roadHeightAt } from './elevation';
+import type { Vec3 } from '../terrain/heightmap';
 import type { RoadGraphSnapshot } from './types';
+import type { RoadStructureType } from './types';
 
 export const ROAD_VALIDATION_REASON = {
   insufficientPoints: 'insufficient-points',
@@ -15,6 +18,7 @@ export const ROAD_VALIDATION_REASON = {
   shortKink: 'short-kink',
   curveRadius: 'curve-radius',
   steepGrade: 'steep-grade',
+  verticalClearance: 'vertical-clearance',
 } as const;
 
 export type RoadValidationReason = (typeof ROAD_VALIDATION_REASON)[keyof typeof ROAD_VALIDATION_REASON];
@@ -46,6 +50,9 @@ export interface RoadValidationOptions {
   /** Height in metres at a world X/Z point; omitted for planar validation. */
   terrainHeight?: (x: number, z: number) => number;
   maximumGrade?: number;
+  candidateCenterline?: readonly Vec3[];
+  candidateStructureType?: RoadStructureType;
+  minimumVerticalClearance?: number;
 }
 
 export const DEFAULT_ROAD_VALIDATION_OPTIONS = {
@@ -60,7 +67,8 @@ export const DEFAULT_ROAD_VALIDATION_OPTIONS = {
   minimumCurveRadius: 0,
   analyticalCurveRadius: Number.POSITIVE_INFINITY,
   maximumGrade: 0.12,
-} as const satisfies Required<Omit<RoadValidationOptions, 'terrainHeight'>>;
+  minimumVerticalClearance: 6,
+} as const satisfies Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType'>>;
 
 const GEOMETRY_EPSILON = 1e-6;
 
@@ -185,7 +193,8 @@ const isNearlyParallel = (a: LineSegment, b: LineSegment, angleDegrees: number):
 const hasParallelOverlap = (
   candidateSegments: readonly LineSegment[],
   snapshot: RoadGraphSnapshot,
-  options: Required<Omit<RoadValidationOptions, 'terrainHeight'>>,
+  options: Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType'>>,
+  separated: (road: RoadGraphSnapshot['segments'][number], point: Vec2) => boolean,
 ): boolean => {
   for (const candidate of candidateSegments) {
     if (candidate.length <= GEOMETRY_EPSILON) continue;
@@ -194,6 +203,7 @@ const hasParallelOverlap = (
       for (const existing of toSegments(road.geometry.points)) {
         if (!isNearlyParallel(candidate, existing, options.nearParallelAngleDegrees)) continue;
         if (projectedOverlap(candidate, existing) + GEOMETRY_EPSILON < options.minimumParallelOverlap) continue;
+        if (separated(road, { x: (candidate.start.x + candidate.end.x) / 2, z: (candidate.start.z + candidate.end.z) / 2 })) continue;
         if (segmentDistance(candidate, existing) < clearance) return true;
       }
     }
@@ -204,7 +214,8 @@ const hasParallelOverlap = (
 const hasRoadFootprintOverlapWithoutCenterlineContact = (
   candidateSegments: readonly LineSegment[],
   snapshot: RoadGraphSnapshot,
-  options: Required<Omit<RoadValidationOptions, 'terrainHeight'>>,
+  options: Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType'>>,
+  separated: (road: RoadGraphSnapshot['segments'][number], point: Vec2) => boolean,
 ): boolean => {
   for (const candidate of candidateSegments) {
     for (const road of snapshot.segments) {
@@ -215,6 +226,7 @@ const hasRoadFootprintOverlapWithoutCenterlineContact = (
         for (const existingPart of existingSegments) {
           const intersection = segmentIntersection(candidatePart.start, candidatePart.end, existingPart.start, existingPart.end);
           if (!intersection) continue;
+          if (separated(road, intersection.point)) continue;
           const candidateDirection = subtract(candidatePart.end, candidatePart.start);
           const existingDirection = subtract(existingPart.end, existingPart.start);
           const sine = Math.abs(cross(candidateDirection, existingDirection))
@@ -227,6 +239,7 @@ const hasRoadFootprintOverlapWithoutCenterlineContact = (
       }
       for (const existing of existingSegments) {
         if (segmentsIntersect(candidate, existing)) continue;
+        if (separated(road, { x: (candidate.start.x + candidate.end.x) / 2, z: (candidate.start.z + candidate.end.z) / 2 })) continue;
         if (segmentDistance(candidate, existing) >= clearance - GEOMETRY_EPSILON) continue;
         const insideJunction = junctionEnvelopes.some((junction) =>
           pointSegmentDistance(junction.point, candidate) <= junction.radius
@@ -264,6 +277,11 @@ export const validateRoadCandidate = (
   overrides: RoadValidationOptions = {},
 ): RoadValidationResult => {
   const options = { ...DEFAULT_ROAD_VALIDATION_OPTIONS, ...overrides };
+  const candidateGeometry = { kind: 'polyline' as const, points: [...points],
+    centerline: overrides.candidateCenterline ? [...overrides.candidateCenterline] : undefined };
+  const separated = (road: RoadGraphSnapshot['segments'][number], point: Vec2): boolean =>
+    !!overrides.candidateCenterline && Math.abs(roadHeightAt(candidateGeometry, point, overrides.terrainHeight)
+      - roadHeightAt(road.geometry, point, overrides.terrainHeight)) >= options.minimumVerticalClearance;
   const reasons: RoadValidationReason[] = [];
   const addReason = (reason: RoadValidationReason): void => {
     if (!reasons.includes(reason)) reasons.push(reason);
@@ -285,10 +303,23 @@ export const validateRoadCandidate = (
     ) addReason(ROAD_VALIDATION_REASON.curveRadius);
 
     const candidateSegments = toSegments(points);
+    const collisionSegments = overrides.candidateCenterline
+      && (overrides.candidateStructureType && overrides.candidateStructureType !== 'ground'
+        || snapshot.segments.some((road) => (road.structureType ?? 'ground') !== 'ground'))
+      ? toSegments(overrides.candidateCenterline) : candidateSegments;
+    if (overrides.candidateCenterline) for (const road of snapshot.segments) {
+      for (const candidate of collisionSegments) for (const existing of toSegments(road.geometry.points)) {
+        const crossing = segmentIntersection(candidate.start, candidate.end, existing.start, existing.end);
+        if (!crossing) continue;
+        const gap = Math.abs(roadHeightAt(candidateGeometry, crossing.point, overrides.terrainHeight)
+          - roadHeightAt(road.geometry, crossing.point, overrides.terrainHeight));
+        if (gap > 1.5 && gap < options.minimumVerticalClearance) addReason(ROAD_VALIDATION_REASON.verticalClearance);
+      }
+    }
     if (options.terrainHeight && exceedsTerrainGrade(points, options.terrainHeight, options.maximumGrade)) addReason(ROAD_VALIDATION_REASON.steepGrade);
     if (hasSelfIntersection(candidateSegments)) addReason(ROAD_VALIDATION_REASON.selfIntersection);
-    if (hasParallelOverlap(candidateSegments, snapshot, options)) addReason(ROAD_VALIDATION_REASON.parallelOverlap);
-    if (hasRoadFootprintOverlapWithoutCenterlineContact(candidateSegments, snapshot, options)) {
+    if (hasParallelOverlap(collisionSegments, snapshot, options, separated)) addReason(ROAD_VALIDATION_REASON.parallelOverlap);
+    if (hasRoadFootprintOverlapWithoutCenterlineContact(collisionSegments, snapshot, options, separated)) {
       addReason(ROAD_VALIDATION_REASON.roadFootprintOverlap);
     }
 

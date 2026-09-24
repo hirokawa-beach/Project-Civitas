@@ -9,6 +9,7 @@ import type { EconomySnapshot } from '../economy/types';
 import type { TrafficSnapshot } from '../traffic/types';
 import type { ServiceSnapshot } from '../services/types';
 import type { TransitSnapshot } from '../transit/types';
+import type { WaterState } from '../water/staticWater';
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
@@ -22,6 +23,7 @@ export interface WorldSnapshot {
   terrainMessageBytes?: number;
   terrainUpdatedChunkIds: ChunkDescriptor['id'][];
   terrainEditMs: number;
+  water: WaterState & { revision: number };
   chunks: ChunkDescriptor[];
   roadGraph: RoadGraphSnapshot;
   zoningCells: ZoningCell[];

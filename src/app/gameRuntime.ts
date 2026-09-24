@@ -6,6 +6,7 @@ import type { SimulationClient } from './simulationClient';
 import type { ZoneBrush } from '../zoning/types';
 import type { TerrainBrushMode, TerrainPreset } from '../world/types';
 import type { ServiceType } from '../services/types';
+import type { RoadStructureType } from '../roads/types';
 
 export class GameRuntime {
   readonly construction: ConstructionController;
@@ -28,6 +29,8 @@ export class GameRuntime {
 
   setTool(tool: ActiveTool): void { this.construction.setTool(tool); }
   setRoadMode(mode: RoadMode): void { this.construction.setRoadMode(mode); }
+  setRoadStructure(type: RoadStructureType): void { this.construction.setRoadStructure(type); }
+  setRoadTargetElevation(meters: number): void { this.construction.setRoadTargetElevation(meters); }
   setZoneBrush(brush: ZoneBrush): void { this.construction.setZoneBrush(brush); }
   setZoneMode(mode: ZonePaintMode): void { this.construction.setZoneMode(mode); }
   setTerrainMode(mode: TerrainBrushMode): void { this.construction.setTerrainMode(mode); }

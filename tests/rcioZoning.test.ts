@@ -57,7 +57,7 @@ describe('RCIO zoning', () => {
     const id = state.snapshot().zoningCells[0].id;
     state.execute({ type: 'set-zone', cellIds: [id], zoneType: 'office' });
     const save = state.serialize();
-    expect(save.saveVersion).toBe(10);
+    expect(save.saveVersion).toBe(11);
     expect(save.zoningAssignments).toEqual([{ cellId: id, zoneType: 'office' }]);
 
     const restored = new SimulationState();

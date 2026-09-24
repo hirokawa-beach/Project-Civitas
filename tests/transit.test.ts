@@ -165,7 +165,7 @@ describe('bus transit foundation', () => {
     if (stop1.type !== 'place-bus-stop' || stop2.type !== 'place-bus-stop') throw new Error('Unexpected stop result');
     state.execute({ type: 'create-bus-line', input: input([stop1.stop.id, stop2.stop.id]) });
     const save = state.serialize();
-    expect(save.saveVersion).toBe(10);
+    expect(save.saveVersion).toBe(11);
     const loaded = new SimulationState(); loaded.load(JSON.parse(JSON.stringify(save)));
     expect(loaded.transit.save()).toEqual(state.transit.save());
     const legacy = { ...save, saveVersion: 9 as const, transit: undefined };

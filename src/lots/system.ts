@@ -116,7 +116,8 @@ export class LotSystem {
     for (const lot of this.lotsById.values()) {
       const midpoint = { x: (lot.roadAccess.frontage[0].x + lot.roadAccess.frontage[1].x) / 2,
         z: (lot.roadAccess.frontage[0].z + lot.roadAccess.frontage[1].z) / 2 };
-      const nearest = segments.map((segment) => ({ segment, distance: closestPointOnPolyline(midpoint, segment.geometry.points).distance }))
+      const nearest = segments.filter((segment) => (segment.structureType ?? 'ground') === 'ground')
+        .map((segment) => ({ segment, distance: closestPointOnPolyline(midpoint, segment.geometry.points).distance }))
         .sort((a, b) => a.distance - b.distance || a.segment.id.localeCompare(b.segment.id))[0];
       if (nearest && nearest.distance <= nearest.segment.width / 2 + 16
         && lot.roadAccess.roadSegmentId !== nearest.segment.id) {

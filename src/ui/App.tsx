@@ -13,6 +13,7 @@ import { SERVICE_TYPES } from '../services/types';
 import { SERVICE_DEFINITIONS } from '../services/system';
 import type { TransitLine } from '../transit/types';
 import { TRANSIT_VEHICLE_TYPES } from '../transit/system';
+import type { RoadStructureType } from '../roads/types';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -160,7 +161,7 @@ export function App({ runtime, simulation }: AppProps) {
       <header class="topbar panel">
         <div class="identity">
           <span class="identity-mark" aria-hidden="true">C</span>
-          <div><strong>PROJECT CIVITAS</strong><small>PUBLIC TRANSIT / PROTOTYPE</small></div>
+          <div><strong>PROJECT CIVITAS</strong><small>WORLD INFRASTRUCTURE / PROTOTYPE</small></div>
         </div>
         <div class="clock-block">
           <span>{clock}</span>
@@ -292,6 +293,7 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>CHUNK</dt><dd>{metrics.chunk.x}, {metrics.chunk.z}</dd>
             <dt>TERRAIN HEIGHT</dt><dd>{(construction?.terrainHeight ?? runtime.renderer.getHeight(0, 0)).toFixed(1)} m</dd>
             <dt>TERRAIN NORMAL</dt><dd>{(() => { const normal = construction?.terrainNormal ?? runtime.renderer.getNormal(0, 0); return `${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}`; })()}</dd>
+            <dt>WATER LEVEL</dt><dd>{snapshot.water.seaLevel.toFixed(1)} m</dd>
             <dt>EDIT / MESH</dt><dd>{snapshot.terrainEditMs.toFixed(2)} / {metrics.terrainMeshMs.toFixed(2)} ms</dd>
             <dt>TERRAIN FRAME</dt><dd>{metrics.terrainFrameMs.toFixed(2)} ms</dd>
             <dt>PATCH / SAVE</dt><dd>{((snapshot.terrainMessageBytes ?? 0) / 1024).toFixed(1)} / {(saveBytes / 1024).toFixed(1)} KiB</dd>
@@ -300,6 +302,8 @@ export function App({ runtime, simulation }: AppProps) {
           <dl>
             <dt>ROAD NODES</dt><dd>{snapshot.roadGraph.nodes.length}</dd>
             <dt>SEGMENTS</dt><dd>{snapshot.roadGraph.segments.length}</dd>
+            <dt>G / E / B / T</dt><dd>{(['ground', 'elevated', 'bridge', 'tunnel'] as RoadStructureType[])
+              .map((type) => snapshot.roadGraph.segments.filter((segment) => (segment.structureType ?? 'ground') === type).length).join(' / ')}</dd>
             <dt>LANES</dt><dd>{snapshot.roadGraph.lanes.length}</dd>
             <dt>ZONE CELLS</dt><dd>{snapshot.zoningCells.filter((cell) => cell.terrainSuitable !== false).length} / {snapshot.zoningCells.length}</dd>
             <dt>R / C / I / O</dt><dd>{zoneCounts.residential} / {zoneCounts.commercial} / {zoneCounts.industrial} / {zoneCounts.office}</dd>
@@ -359,6 +363,10 @@ export function App({ runtime, simulation }: AppProps) {
         {construction?.tool === 'road' && construction.length > 0 && (
           <div class="readout-data">
             <span>{construction.length.toFixed(1)} m</span>
+            <span>{(construction.structureType ?? 'ground').toUpperCase()}</span>
+            {(construction.structureType ?? 'ground') !== 'ground' && <span>TARGET {construction.targetElevation} m</span>}
+            <span>GRADE {((construction.grade ?? 0) * 100).toFixed(1)}%</span>
+            {(construction.structureType ?? 'ground') !== 'ground' && <span>CLEARANCE {(construction.clearance ?? 0).toFixed(1)} m</span>}
             {construction.estimatedCost !== undefined && <span>COST {money(construction.estimatedCost)}</span>}
             {construction.fundsAfterConstruction !== undefined && <span>AFTER {money(construction.fundsAfterConstruction)}</span>}
             {construction.roadMode !== 'straight' && construction.curveRadius > 0 && (
@@ -418,6 +426,18 @@ export function App({ runtime, simulation }: AppProps) {
       </nav>
 
       {construction?.tool === 'road' && (
+        <div class="elevation-palette panel" role="group" aria-label="Road elevation mode">
+          <span>ELEVATION</span>
+          {(['ground', 'elevated', 'bridge', 'tunnel'] as RoadStructureType[]).map((type) =>
+            <button class={construction.structureType === type ? 'active' : ''} aria-pressed={construction.structureType === type}
+              onClick={() => runtime.setRoadStructure(type)}>{type.toUpperCase()}</button>)}
+          {construction.structureType !== 'ground' && <label>OFFSET <input type="number" aria-label="Target elevation offset"
+            min="6" max="80" step="1" value={construction.targetElevation ?? 8}
+            onChange={(event) => runtime.setRoadTargetElevation(Number(event.currentTarget.value))} />m</label>}
+        </div>
+      )}
+
+      {construction?.tool === 'road' && (
         <div class="snap-palette panel" role="group" aria-label="Road snapping options">
           <span>SNAP</span>
           {SNAP_CONTROLS.map((control) => (
@@ -459,6 +479,9 @@ export function App({ runtime, simulation }: AppProps) {
             onInput={(event) => runtime.setTerrainBrush(construction.terrainSize ?? 48, Number(event.currentTarget.value))} />{construction.terrainStrength ?? 12}</label>
           <button onClick={() => runtime.setTerrainPreset('flat')}>FLAT</button>
           <button onClick={() => runtime.setTerrainPreset('hills')}>HILLS</button>
+          <label>SEA LEVEL <input aria-label="Sea level" type="number" min="-80" max="240" step="1"
+            value={snapshot?.water.seaLevel ?? -12}
+            onChange={(event) => { void simulation.execute({ type: 'set-water-level', seaLevel: Number(event.currentTarget.value) }); }} />m</label>
         </div>
       )}
 

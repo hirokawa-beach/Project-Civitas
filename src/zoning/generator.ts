@@ -224,7 +224,7 @@ const endpointDirection = (segment: RoadSegment, nodeId: string): Vec2 | undefin
 
 const buildJunctionClearances = (graph: RoadGraphSnapshot, queryBounds?: Bounds2D): JunctionClearance[] => {
   const incident = new Map<string, RoadSegment[]>();
-  for (const segment of graph.segments) {
+  for (const segment of graph.segments.filter((road) => (road.structureType ?? 'ground') === 'ground')) {
     for (const nodeId of [segment.startNodeId, segment.endNodeId]) {
       const segments = incident.get(nodeId) ?? [];
       segments.push(segment);
@@ -260,6 +260,7 @@ const buildJunctionClearances = (graph: RoadGraphSnapshot, queryBounds?: Bounds2
 const buildRoadSurfaceParts = (graph: RoadGraphSnapshot, queryBounds?: Bounds2D): RoadSurfacePart[] => {
   const parts: RoadSurfacePart[] = [];
   for (const road of graph.segments) {
+    if ((road.structureType ?? 'ground') !== 'ground') continue;
     for (let index = 0; index < road.geometry.points.length - 1; index += 1) {
       const start = road.geometry.points[index];
       const end = road.geometry.points[index + 1];
