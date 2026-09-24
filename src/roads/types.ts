@@ -1,11 +1,16 @@
 import type { LaneId, RoadLineageId, RoadNodeId, RoadSegmentId } from '../shared/ids';
 import type { Vec2 } from '../world/types';
+import type { Vec3 } from '../terrain/heightmap';
+
+export type RoadStructureType = 'ground' | 'elevated' | 'bridge' | 'tunnel';
 
 export type RoadGeometryKind = 'straight' | 'curve' | 'polyline';
 
 export interface RoadGeometry {
   kind: RoadGeometryKind;
   points: Vec2[];
+  /** Authoritative deck/centerline elevations; same X/Z route as points, sampled for grade. */
+  centerline?: Vec3[];
 }
 
 export interface RoadNode {
@@ -23,6 +28,9 @@ export interface RoadSegment {
   speedLimit: number;
   laneIds: LaneId[];
   zoningAllowed: boolean;
+  structureType?: RoadStructureType;
+  /** Positive vertical offset from the entry terrain to the deck or tunnel bore. */
+  targetElevation?: number;
   /** Stable across segment splits; used to preserve road-relative zoning phase. */
   zoningLineageId?: RoadLineageId;
   /** Distance in metres from the lineage origin to this segment's start. */
@@ -46,6 +54,9 @@ export interface RoadTypeDefinition {
   zoningAllowed: boolean;
   constructionCostPerMeter: number;
   maintenanceCostPerMeter: number;
+  maximumGrade: number;
+  minimumVerticalClearance: number;
+  structureTransitionLength: number;
 }
 
 export interface RoadGraphSnapshot {
@@ -57,6 +68,8 @@ export interface RoadGraphSnapshot {
 export interface BuildRoadInput {
   geometry: RoadGeometry;
   roadTypeId: string;
+  structureType?: RoadStructureType;
+  targetElevation?: number;
   endpointIntents?: {
     start: RoadEndpointIntent;
     end: RoadEndpointIntent;

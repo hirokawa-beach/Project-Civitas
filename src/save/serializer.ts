@@ -15,9 +15,12 @@ import { ServiceSystem } from '../services/system';
 import type { ServiceSaveState } from '../services/types';
 import { TransitSystem } from '../transit/system';
 import type { TransitSaveState } from '../transit/types';
+import { DEFAULT_WATER_STATE, type WaterState } from '../water/staticWater';
+import { profileRoadElevation } from '../roads/elevation';
+import { getRoadType } from '../roads/roadTypes';
 import packageInfo from '../../package.json';
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 export const GAME_VERSION = packageInfo.version;
 
 interface SaveFileBase {
@@ -93,8 +96,12 @@ export interface SaveFileV10 extends Omit<SaveFileV9, 'saveVersion'> {
   saveVersion: 10;
   transit: TransitSaveState;
 }
+export interface SaveFileV11 extends Omit<SaveFileV10, 'saveVersion'> {
+  saveVersion: 11;
+  water: WaterState;
+}
 
-export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9 | SaveFileV10;
+export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9 | SaveFileV10 | SaveFileV11;
 
 export interface SerializableWorld {
   terrain: LegacyTerrainState | TerrainState;
@@ -108,9 +115,10 @@ export interface SerializableWorld {
   traffic?: TrafficSaveState;
   services?: ServiceSaveState;
   transit?: TransitSaveState;
+  water?: WaterState;
 }
 
-export const serializeWorld = (world: SerializableWorld): SaveFileV10 => ({
+export const serializeWorld = (world: SerializableWorld): SaveFileV11 => ({
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
@@ -129,6 +137,7 @@ export const serializeWorld = (world: SerializableWorld): SaveFileV10 => ({
   traffic: structuredClone(world.traffic ?? new TrafficSystem(world.roadGraph, undefined, world.gameClock.gameSeconds).save()),
   services: structuredClone(world.services ?? new ServiceSystem().save()),
   transit: structuredClone(world.transit ?? new TransitSystem(world.roadGraph, undefined, world.gameClock.gameSeconds).save()),
+  water: structuredClone(world.water ?? DEFAULT_WATER_STATE),
 });
 
 const isSaveFileV1 = (value: unknown): value is SaveFileV1 => {
@@ -281,21 +290,43 @@ const isSaveFileV10 = (value: unknown): value is SaveFileV10 => {
     && Array.isArray(candidate.transit.lines);
 };
 
-export const migrateSave = (value: unknown): SaveFileV10 => {
-  if (isSaveFileV10(value)) return structuredClone(value);
-  const old = migrateToV9(value);
-  return { ...old, saveVersion: 10, gameVersion: GAME_VERSION,
-    transit: new TransitSystem(old.roadGraph, undefined, old.gameClock.gameSeconds).save() };
+const isSaveFileV11 = (value: unknown): value is SaveFileV11 => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SaveFileV11>;
+  return candidate.saveVersion === 11 && !!candidate.world && !!candidate.roadGraph
+    && !!candidate.gameClock && Array.isArray(candidate.zoningAssignments)
+    && Array.isArray(candidate.lots) && Array.isArray(candidate.buildings)
+    && !!candidate.population && !!candidate.economy && !!candidate.traffic
+    && !!candidate.services && !!candidate.transit && !!candidate.water;
 };
 
-export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; services: ServiceSaveState; transit: TransitSaveState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean; hasServiceData: boolean; hasTransitData: boolean } => {
-  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
-  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
-  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
-  const hasTrafficData = isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value);
-  const hasServiceData = isSaveFileV9(value) || isSaveFileV10(value);
-  const hasTransitData = isSaveFileV10(value);
-  let save: SaveFileV10;
+export const migrateSave = (value: unknown): SaveFileV11 => {
+  if (isSaveFileV11(value)) return structuredClone(value);
+  const old: SaveFileV10 = isSaveFileV10(value) ? structuredClone(value) : (() => {
+    const previous = migrateToV9(value);
+    return { ...previous, saveVersion: 10 as const, gameVersion: GAME_VERSION,
+      transit: new TransitSystem(previous.roadGraph, undefined, previous.gameClock.gameSeconds).save() };
+  })();
+  const terrain = new HeightmapTerrain(old.world.terrain);
+  const roadGraph = structuredClone(old.roadGraph);
+  for (const segment of roadGraph.segments) {
+    segment.structureType ??= 'ground';
+    segment.targetElevation ??= 0;
+    segment.geometry.centerline ??= profileRoadElevation(segment.geometry.points, 'ground', 0,
+      (x, z) => terrain.getHeight(x, z), getRoadType(segment.roadTypeId)).centerline;
+  }
+  return { ...old, roadGraph, saveVersion: 11, gameVersion: GAME_VERSION,
+    water: { ...DEFAULT_WATER_STATE } };
+};
+
+export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; services: ServiceSaveState; transit: TransitSaveState; water: WaterState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean; hasServiceData: boolean; hasTransitData: boolean } => {
+  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value);
+  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value);
+  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value);
+  const hasTrafficData = isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value);
+  const hasServiceData = isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value);
+  const hasTransitData = isSaveFileV10(value) || isSaveFileV11(value);
+  let save: SaveFileV11;
   try {
     save = migrateSave(value);
   } catch {
@@ -313,6 +344,7 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
     traffic: structuredClone(save.traffic),
     services: structuredClone(save.services),
     transit: structuredClone(save.transit),
+    water: structuredClone(save.water),
     hasLotData,
     hasPopulationData,
     hasEconomyData,

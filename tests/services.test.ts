@@ -146,7 +146,7 @@ describe('utilities and city services', () => {
     } });
     state.execute({ type: 'place-service', serviceType: 'fire', position: { x: 0, z: 19 } });
     const saved = state.serialize();
-    expect(saved.saveVersion).toBe(10);
+    expect(saved.saveVersion).toBe(11);
     const restored = new SimulationState();
     restored.load(JSON.parse(JSON.stringify(saved)));
     expect(restored.services.facilities).toEqual(state.services.facilities);

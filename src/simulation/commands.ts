@@ -16,6 +16,7 @@ import type { Lot } from '../lots/types';
 import type { ZoningCell } from '../zoning/types';
 import type { TransitSystem } from '../transit/system';
 import type { TransitLineInput, TransitSaveState, TransitStop, TransitLine } from '../transit/types';
+import type { StaticWater } from '../water/staticWater';
 
 export type SimulationCommandData =
   | { type: 'build-road'; input: BuildRoadInput }
@@ -27,7 +28,8 @@ export type SimulationCommandData =
   | { type: 'remove-bus-stop'; stopId: string }
   | { type: 'create-bus-line'; input: TransitLineInput }
   | { type: 'update-bus-line'; lineId: string; input: TransitLineInput }
-  | { type: 'remove-bus-line'; lineId: string };
+  | { type: 'remove-bus-line'; lineId: string }
+  | { type: 'set-water-level'; seaLevel: number };
 
 export type SimulationCommandResult =
   | ({ type: 'build-road' } & BuildRoadResult)
@@ -41,13 +43,14 @@ export type SimulationCommandResult =
   | { type: 'remove-bus-stop'; stopId: string }
   | { type: 'create-bus-line'; line: TransitLine }
   | { type: 'update-bus-line'; line: TransitLine }
-  | { type: 'remove-bus-line'; lineId: string };
+  | { type: 'remove-bus-line'; lineId: string }
+  | { type: 'set-water-level'; seaLevel: number };
 
 export interface TerrainEditBounds { minX: number; maxX: number; minZ: number; maxZ: number }
 
 export interface SimulationCommand {
   readonly label: string;
-  readonly domain: 'road' | 'zone' | 'terrain' | 'service' | 'transit';
+  readonly domain: 'road' | 'zone' | 'terrain' | 'service' | 'transit' | 'water';
   readonly affectedCellIds?: readonly ZoningCellId[];
   readonly affectedChunkIds?: readonly ChunkDescriptor['id'][];
   readonly affectedTerrainBounds?: TerrainEditBounds;
@@ -115,10 +118,10 @@ export class BuildRoadCommand extends SnapshotCommand {
   constructor(private readonly input: BuildRoadInput, assignments?: Map<ZoningCellId, ZoneType>,
     private readonly terrainHeight?: (x: number, z: number) => number,
     private readonly economy?: EconomySystem, private readonly gameSeconds?: () => number,
-    private readonly services?: ServiceSystem) { super(assignments); }
+    private readonly services?: ServiceSystem, private readonly water?: StaticWater) { super(assignments); }
   protected apply(graph: RoadGraph): SimulationCommandResult {
-    const result = graph.buildRoad(this.input);
-    if (this.terrainHeight && result.createdSegmentIds.some((id) => {
+    const result = graph.buildRoad(this.input, this.terrainHeight, this.water?.seaLevel);
+    if ((this.input.structureType ?? 'ground') === 'ground' && this.terrainHeight && result.createdSegmentIds.some((id) => {
       const segment = graph.segments.get(id);
       return segment && exceedsTerrainGrade(segment.geometry.points, this.terrainHeight!);
     })) throw new Error('Road grade is too steep for surface placement.');
@@ -320,6 +323,23 @@ export class TransitCommand implements SimulationCommand {
   }
 }
 
+export class SetWaterLevelCommand implements SimulationCommand {
+  readonly label = 'Set water level';
+  readonly domain = 'water' as const;
+  private before?: number;
+  constructor(private readonly water: StaticWater, private readonly seaLevel: number) {}
+  execute(): SimulationCommandResult {
+    this.before = this.water.seaLevel;
+    this.water.setSeaLevel(this.seaLevel);
+    return { type: 'set-water-level', seaLevel: this.seaLevel };
+  }
+  undo(): void {
+    if (this.before === undefined) throw new Error('Water command was not executed.');
+    this.water.setSeaLevel(this.before);
+  }
+  redo(): SimulationCommandResult { return this.execute(); }
+}
+
 export class CommandHistory {
   private readonly undoStack: SimulationCommand[] = [];
   private readonly redoStack: SimulationCommand[] = [];
@@ -384,9 +404,10 @@ export class CommandHistory {
 
 export const commandFromData = (data: SimulationCommandData, assignments: Map<ZoningCellId, ZoneType>,
   terrainHeight?: (x: number, z: number) => number, economy?: EconomySystem, gameSeconds?: () => number,
-  services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[], transit?: TransitSystem): SimulationCommand => {
+  services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[], transit?: TransitSystem,
+  water?: StaticWater): SimulationCommand => {
   switch (data.type) {
-    case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds, services);
+    case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds, services, water);
     case 'remove-road': return new RemoveRoadCommand(data.segmentId, assignments);
     case 'set-zone': return new SetZoneCommand(data.cellIds, data.zoneType, assignments);
     case 'place-service':
@@ -402,5 +423,8 @@ export const commandFromData = (data: SimulationCommandData, assignments: Map<Zo
     case 'remove-bus-line':
       if (!transit || !gameSeconds) throw new Error('Transit system is unavailable.');
       return new TransitCommand(data, transit, gameSeconds);
+    case 'set-water-level':
+      if (!water) throw new Error('Water system is unavailable.');
+      return new SetWaterLevelCommand(water, data.seaLevel);
   }
 };

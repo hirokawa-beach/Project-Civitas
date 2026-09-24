@@ -11,7 +11,8 @@ import {
   type PolylineProjection,
 } from './geometry';
 import { getRoadType } from './roadTypes';
-import type { BuildRoadInput, Lane, RoadEndpointIntent, RoadGeometry, RoadGraphSnapshot, RoadNode, RoadSegment } from './types';
+import { profileRoadElevation, roadHeightAt, sliceRoadCenterline } from './elevation';
+import type { BuildRoadInput, Lane, RoadEndpointIntent, RoadGeometry, RoadGraphSnapshot, RoadNode, RoadSegment, RoadStructureType } from './types';
 import { validateRoadCandidate } from './validation';
 
 export interface SnapResult {
@@ -80,10 +81,13 @@ export class RoadGraph {
     this.assertIntegrity();
   }
 
-  findSnap(position: Vec2, nodeRadius = 12, segmentRadius = 10): SnapResult {
+  findSnap(position: Vec2, nodeRadius = 12, segmentRadius = 10,
+    targetY?: number, terrainHeight?: (x: number, z: number) => number): SnapResult {
     let closestNode: RoadNode | undefined;
     let closestNodeDistance = nodeRadius;
     for (const node of this.nodes.values()) {
+      if (targetY !== undefined && !this.connectedSegments(node.id).some((segment) =>
+        Math.abs(roadHeightAt(segment.geometry, node.position, terrainHeight) - targetY) < 1.5)) continue;
       const candidateDistance = distance(position, node.position);
       if (candidateDistance <= closestNodeDistance) {
         closestNode = node;
@@ -96,6 +100,7 @@ export class RoadGraph {
     let closestProjection: PolylineProjection | undefined;
     for (const segment of this.segments.values()) {
       const projection = closestPointOnPolyline(position, segment.geometry.points);
+      if (targetY !== undefined && Math.abs(roadHeightAt(segment.geometry, projection.point, terrainHeight) - targetY) >= 1.5) continue;
       if (projection.distance <= segmentRadius && (!closestProjection || projection.distance < closestProjection.distance)) {
         closestProjection = projection;
         closestSegment = segment;
@@ -107,21 +112,29 @@ export class RoadGraph {
     return { position: { ...position }, type: 'none' };
   }
 
-  buildRoad(input: BuildRoadInput): BuildRoadResult {
+  buildRoad(input: BuildRoadInput, terrainHeight: (x: number, z: number) => number = () => 0,
+    waterLevel = Number.NEGATIVE_INFINITY): BuildRoadResult {
     const before = this.snapshot();
     try {
-      return this.buildRoadMutating(input);
+      return this.buildRoadMutating(input, terrainHeight, waterLevel);
     } catch (error) {
       this.restore(before);
       throw error;
     }
   }
 
-  private buildRoadMutating(input: BuildRoadInput): BuildRoadResult {
+  private buildRoadMutating(input: BuildRoadInput, terrainHeight: (x: number, z: number) => number,
+    waterLevel: number): BuildRoadResult {
     if (input.geometry.points.length < 2) throw new Error('A road needs at least two points.');
     const geometry = structuredClone(input.geometry);
     if (polylineLength(geometry.points) < 4) throw new Error('Road is too short.');
     const roadType = getRoadType(input.roadTypeId);
+    const structure: RoadStructureType = input.structureType ?? 'ground';
+    const targetElevation = structure === 'ground' ? 0 : input.targetElevation ?? 8;
+    if (!(['ground', 'elevated', 'bridge', 'tunnel'] as RoadStructureType[]).includes(structure)
+      || !Number.isFinite(targetElevation) || targetElevation < 0 || targetElevation > 80
+      || (structure !== 'ground' && targetElevation < roadType.minimumVerticalClearance))
+      throw new Error('Invalid road structure or target elevation.');
     // First pass validates intrinsic geometry only. Endpoint snap intents are
     // resolved before testing against existing road surfaces.
     const validationOptions = {
@@ -132,14 +145,22 @@ export class RoadGraph {
     if (!initialValidation.valid) throw new Error(`Invalid road: ${initialValidation.reasons.join(', ')}.`);
 
     const [startNode, endNode] = input.endpointIntents
-      ? this.resolveEndpointIntentPair(input.endpointIntents.start, input.endpointIntents.end)
-      : [this.resolveEndpoint(geometry.points[0]), undefined];
+      ? this.resolveEndpointIntentPair(input.endpointIntents.start, input.endpointIntents.end, terrainHeight)
+      : [this.resolveEndpoint(geometry.points[0], 12, 10, terrainHeight), undefined];
     geometry.points[0] = { ...startNode.position };
     const lastIndex = geometry.points.length - 1;
-    const resolvedEndNode = endNode ?? this.resolveEndpoint(geometry.points[lastIndex]);
+    const resolvedEndNode = endNode ?? this.resolveEndpoint(geometry.points[lastIndex], 12, 10, terrainHeight);
     geometry.points[lastIndex] = { ...resolvedEndNode.position };
 
-    const snappedValidation = validateRoadCandidate(this.snapshot(), geometry.points, validationOptions);
+    const profile = profileRoadElevation(geometry.points, structure, targetElevation, terrainHeight, roadType, waterLevel);
+    if (!profile.valid) throw new Error(`Invalid road elevation: ${profile.reason}.`);
+    geometry.centerline = profile.centerline;
+
+    const snappedValidation = validateRoadCandidate(this.snapshot(), geometry.points, {
+      ...validationOptions, candidateCenterline: geometry.centerline,
+      candidateStructureType: structure,
+      minimumVerticalClearance: roadType.minimumVerticalClearance,
+    });
     if (!snappedValidation.valid) throw new Error(`Invalid snapped road: ${snappedValidation.reasons.join(', ')}.`);
 
     const totalLength = polylineLength(geometry.points);
@@ -156,6 +177,8 @@ export class RoadGraph {
         for (let existingIndex = 0; existingIndex < existingPoints.length - 1; existingIndex += 1) {
           const crossing = segmentIntersection(newStart, newEnd, existingPoints[existingIndex], existingPoints[existingIndex + 1]);
           if (!crossing) continue;
+          if (Math.abs(roadHeightAt(geometry, crossing.point, terrainHeight)
+            - roadHeightAt(segment.geometry, crossing.point, terrainHeight)) >= roadType.minimumVerticalClearance) continue;
           const along = newTraversed + crossing.aT * newPartLength;
           if (along <= EPSILON || along >= totalLength - EPSILON) continue;
           if (!crossingCandidates.some((candidate) => distance(candidate.point, crossing.point) < 0.25)) {
@@ -178,7 +201,7 @@ export class RoadGraph {
       { along: 0, nodeId: startNode.id, position: { ...startNode.position } },
     ];
     for (const crossing of crossingCandidates) {
-      const node = this.resolveEndpoint(crossing.point, 0.3, 0.3);
+      const node = this.resolveEndpoint(crossing.point, 0.3, 0.3, terrainHeight);
       if (node.id === anchors.at(-1)?.nodeId || node.id === resolvedEndNode.id) continue;
       anchors.push({ along: crossing.along, nodeId: node.id, position: { ...node.position } });
       intersectionNodeIds.push(node.id);
@@ -194,13 +217,16 @@ export class RoadGraph {
       const points = slicePolyline(geometry.points, from.along, to.along);
       points[0] = { ...from.position };
       points[points.length - 1] = { ...to.position };
+      const centerline = sliceRoadCenterline(geometry, from.along, to.along);
       const segment = this.createSegment(
         from.nodeId,
         to.nodeId,
-        { kind: anchors.length === 2 ? geometry.kind : 'polyline', points },
+        { kind: anchors.length === 2 ? geometry.kind : 'polyline', points, centerline },
         roadType.id,
         zoningLineageId,
         from.along,
+        structure,
+        targetElevation,
       );
       createdSegmentIds.push(segment.id);
     }
@@ -234,6 +260,9 @@ export class RoadGraph {
         throw new Error(`Segment ${segment.id} references a missing node.`);
       }
       if (segment.geometry.points.length < 2) throw new Error(`Segment ${segment.id} has invalid geometry.`);
+      if (segment.geometry.centerline && segment.geometry.centerline.length < 2) throw new Error(`Segment ${segment.id} has invalid centerline.`);
+      if ((segment.structureType ?? 'ground') !== 'ground' && !segment.geometry.centerline)
+        throw new Error(`Segment ${segment.id} is missing its 3D centerline.`);
       if (distance(segment.geometry.points[0], this.nodes.get(segment.startNodeId)!.position) > EPSILON) {
         throw new Error(`Segment ${segment.id} start geometry is disconnected.`);
       }
@@ -250,8 +279,9 @@ export class RoadGraph {
     }
   }
 
-  private resolveEndpoint(position: Vec2, nodeRadius = 12, segmentRadius = 10): RoadNode {
-    const snap = this.findSnap(position, nodeRadius, segmentRadius);
+  private resolveEndpoint(position: Vec2, nodeRadius = 12, segmentRadius = 10,
+    terrainHeight: (x: number, z: number) => number = () => 0): RoadNode {
+    const snap = this.findSnap(position, nodeRadius, segmentRadius, terrainHeight(position.x, position.z), terrainHeight);
     if (snap.type === 'node') return this.nodes.get(snap.targetId as RoadNodeId)!;
     if (snap.type === 'segment') {
       const segment = this.segments.get(snap.targetId as RoadSegmentId)!;
@@ -264,32 +294,37 @@ export class RoadGraph {
     return this.createNode(snap.position);
   }
 
-  private resolveEndpointIntent(intent: RoadEndpointIntent): RoadNode {
+  private resolveEndpointIntent(intent: RoadEndpointIntent, terrainHeight: (x: number, z: number) => number): RoadNode {
     if (intent.kind === 'free') {
       // Even with interactive snapping disabled, merge mathematically identical
       // endpoints so floating-point noise cannot create disconnected duplicates.
-      return this.resolveEndpoint(intent.position, 0.1, 0.1);
+      return this.resolveEndpoint(intent.position, 0.1, 0.1, terrainHeight);
     }
     if (intent.kind === 'node') {
       const node = this.nodes.get(intent.nodeId);
       if (!node || distance(node.position, intent.position) > 0.25) {
         throw new Error('The selected road node changed before construction completed.');
       }
+      if (!this.connectedSegments(node.id).some((segment) => Math.abs(roadHeightAt(segment.geometry, node.position, terrainHeight)
+        - terrainHeight(node.position.x, node.position.z)) < 1.5)) return this.createNode(intent.position);
       return node;
     }
     const segment = this.segments.get(intent.segmentId);
     if (!segment) throw new Error('The selected road segment changed before construction completed.');
     const projection = closestPointOnPolyline(intent.position, segment.geometry.points);
     if (projection.distance > 0.25) throw new Error('The selected road position is no longer valid.');
+    if (Math.abs(roadHeightAt(segment.geometry, projection.point, terrainHeight)
+      - terrainHeight(projection.point.x, projection.point.z)) >= 1.5) return this.createNode(intent.position);
     const segmentLength = polylineLength(segment.geometry.points);
     if (projection.along <= EPSILON) return this.nodes.get(segment.startNodeId)!;
     if (projection.along >= segmentLength - EPSILON) return this.nodes.get(segment.endNodeId)!;
     return this.splitSegment(segment, projection);
   }
 
-  private resolveEndpointIntentPair(start: RoadEndpointIntent, end: RoadEndpointIntent): [RoadNode, RoadNode] {
+  private resolveEndpointIntentPair(start: RoadEndpointIntent, end: RoadEndpointIntent,
+    terrainHeight: (x: number, z: number) => number): [RoadNode, RoadNode] {
     if (start.kind !== 'segment' || end.kind !== 'segment' || start.segmentId !== end.segmentId) {
-      return [this.resolveEndpointIntent(start), this.resolveEndpointIntent(end)];
+      return [this.resolveEndpointIntent(start, terrainHeight), this.resolveEndpointIntent(end, terrainHeight)];
     }
     const segment = this.segments.get(start.segmentId);
     if (!segment) throw new Error('The selected road segment changed before construction completed.');
@@ -298,6 +333,11 @@ export class RoadGraph {
     if (startProjection.distance > 0.25 || endProjection.distance > 0.25) {
       throw new Error('The selected road position is no longer valid.');
     }
+    if (Math.abs(roadHeightAt(segment.geometry, startProjection.point, terrainHeight)
+      - terrainHeight(startProjection.point.x, startProjection.point.z)) >= 1.5
+      || Math.abs(roadHeightAt(segment.geometry, endProjection.point, terrainHeight)
+      - terrainHeight(endProjection.point.x, endProjection.point.z)) >= 1.5)
+      return [this.resolveEndpointIntent(start, terrainHeight), this.resolveEndpointIntent(end, terrainHeight)];
     const segmentLength = polylineLength(segment.geometry.points);
     const endpoints = new Map<'start' | 'end', RoadNode>();
     const interiors: Array<{ key: 'start' | 'end'; projection: PolylineProjection; node: RoadNode }> = [];
@@ -329,10 +369,13 @@ export class RoadGraph {
         this.createSegment(
           from.nodeId,
           to.nodeId,
-          { kind: 'polyline', points: slicePolyline(segment.geometry.points, from.along, to.along) },
+          { kind: 'polyline', points: slicePolyline(segment.geometry.points, from.along, to.along),
+            centerline: sliceRoadCenterline(segment.geometry, from.along, to.along) },
           segment.roadTypeId,
           lineageId,
           startOffset + from.along,
+          segment.structureType ?? 'ground',
+          segment.targetElevation ?? 0,
         );
       }
     }
@@ -352,6 +395,8 @@ export class RoadGraph {
     roadTypeId: string,
     zoningLineageId: RoadLineageId = `roadline-${this.nextLineageId++}`,
     zoningStartOffset = 0,
+    structureType: RoadStructureType = 'ground',
+    targetElevation = 0,
   ): RoadSegment {
     const roadType = getRoadType(roadTypeId);
     const segment: RoadSegment = {
@@ -363,7 +408,9 @@ export class RoadGraph {
       width: roadType.width,
       speedLimit: roadType.speedLimit,
       laneIds: [],
-      zoningAllowed: roadType.zoningAllowed,
+      zoningAllowed: roadType.zoningAllowed && structureType === 'ground',
+      structureType,
+      targetElevation,
       zoningLineageId,
       zoningStartOffset,
     };
@@ -387,8 +434,12 @@ export class RoadGraph {
     this.deleteSegment(segment.id, false);
     const lineageId = segment.zoningLineageId ?? `roadline-${this.nextLineageId++}`;
     const startOffset = segment.zoningStartOffset ?? 0;
-    this.createSegment(segment.startNodeId, junction.id, { kind: 'polyline', points: leftPoints }, segment.roadTypeId, lineageId, startOffset);
-    this.createSegment(junction.id, segment.endNodeId, { kind: 'polyline', points: rightPoints }, segment.roadTypeId, lineageId, startOffset + projection.along);
+    this.createSegment(segment.startNodeId, junction.id, { kind: 'polyline', points: leftPoints,
+      centerline: sliceRoadCenterline(segment.geometry, 0, projection.along) }, segment.roadTypeId, lineageId, startOffset,
+    segment.structureType ?? 'ground', segment.targetElevation ?? 0);
+    this.createSegment(junction.id, segment.endNodeId, { kind: 'polyline', points: rightPoints,
+      centerline: sliceRoadCenterline(segment.geometry, projection.along, polylineLength(segment.geometry.points)) },
+    segment.roadTypeId, lineageId, startOffset + projection.along, segment.structureType ?? 'ground', segment.targetElevation ?? 0);
     return junction;
   }
 
@@ -424,6 +475,17 @@ export class RoadGraph {
       if (segment.geometry.points.length < 2 || segment.geometry.points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.z))) {
         throw new Error(`Segment ${segment.id} has invalid geometry.`);
       }
+      if (segment.geometry.centerline && (segment.geometry.centerline.length < 2
+        || segment.geometry.centerline.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y) || !Number.isFinite(point.z))))
+        throw new Error(`Segment ${segment.id} has invalid 3D centerline.`);
+      if (segment.geometry.centerline && (distance(segment.geometry.centerline[0], segment.geometry.points[0]) > 0.25
+        || distance(segment.geometry.centerline.at(-1)!, segment.geometry.points.at(-1)!) > 0.25
+        || segment.geometry.centerline.some((point) => closestPointOnPolyline(point, segment.geometry.points).distance > 0.5)))
+        throw new Error(`Segment ${segment.id} has disconnected 3D centerline.`);
+      if ((segment.structureType ?? 'ground') !== 'ground' && !segment.geometry.centerline)
+        throw new Error(`Segment ${segment.id} is missing its 3D centerline.`);
+      if (segment.structureType && !(['ground', 'elevated', 'bridge', 'tunnel'] as RoadStructureType[]).includes(segment.structureType))
+        throw new Error(`Segment ${segment.id} has an invalid structure type.`);
       if (new Set(segment.laneIds).size !== segment.laneIds.length) {
         throw new Error(`Segment ${segment.id} contains duplicate lane IDs.`);
       }

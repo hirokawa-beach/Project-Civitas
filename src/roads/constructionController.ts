@@ -12,6 +12,7 @@ import {
 } from './curveGeometry';
 import { closestPointOnPolyline, cross, distance, dot, normalize, polylineLength, segmentIntersection, subtract } from './geometry';
 import { getRoadType } from './roadTypes';
+import { profileRoadElevation, roadHeightAt } from './elevation';
 import {
   DEFAULT_SNAP_SETTINGS,
   resolveConstructionSnap,
@@ -22,7 +23,7 @@ import {
   type SnapSettings,
 } from './snapping';
 import { validateRoadCandidate, type RoadValidationReason } from './validation';
-import type { RoadEndpointIntent, RoadSegment } from './types';
+import type { RoadEndpointIntent, RoadSegment, RoadStructureType } from './types';
 import { RoadSpatialIndex } from './spatialIndex';
 import { cellIntersectsScreenRect, pointInZoningCell, screenRect, ZoningCellIndex, type ScreenPoint, type ScreenRect } from '../zoning/interaction';
 import type { LotId } from '../lots/types';
@@ -58,6 +59,10 @@ export interface ConstructionStatus {
   analysisMs: number;
   candidateSegments: number;
   curveRadius: number;
+  structureType?: RoadStructureType;
+  targetElevation?: number;
+  grade?: number;
+  clearance?: number;
   zoneBrush?: ZoneBrush;
   zoneMode?: ZonePaintMode;
   zoneSelectionRect?: ScreenRect;
@@ -76,11 +81,14 @@ export interface ConstructionStatus {
 
 const DEFAULT_STATUS: ConstructionStatus = {
   tool: 'road', roadMode: 'straight', prompt: 'Click to set a starting point', length: 0, valid: false, snap: 'none', guides: [], snapSettings: { ...DEFAULT_SNAP_SETTINGS }, plannedIntersections: 0, analysisMs: 0, candidateSegments: 0, curveRadius: 0,
+  structureType: 'ground', targetElevation: 8,
 };
 
 export class ConstructionController {
   private tool: ActiveTool = 'road';
   private roadMode: RoadMode = 'straight';
+  private structureType: RoadStructureType = 'ground';
+  private targetElevation = 8;
   private snapshot?: WorldSnapshot;
   private indexedServiceRevision = -1;
   private indexedLotRevision = -1;
@@ -165,6 +173,8 @@ export class ConstructionController {
       ...DEFAULT_STATUS,
       tool,
       roadMode: this.roadMode,
+      structureType: this.structureType,
+      targetElevation: this.targetElevation,
       zoneBrush: this.zoneBrush,
       zoneMode: this.zoneMode,
       terrainMode: this.terrainMode,
@@ -228,6 +238,21 @@ export class ConstructionController {
     this.renderer.setTransitStopPreview();
     if (this.cursor) this.refreshAt(this.cursor);
     else this.emit({ ...DEFAULT_STATUS, tool: 'road', roadMode: mode, prompt: this.start ? 'Move to continue construction' : 'Click to set a starting point' });
+  }
+
+  setRoadStructure(type: RoadStructureType): void {
+    this.cancel();
+    this.tool = 'road';
+    this.structureType = type;
+    if (this.cursor) this.refreshAt(this.cursor);
+    else this.emit({ ...DEFAULT_STATUS, tool: 'road', roadMode: this.roadMode, structureType: type,
+      targetElevation: this.targetElevation, prompt: 'Click to set a starting point' });
+  }
+
+  setRoadTargetElevation(meters: number): void {
+    this.targetElevation = Math.max(6, Math.min(80, meters));
+    if (this.cursor) this.refreshAt(this.cursor);
+    else this.emit({ ...this.status, targetElevation: this.targetElevation });
   }
 
   toggleSnap(setting: SnapSettingKey): void {
@@ -375,18 +400,23 @@ export class ConstructionController {
     const curve = this.geometryFor(current, currentSnap);
     const points = curve?.points ?? this.previewPoints(current);
     const roadType = getRoadType('small');
+    const profile = profileRoadElevation(points, this.structureType, this.structureType === 'ground' ? 0 : this.targetElevation,
+      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.water.seaLevel);
     const validation = validateRoadCandidate(this.nearbyGraph(points, 24), points, {
       candidateWidth: roadType.width,
       minimumCurveRadius: curve ? roadType.minimumCurveRadius : 0,
       analyticalCurveRadius: curve?.minimumRadius ?? Number.POSITIVE_INFINITY,
-      terrainHeight: (x, z) => this.renderer.getHeight(x, z),
+      terrainHeight: this.structureType === 'ground' ? (x, z) => this.renderer.getHeight(x, z) : undefined,
+      candidateCenterline: profile.centerline,
+      candidateStructureType: this.structureType,
+      minimumVerticalClearance: roadType.minimumVerticalClearance,
     });
     const modeValid = !(this.roadMode === 'continuous' && curve?.exceedsHalfTurn)
       && !(this.roadMode === 'continuous' && curve && this.continuousEndTangentMismatch(currentSnap, curve))
       && !(this.roadMode === 'one-curve' && curve
         && !isOneCurveSuitable(this.start, current, curve.startTangent, curve.endTangent, roadType.width * 1.5));
     const cost = roadConstructionCost(points, roadType.id);
-    if (!validation.valid || !modeValid || (this.snapshot && this.snapshot.economy.funds < cost)) return;
+    if (!validation.valid || !profile.valid || !modeValid || (this.snapshot && this.snapshot.economy.funds < cost)) return;
     void this.commitRoad(points, current, currentSnap);
   };
 
@@ -601,8 +631,11 @@ export class ConstructionController {
     const points = curve?.points ?? this.previewPoints(snap.position);
     const length = polylineLength(points);
     const nearbyGraph = this.nearbyGraph(points, 24);
-    const intersections = this.findIntersections(points, nearbyGraph.segments);
     const roadType = getRoadType('small');
+    const profile = profileRoadElevation(points, this.structureType, this.structureType === 'ground' ? 0 : this.targetElevation,
+      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.water.seaLevel);
+    const previewGeometry = { kind: 'polyline' as const, points, centerline: profile.centerline };
+    const intersections = this.findIntersections(points, nearbyGraph.segments, previewGeometry);
     const estimatedCost = roadConstructionCost(points, roadType.id);
     const fundsAfterConstruction = (this.snapshot?.economy.funds ?? 0) - estimatedCost;
     const affordable = !this.snapshot || fundsAfterConstruction >= 0;
@@ -610,7 +643,10 @@ export class ConstructionController {
       candidateWidth: roadType.width,
       minimumCurveRadius: curve ? roadType.minimumCurveRadius : 0,
       analyticalCurveRadius: curve?.minimumRadius ?? Number.POSITIVE_INFINITY,
-      terrainHeight: (x, z) => this.renderer.getHeight(x, z),
+      terrainHeight: this.structureType === 'ground' ? (x, z) => this.renderer.getHeight(x, z) : undefined,
+      candidateCenterline: profile.centerline,
+      candidateStructureType: this.structureType,
+      minimumVerticalClearance: roadType.minimumVerticalClearance,
     });
     const oneCurveUnsuitable = this.roadMode === 'one-curve' && curve
       ? !isOneCurveSuitable(this.start, snap.position, curve.startTangent, curve.endTangent, roadType.width * 1.5)
@@ -619,7 +655,7 @@ export class ConstructionController {
     const continuousTangentMismatch = this.roadMode === 'continuous' && curve
       ? this.continuousEndTangentMismatch(snap, curve)
       : false;
-    const valid = validation.valid && !oneCurveUnsuitable && !exceedsHalfTurn && !continuousTangentMismatch && affordable;
+    const valid = validation.valid && profile.valid && !oneCurveUnsuitable && !exceedsHalfTurn && !continuousTangentMismatch && affordable;
     const guides = [...snap.guides];
     if (curve) {
       guides.push({
@@ -637,6 +673,7 @@ export class ConstructionController {
     }
     const visual: RoadPreviewVisual = {
       points,
+      geometry: this.structureType === 'ground' ? undefined : previewGeometry,
       width: roadType.width,
       valid,
       snapPosition: snap.type === 'none' ? undefined : snap.position,
@@ -683,7 +720,8 @@ export class ConstructionController {
                 ? 'Cannot join smoothly · adjust endpoint or use 2-CURVE'
               : !affordable
                 ? 'Cannot build · Not enough funds'
-              : `Cannot build · ${this.validationMessage(validation.reasons[0])}`,
+              : profile.reason ? `Cannot build · ${profile.reason}`
+                : `Cannot build · ${this.validationMessage(validation.reasons[0])}`,
       length,
       estimatedCost,
       fundsAfterConstruction,
@@ -695,6 +733,10 @@ export class ConstructionController {
       analysisMs: performance.now() - analysisStarted,
       candidateSegments: nearbyGraph.segments.length,
       curveRadius: curve && Number.isFinite(curve.minimumRadius) ? curve.minimumRadius : 0,
+      structureType: this.structureType,
+      targetElevation: this.targetElevation,
+      grade: profile.maximumGrade,
+      clearance: Number.isFinite(profile.minimumClearance) ? profile.minimumClearance : 0,
       step: requiredControls + 1,
       totalSteps: requiredControls + 1,
     });
@@ -788,10 +830,19 @@ export class ConstructionController {
 
   private snapPoint(point: Vec2): ConstructionSnapResult {
     const snapOrigin = this.controlPoints.at(-1) ?? this.start;
+    const nearby = this.spatialIndex.query(this.start ? [this.start, point] : [point], 240);
+    const eligibleSegments = nearby.segments.filter((segment) => {
+      const onRoad = closestPointOnPolyline(point, segment.geometry.points).point;
+      return Math.abs(roadHeightAt(segment.geometry, onRoad, (x, z) => this.renderer.getHeight(x, z))
+        - this.renderer.getHeight(onRoad.x, onRoad.z)) < 1.5;
+    });
+    const eligibleIds = new Set(eligibleSegments.map((segment) => segment.id));
+    const eligibleNodeIds = new Set(eligibleSegments.flatMap((segment) => [segment.startNodeId, segment.endNodeId]));
     const result = resolveConstructionSnap({
       raw: point,
       start: snapOrigin,
-      graph: this.spatialIndex.query(this.start ? [this.start, point] : [point], 240),
+      graph: { segments: eligibleSegments, nodes: nearby.nodes.filter((node) => eligibleNodeIds.has(node.id)),
+        lanes: nearby.lanes.filter((lane) => eligibleIds.has(lane.roadSegmentId)) },
       settings: this.snapSettings,
       tangentHint: this.start && (this.roadMode === 'straight' || this.controlPoints.length === 0)
         ? this.curveStartTangent(point)
@@ -947,13 +998,15 @@ export class ConstructionController {
     return best?.id;
   }
 
-  private findIntersections(points: Vec2[], nearbySegments: RoadSegment[]): Vec2[] {
+  private findIntersections(points: Vec2[], nearbySegments: RoadSegment[], geometry?: RoadSegment['geometry']): Vec2[] {
     const results: Vec2[] = [];
     for (let newIndex = 0; newIndex < points.length - 1; newIndex += 1) {
       for (const segment of nearbySegments) {
         for (let index = 0; index < segment.geometry.points.length - 1; index += 1) {
           const crossing = segmentIntersection(points[newIndex], points[newIndex + 1], segment.geometry.points[index], segment.geometry.points[index + 1]);
-          if (crossing && !results.some((point) => distance(point, crossing.point) < 1)) results.push(crossing.point);
+          if (crossing && (!geometry || Math.abs(roadHeightAt(geometry, crossing.point)
+            - roadHeightAt(segment.geometry, crossing.point, (x, z) => this.renderer.getHeight(x, z))) < getRoadType('small').minimumVerticalClearance)
+            && !results.some((point) => distance(point, crossing.point) < 1)) results.push(crossing.point);
         }
       }
     }
@@ -973,6 +1026,8 @@ export class ConstructionController {
       input: {
         geometry: { kind: mode === 'straight' ? 'straight' : 'curve', points },
         roadTypeId: 'small',
+        structureType: this.structureType,
+        targetElevation: this.structureType === 'ground' ? 0 : this.targetElevation,
         endpointIntents: {
           start: this.startIntent ?? { kind: 'free', position: { ...points[0] } },
           end: this.endpointIntent(endSnap),
@@ -1024,6 +1079,7 @@ export class ConstructionController {
       case 'short-kink': return 'bend is too short';
       case 'curve-radius': return 'curve radius is too tight';
       case 'steep-grade': return 'terrain slope is too steep';
+      case 'vertical-clearance': return 'not enough vertical clearance';
       case 'invalid-geometry': return 'invalid geometry';
       case 'insufficient-points': return 'more points required';
       default: return 'invalid placement';
@@ -1032,7 +1088,8 @@ export class ConstructionController {
 
   private emit(status: ConstructionStatus): void {
     const hoveredLotId = this.cursor && this.snapshot?.lots.find((lot) => pointInZoningCell(this.cursor!, lot))?.id;
-    this.status = { ...status, ...(status.tool === 'terrain' ? {
+    this.status = { ...status, ...(status.tool === 'road' ? { structureType: this.structureType,
+      targetElevation: this.targetElevation } : {}), ...(status.tool === 'terrain' ? {
       terrainMode: this.terrainMode, terrainSize: this.terrainSize, terrainStrength: this.terrainStrength,
     } : {}), hoveredLotId, snapSettings: { ...this.snapSettings } };
     for (const listener of this.listeners) listener(this.status);

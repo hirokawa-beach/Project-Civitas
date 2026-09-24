@@ -11,6 +11,7 @@ import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder';
+import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
 import { CreateDashedLines, CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
 import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder';
@@ -25,10 +26,11 @@ import type { RoadNodeId, RoadSegmentId } from '../shared/ids';
 import { buildingDefinition } from '../lots/definitions';
 import type { Building, BuildingId, Lot } from '../lots/types';
 import type { WorldSnapshot } from '../shared/protocol';
-import { createChunks, worldToChunk, CHUNK_SIZE, HALF_WORLD_SIZE, type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
+import { createChunks, worldToChunk, CHUNK_SIZE, HALF_WORLD_SIZE, WORLD_SIZE, type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
 import { HeightmapTerrain, TERRAIN_SAMPLE_SPACING } from '../terrain/heightmap';
 import { distance, normalize, pointAtDistance, subtract } from '../roads/geometry';
-import type { RoadSegment } from '../roads/types';
+import type { RoadGeometry, RoadSegment } from '../roads/types';
+import { roadHeightAt } from '../roads/elevation';
 import type { ConstructionGuide } from '../roads/snapping';
 import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../zoning/types';
 import type { ScreenPoint } from '../zoning/interaction';
@@ -50,6 +52,7 @@ const SERVICE_COLORS: Record<ServiceType, string> = {
 
 export interface RoadPreviewVisual {
   points: Vec2[];
+  geometry?: RoadGeometry;
   width: number;
   valid: boolean;
   snapPosition?: Vec2;
@@ -67,6 +70,7 @@ export class GameRenderer {
 
   private readonly roadMeshes = new Map<RoadSegmentId, Mesh>();
   private readonly roadSignatures = new Map<RoadSegmentId, string>();
+  private readonly structureMeshes = new Map<RoadSegmentId, Mesh[]>();
   private readonly intersectionMeshes = new Map<RoadNodeId, Mesh>();
   private readonly intersectionSignatures = new Map<RoadNodeId, string>();
   private readonly keys = new Set<string>();
@@ -91,6 +95,11 @@ export class GameRenderer {
   private lastVehicleCameraZ = Number.NaN;
   private visibleVehicleCount = 0;
   private readonly terrainMaterial: StandardMaterial;
+  private readonly waterMaterial: StandardMaterial;
+  private readonly supportMaterial: StandardMaterial;
+  private readonly tunnelMaterial: StandardMaterial;
+  private waterMesh?: Mesh;
+  private appliedWaterRevision = -1;
   private terrain?: HeightmapTerrain;
   private readonly terrainMeshes = new Map<ChunkDescriptor['id'], Mesh>();
   private appliedTerrainRevision = -1;
@@ -168,6 +177,17 @@ export class GameRenderer {
     this.terrainMaterial.diffuseColor = Color3.FromHexString('#66765f');
     this.terrainMaterial.specularColor = Color3.Black();
     this.terrainMaterial.backFaceCulling = false;
+
+    this.waterMaterial = new StandardMaterial('static-water-material', this.scene);
+    this.waterMaterial.diffuseColor = Color3.FromHexString('#32677b');
+    this.waterMaterial.emissiveColor = Color3.FromHexString('#163741');
+    this.waterMaterial.specularColor = Color3.FromHexString('#90b6bc');
+    this.waterMaterial.alpha = 0.92;
+    this.waterMaterial.backFaceCulling = false;
+    this.supportMaterial = new StandardMaterial('bridge-support-material', this.scene);
+    this.supportMaterial.diffuseColor = Color3.FromHexString('#878f88');
+    this.tunnelMaterial = new StandardMaterial('tunnel-portal-material', this.scene);
+    this.tunnelMaterial.diffuseColor = Color3.FromHexString('#454b47');
 
     this.roadMaterial = new StandardMaterial('road-material', this.scene);
     this.roadMaterial.diffuseColor = Color3.FromHexString('#303735');
@@ -264,6 +284,7 @@ export class GameRenderer {
     const updateStarted = performance.now();
     this.snapshot = snapshot;
     const terrainChanged = snapshot.terrainRevision !== this.appliedTerrainRevision;
+    const waterChanged = snapshot.water.revision !== this.appliedWaterRevision;
     const terrainChunks = terrainChanged ? this.syncTerrain(snapshot) : [];
     const roadChanged = snapshot.roadRevision !== this.appliedRoadRevision;
     const zoningChanged = snapshot.zoningRevision !== this.appliedZoningRevision;
@@ -271,7 +292,8 @@ export class GameRenderer {
     const trafficChanged = snapshot.traffic.revision !== this.appliedTrafficRevision;
     const serviceChanged = snapshot.services.revision !== this.appliedServiceRevision;
     const transitChanged = snapshot.transit.revision !== this.appliedTransitRevision;
-    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged && !serviceChanged && !transitChanged) return;
+    if (!roadChanged && !zoningChanged && !terrainChanged && !waterChanged && !lotChanged && !trafficChanged && !serviceChanged && !transitChanged) return;
+    if (waterChanged) this.syncWater(snapshot);
     const affectedRoadIds = terrainChanged && !roadChanged ? this.invalidateRoadsInChunks(terrainChunks) : [];
     if (roadChanged) {
       this.appliedRoadRevision = snapshot.roadRevision;
@@ -385,11 +407,13 @@ export class GameRenderer {
       mesh.dispose(); this.stopMeshes.delete(id); this.stopSignatures.delete(id);
     }
     for (const stop of snapshot.transit.stops) {
-      const signature = JSON.stringify([stop.position, stop.direction, snapshot.terrainRevision]);
+      const signature = JSON.stringify([stop.position, stop.direction, snapshot.terrainRevision, snapshot.roadRevision]);
       if (this.stopSignatures.get(stop.id) === signature) continue;
       this.stopMeshes.get(stop.id)?.dispose();
       const marker = CreateCylinder(`bus-stop-${stop.id}`, { diameter: 2.6, height: 4, tessellation: 12 }, this.scene);
-      marker.position.set(stop.position.x, this.getHeight(stop.position.x, stop.position.z) + 2, stop.position.z);
+      const stopRoad = snapshot.roadGraph.segments.find((segment) => segment.id === stop.roadSegmentId);
+      marker.position.set(stop.position.x, stopRoad ? roadHeightAt(stopRoad.geometry, stop.position, (x, z) => this.getHeight(x, z)) + 2
+        : this.getHeight(stop.position.x, stop.position.z) + 2, stop.position.z);
       marker.material = this.stopMaterial;
       marker.isPickable = false;
       this.stopMeshes.set(stop.id, marker);
@@ -413,7 +437,8 @@ export class GameRenderer {
         const count = Math.max(2, Math.ceil(Math.abs(leg.toAlong - leg.fromAlong) / 8));
         paths.push(Array.from({ length: count + 1 }, (_, index) => {
           const along = leg.fromAlong + (leg.toAlong - leg.fromAlong) * index / count;
-          return this.toVector(pointAtDistance(segment.geometry.points, along).point, 0.9);
+          const point = pointAtDistance(segment.geometry.points, along).point;
+          return new Vector3(point.x, roadHeightAt(segment.geometry, point, (x, z) => this.getHeight(x, z)) + 0.9, point.z);
         }));
       }
       if (paths.length > 0) {
@@ -440,7 +465,7 @@ export class GameRenderer {
         const side = leg.direction === 'forward' ? 1 : -1;
         const offset = Math.min(2.7, segment.width * 0.24) * side;
         const x = point.x - tangent.z * offset; const z = point.z + tangent.x * offset;
-        targets.set(vehicle.id, { x, y: this.getHeight(x, z) + 1.7, z,
+        targets.set(vehicle.id, { x, y: roadHeightAt(segment.geometry, point, (a, b) => this.getHeight(a, b)) + 1.7, z,
           yaw: Math.atan2(tangent.x * side, tangent.z * side) });
         break;
       }
@@ -635,6 +660,16 @@ export class GameRenderer {
     if (this.zonePreviewMesh) this.zonePreviewMesh.material = this.zonePreviewMaterials[brush ?? 'erase'];
   }
 
+  private syncWater(snapshot: WorldSnapshot): void {
+    this.waterMesh?.dispose();
+    const mesh = CreateGround('static-water-surface', { width: WORLD_SIZE, height: WORLD_SIZE, subdivisions: 1 }, this.scene);
+    mesh.position.y = snapshot.water.seaLevel + 0.04;
+    mesh.material = this.waterMaterial;
+    mesh.isPickable = false;
+    this.waterMesh = mesh;
+    this.appliedWaterRevision = snapshot.water.revision;
+  }
+
   setServicePreview(facility?: ServiceFacility, valid = false): void {
     this.servicePreviewMesh?.dispose();
     this.servicePreviewMesh = undefined;
@@ -698,7 +733,7 @@ export class GameRenderer {
     this.previewLabelMeshes = [];
     if (!preview) return;
     if (preview.points.length >= 2) {
-      this.previewMesh = this.createRoadRibbon('road-preview', preview.points, preview.width + 0.4, 0.38);
+      this.previewMesh = this.createRoadRibbon('road-preview', preview.points, preview.width + 0.4, 0.38, preview.geometry);
       this.previewMesh.material = preview.valid ? this.previewValidMaterial : this.previewInvalidMaterial;
       this.previewMesh.isPickable = false;
       const previewLength = this.polylineLength(preview.points);
@@ -711,7 +746,8 @@ export class GameRenderer {
         // than every edge yields an empty mesh even when the whole road is long.
         const dashStep = Math.min(2.5, longestStep);
         this.previewCenterlineMesh = CreateDashedLines('road-preview-centerline', {
-          points: preview.points.map((point) => this.toVector(point, 0.84)),
+          points: preview.points.map((point) => preview.geometry?.centerline
+            ? new Vector3(point.x, roadHeightAt(preview.geometry, point) + 0.84, point.z) : this.toVector(point, 0.84)),
           dashSize: 3.5,
           gapSize: 2.4,
           dashNb: Math.max(1, Math.ceil(previewLength / dashStep)),
@@ -722,7 +758,7 @@ export class GameRenderer {
         this.previewCenterlineMesh.alpha = 0.95;
         this.previewCenterlineMesh.isPickable = false;
       }
-      const [left, right] = this.roadSidePaths(preview.points, preview.width + 0.5, 0.8);
+      const [left, right] = this.roadSidePaths(preview.points, preview.width + 0.5, 0.8, preview.geometry);
       this.previewEdgeMesh = CreateLineSystem('road-preview-edges', { lines: [left, right] }, this.scene);
       this.previewEdgeMesh.color = preview.valid ? Color3.FromHexString('#bcf2ff') : Color3.FromHexString('#ffd1cd');
       this.previewEdgeMesh.alpha = 0.95;
@@ -845,7 +881,7 @@ export class GameRenderer {
       const offset = Math.min(2.5, segment.width * 0.24) * side;
       const x = point.x - tangent.z * offset;
       const z = point.z + tangent.x * offset;
-      targets.set(candidate.tripId, { x, y: this.getHeight(x, z) + 1.0, z,
+      targets.set(candidate.tripId, { x, y: roadHeightAt(segment.geometry, point, (a, b) => this.getHeight(a, b)) + 1.0, z,
         yaw: Math.atan2(tangent.x * side, tangent.z * side) });
     }
     this.vehicleMotion.sync(targets, snap);
@@ -950,20 +986,26 @@ export class GameRenderer {
     for (const [id, mesh] of this.roadMeshes) {
       if (!incoming.has(id)) {
         mesh.dispose();
+        for (const support of this.structureMeshes.get(id) ?? []) support.dispose();
+        this.structureMeshes.delete(id);
         this.roadMeshes.delete(id);
         this.roadSignatures.delete(id);
       }
     }
     for (const segment of segments) {
-      const signature = JSON.stringify([segment.width, segment.geometry.kind, segment.geometry.points]);
+      const signature = JSON.stringify([segment.width, segment.geometry, segment.structureType,
+        (segment.structureType ?? 'ground') === 'ground' ? 0 : this.appliedTerrainRevision]);
       if (this.roadSignatures.get(segment.id) === signature) continue;
       const existing = this.roadMeshes.get(segment.id);
       existing?.dispose();
-      const mesh = this.createRoadRibbon(segment.id, segment.geometry.points, segment.width, 0.18);
+      for (const support of this.structureMeshes.get(segment.id) ?? []) support.dispose();
+      const mesh = this.createRoadRibbon(segment.id, segment.geometry.points, segment.width, 0.18,
+        (segment.structureType ?? 'ground') === 'ground' ? undefined : segment.geometry);
       mesh.material = segment.id === this.hoveredSegmentId ? this.hoverMaterial : this.roadTrafficMaterial(segment.id);
       mesh.metadata = { type: 'road', segmentId: segment.id };
       this.roadMeshes.set(segment.id, mesh);
       this.roadSignatures.set(segment.id, signature);
+      this.structureMeshes.set(segment.id, this.createStructureSupports(segment));
     }
   }
 
@@ -995,8 +1037,8 @@ export class GameRenderer {
     }
   }
 
-  private createRoadRibbon(name: string, points: Vec2[], width: number, y: number): Mesh {
-    const [left, right] = this.roadSidePaths(points, width, y);
+  private createRoadRibbon(name: string, points: Vec2[], width: number, y: number, geometry?: RoadGeometry): Mesh {
+    const [left, right] = this.roadSidePaths(points, width, y, geometry);
     const crossSteps = Math.max(1, Math.ceil(width / TERRAIN_SAMPLE_SPACING));
     const paths = Array.from({ length: crossSteps + 1 }, (_, cross) => {
       const t = cross / crossSteps;
@@ -1004,10 +1046,38 @@ export class GameRenderer {
         const end = right[index];
         const x = start.x + (end.x - start.x) * t;
         const z = start.z + (end.z - start.z) * t;
-        return new Vector3(x, this.getHeight(x, z) + y, z);
+        return new Vector3(x, geometry?.centerline ? roadHeightAt(geometry, { x, z }) + y : this.getHeight(x, z) + y, z);
       });
     });
     return CreateRibbon(name, { pathArray: paths, sideOrientation: Mesh.DOUBLESIDE }, this.scene);
+  }
+
+  private createStructureSupports(segment: RoadSegment): Mesh[] {
+    const type = segment.structureType ?? 'ground';
+    if (type === 'ground' || !segment.geometry.centerline) return [];
+    const meshes: Mesh[] = [];
+    const centerline = segment.geometry.centerline;
+    if (type === 'elevated' || type === 'bridge') {
+      for (let index = 12; index < centerline.length - 6; index += 12) {
+        const point = centerline[index];
+        const ground = this.getHeight(point.x, point.z);
+        const height = point.y - ground - 0.6;
+        if (height < 4) continue;
+        const pillar = CreateCylinder(`support-${segment.id}-${index}`, { diameter: 2.5, height, tessellation: 10 }, this.scene);
+        pillar.position.set(point.x, ground + height / 2, point.z);
+        pillar.material = this.supportMaterial; pillar.isPickable = false;
+        meshes.push(pillar);
+      }
+    } else {
+      for (const index of [1, centerline.length - 2]) {
+        const point = centerline[index];
+        const portal = CreateBox(`portal-${segment.id}-${index}`, { width: segment.width + 3, height: 5, depth: 2 }, this.scene);
+        portal.position.set(point.x, point.y + 1, point.z);
+        portal.material = this.tunnelMaterial; portal.isPickable = false;
+        meshes.push(portal);
+      }
+    }
+    return meshes;
   }
 
   private createZoneMesh(name: string, cells: readonly ZoningCell[], height: number): Mesh | undefined {
@@ -1047,7 +1117,7 @@ export class GameRenderer {
     return mesh;
   }
 
-  private roadSidePaths(points: Vec2[], width: number, y: number): [Vector3[], Vector3[]] {
+  private roadSidePaths(points: Vec2[], width: number, y: number, geometry?: RoadGeometry): [Vector3[], Vector3[]] {
     const left: Vector3[] = [];
     const right: Vector3[] = [];
     const sampled = this.sampleRoadPolyline(points);
@@ -1060,8 +1130,8 @@ export class GameRenderer {
       const leftZ = sampled[index].z + normal.z * width / 2;
       const rightX = sampled[index].x - normal.x * width / 2;
       const rightZ = sampled[index].z - normal.z * width / 2;
-      left.push(new Vector3(leftX, this.getHeight(leftX, leftZ) + y, leftZ));
-      right.push(new Vector3(rightX, this.getHeight(rightX, rightZ) + y, rightZ));
+      left.push(new Vector3(leftX, geometry?.centerline ? roadHeightAt(geometry, sampled[index]) + y : this.getHeight(leftX, leftZ) + y, leftZ));
+      right.push(new Vector3(rightX, geometry?.centerline ? roadHeightAt(geometry, sampled[index]) + y : this.getHeight(rightX, rightZ) + y, rightZ));
     }
     return [left, right];
   }
@@ -1153,7 +1223,9 @@ export class GameRenderer {
   private rebuildDebugCenterlines(segments: readonly RoadSegment[]): void {
     for (const segment of segments) {
       this.roadCenterlineMeshes.get(segment.id)?.dispose();
-      const points = this.sampleRoadPolyline(segment.geometry.points).map((point) => this.toVector(point, 0.5));
+      const points = this.sampleRoadPolyline(segment.geometry.points).map((point) =>
+        new Vector3(point.x, (segment.structureType ?? 'ground') === 'ground'
+          ? this.getHeight(point.x, point.z) + 0.5 : roadHeightAt(segment.geometry, point) + 0.5, point.z));
       if (points.length < 2) continue;
       const line = CreateLineSystem(`debug-centerline-${segment.id}`, { lines: [points] }, this.scene);
       line.color = Color3.FromHexString('#f0c765');

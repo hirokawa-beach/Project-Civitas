@@ -14,6 +14,9 @@ export const ROAD_TYPES: Readonly<Record<string, RoadTypeDefinition>> = {
     zoningAllowed: true,
     constructionCostPerMeter: 20,
     maintenanceCostPerMeter: 1,
+    maximumGrade: 0.12,
+    minimumVerticalClearance: 6,
+    structureTransitionLength: 24,
   },
 };
 
