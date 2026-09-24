@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RoadGraph } from '../src/roads/roadGraph';
 import type { Lot } from '../src/lots/types';
 import { PopulationSystem } from '../src/population/system';
-import { ServiceSystem, SERVICE_DEFINITIONS } from '../src/services/system';
+import { ServiceSystem, SERVICE_DEFINITIONS, planServicePlacement } from '../src/services/system';
 import { SimulationState } from '../src/simulation/state';
 import { migrateSave } from '../src/save/serializer';
 
@@ -26,6 +26,24 @@ const population = (items: readonly Lot[], households = 4, people = 12) => {
 };
 
 describe('utilities and city services', () => {
+  it('uses the clicked ground point as the service lot center, never the road centerline', () => {
+    const graph = new RoadGraph();
+    addRoad(graph, -100, 100);
+    const services = new ServiceSystem();
+    const onRoad = planServicePlacement('fire', { x: 0, z: 0 }, graph.snapshot());
+    expect(onRoad.valid).toBe(false);
+    expect(() => services.place('fire', { x: 0, z: 0 }, graph.snapshot())).toThrow();
+    const tooFar = planServicePlacement('fire', { x: 0, z: 60 }, graph.snapshot());
+    expect(tooFar.valid).toBe(false);
+    const chosen = { x: 0, z: 19 };
+    const preview = planServicePlacement('fire', chosen, graph.snapshot());
+    expect(preview.valid).toBe(true);
+    expect(preview.facility?.position).toEqual(chosen);
+    const placed = services.place('fire', chosen, graph.snapshot());
+    expect(placed.position).toEqual(chosen);
+    expect(placed.lot.corners).toEqual(preview.facility?.lot.corners);
+  });
+
   it('requires a road, supplies all eight services and reports demand and capacity', () => {
     const graph = new RoadGraph();
     expect(() => new ServiceSystem().place('water', { x: 0, z: 0 }, graph.snapshot())).toThrow(/road/);
@@ -33,7 +51,9 @@ describe('utilities and city services', () => {
     const building = lot('home', graph.snapshot().segments[0].id, 20);
     const services = new ServiceSystem();
     for (const type of Object.keys(SERVICE_DEFINITIONS) as Array<keyof typeof SERVICE_DEFINITIONS>) {
-      services.place(type, { x: -180 + services.facilities.length * 45, z: 0 }, graph.snapshot());
+      const chosen = { x: -180 + services.facilities.length * 45, z: 8 + SERVICE_DEFINITIONS[type].depth / 2 + 2 };
+      const placed = services.place(type, chosen, graph.snapshot());
+      expect(placed.position).toEqual(chosen);
     }
     for (const facility of services.facilities) {
       expect(facility.building.definitionId).toBe(facility.type);
@@ -58,7 +78,7 @@ describe('utilities and city services', () => {
     addRoad(graph, 20, 100);
     const target = lot('island', graph.snapshot().segments[1].id, 60);
     const services = new ServiceSystem();
-    services.place('electricity', { x: -80, z: 0 }, graph.snapshot());
+    services.place('electricity', { x: -80, z: 20 }, graph.snapshot());
     services.recalculate(graph.snapshot(), [target], population([target]));
     expect(services.snapshot().coverage.electricity).toMatchObject({ demand: 4, supplied: 0, percent: 0 });
     const empty = new RoadGraph().snapshot();
@@ -75,7 +95,7 @@ describe('utilities and city services', () => {
       geometry: { kind: 'straight', points: [{ x: -100, z: 0 }, { x: 100, z: 0 }] }, roadTypeId: 'small',
     } });
     const before = state.economy.funds;
-    state.execute({ type: 'place-service', serviceType: 'water', position: { x: 0, z: 0 } });
+    state.execute({ type: 'place-service', serviceType: 'water', position: { x: 0, z: 19 } });
     expect(state.services.facilities).toHaveLength(1);
     expect(state.economy.funds).toBe(before - SERVICE_DEFINITIONS.water.constructionCost);
     state.undo();
@@ -99,8 +119,8 @@ describe('utilities and city services', () => {
     state.execute({ type: 'build-road', input: {
       geometry: { kind: 'straight', points: [{ x: -100, z: 0 }, { x: 100, z: 0 }] }, roadTypeId: 'small',
     } });
-    state.execute({ type: 'place-service', serviceType: 'fire', position: { x: 0, z: 0 } });
-    expect(() => state.execute({ type: 'place-service', serviceType: 'police', position: { x: 4, z: 0 } }))
+    state.execute({ type: 'place-service', serviceType: 'fire', position: { x: 0, z: 19 } });
+    expect(() => state.execute({ type: 'place-service', serviceType: 'police', position: { x: 4, z: 19 } }))
       .toThrow(/overlaps/);
     const cell = state.snapshot().zoningCells.find((candidate) => state.services.overlapsCell(candidate));
     expect(cell).toBeDefined();
@@ -124,7 +144,7 @@ describe('utilities and city services', () => {
     state.execute({ type: 'build-road', input: {
       geometry: { kind: 'straight', points: [{ x: -100, z: 0 }, { x: 100, z: 0 }] }, roadTypeId: 'small',
     } });
-    state.execute({ type: 'place-service', serviceType: 'fire', position: { x: 0, z: 0 } });
+    state.execute({ type: 'place-service', serviceType: 'fire', position: { x: 0, z: 19 } });
     const saved = state.serialize();
     expect(saved.saveVersion).toBe(9);
     const restored = new SimulationState();

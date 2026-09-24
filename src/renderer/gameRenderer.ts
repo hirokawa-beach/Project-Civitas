@@ -34,7 +34,7 @@ import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../z
 import type { ScreenPoint } from '../zoning/interaction';
 import { selectVisibleVehicles } from '../traffic/visibleVehicles';
 import { VehicleMotion, type VehiclePose } from '../traffic/vehicleMotion';
-import type { ServiceType } from '../services/types';
+import type { ServiceFacility, ServiceType } from '../services/types';
 import { SERVICE_DEFINITIONS } from '../services/system';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
@@ -112,6 +112,7 @@ export class GameRenderer {
   private readonly lotDebugMeshes = new Map<ChunkDescriptor['id'], LinesMesh[]>();
   private readonly lotDebugSignatures = new Map<ChunkDescriptor['id'], string>();
   private zonePreviewMesh?: Mesh;
+  private servicePreviewMesh?: Mesh;
   private previewMesh?: Mesh;
   private previewCenterlineMesh?: LinesMesh;
   private previewEdgeMesh?: LinesMesh;
@@ -502,6 +503,19 @@ export class GameRenderer {
     this.zonePreviewMesh?.dispose();
     this.zonePreviewMesh = this.createZoneMesh('zoning-brush-preview', cells, 0.42);
     if (this.zonePreviewMesh) this.zonePreviewMesh.material = this.zonePreviewMaterials[brush ?? 'erase'];
+  }
+
+  setServicePreview(facility?: ServiceFacility, valid = false): void {
+    this.servicePreviewMesh?.dispose();
+    this.servicePreviewMesh = undefined;
+    if (!facility) return;
+    const { width, depth, rotation, baseElevation } = facility.lot;
+    const mesh = CreateBox('service-lot-preview', { width, depth, height: 0.5 }, this.scene);
+    mesh.position.set(facility.position.x, baseElevation + 0.4, facility.position.z);
+    mesh.rotation.y = -rotation;
+    mesh.material = valid ? this.previewValidMaterial : this.previewInvalidMaterial;
+    mesh.isPickable = false;
+    this.servicePreviewMesh = mesh;
   }
 
   private makeZoneMaterial(name: string, hex: string, alpha: number): StandardMaterial {

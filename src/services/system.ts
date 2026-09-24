@@ -20,13 +20,13 @@ export const SERVICE_DEFINITIONS: Record<ServiceType, ServiceDefinition> = {
 
 interface Anchor { segment: RoadSegment; along: number; distance: number }
 
-const nearestRoad = (point: Vec2, roads: readonly RoadSegment[]): Anchor | undefined => {
+const nearestRoad = (point: Vec2, roads: readonly RoadSegment[], maxDistance = Infinity): Anchor | undefined => {
   let best: Anchor | undefined;
   for (const segment of roads) {
     const projection = closestPointOnPolyline(point, segment.geometry.points);
     if (!best || projection.distance < best.distance) best = { segment, along: projection.along, distance: projection.distance };
   }
-  return best && best.distance <= 16 ? best : undefined;
+  return best && best.distance <= maxDistance ? best : undefined;
 };
 
 const overlaps = (a: readonly Vec2[], b: readonly Vec2[]): boolean => {
@@ -52,15 +52,14 @@ const roadFootprint = (start: Vec2, end: Vec2, width: number): [Vec2, Vec2, Vec2
 const makeServiceBuilding = (id: string, type: ServiceType, click: Vec2, graph: RoadGraphSnapshot,
   getHeight: (x: number, z: number) => number): ServiceFacility => {
   const anchor = nearestRoad(click, graph.segments);
-  if (!anchor) throw new Error('Place the service within 16 m of a road.');
   const definition = SERVICE_DEFINITIONS[type];
-  const access = pointAtDistance(anchor.segment.geometry.points, anchor.along);
+  const access = anchor ? pointAtDistance(anchor.segment.geometry.points, anchor.along)
+    : { point: click, tangent: { x: 1, z: 0 } };
   const tangent = access.tangent;
   const cross = tangent.x * (click.z - access.point.z) - tangent.z * (click.x - access.point.x);
   const side = cross < 0 ? -1 : 1;
   const normal = { x: -tangent.z * side, z: tangent.x * side };
-  const setback = anchor.segment.width / 2 + definition.depth / 2 + 2;
-  const position = { x: access.point.x + normal.x * setback, z: access.point.z + normal.z * setback };
+  const position = { ...click };
   const halfWidth = definition.width / 2;
   const halfDepth = definition.depth / 2;
   const corner = (along: number, out: number): Vec2 => ({ x: position.x + tangent.x * along + normal.x * out,
@@ -78,6 +77,36 @@ const makeServiceBuilding = (id: string, type: ServiceType, click: Vec2, graph: 
     lot: { id: `service-lot-${id}`, width: definition.width, depth: definition.depth,
       rotation: Math.atan2(tangent.z, tangent.x), corners, baseElevation: maxHeight, slope },
     building: { id: `service-building-${id}`, definitionId: type, state: 'Operating' } };
+};
+
+export interface ServicePlacementPlan { facility?: ServiceFacility; valid: boolean; reason?: string }
+
+/** A dedicated service lot is centered at the chosen ground point; the road only supplies access. */
+export const planServicePlacement = (type: ServiceType, position: Vec2, graph: RoadGraphSnapshot,
+  lots: readonly Lot[] = [], cells: readonly ZoningCell[] = [], existing: readonly ServiceFacility[] = [],
+  getHeight: (x: number, z: number) => number = () => 0, id = 'service-preview'): ServicePlacementPlan => {
+  if (!SERVICE_TYPES.includes(type) || !Number.isFinite(position.x) || !Number.isFinite(position.z))
+    return { valid: false, reason: 'Invalid service placement.' };
+  let facility: ServiceFacility;
+  try { facility = makeServiceBuilding(id, type, position, graph, getHeight); }
+  catch (error) { return { valid: false, reason: error instanceof Error ? error.message : 'Invalid service placement.' }; }
+  const invalid = (reason: string): ServicePlacementPlan => ({ facility, valid: false, reason });
+  const anchor = nearestRoad(position, graph.segments);
+  if (!anchor) return invalid('This lot needs road access.');
+  const front = { x: (facility.lot.corners[0].x + facility.lot.corners[1].x) / 2,
+    z: (facility.lot.corners[0].z + facility.lot.corners[1].z) / 2 };
+  const frontageDistance = closestPointOnPolyline(front, anchor.segment.geometry.points).distance - anchor.segment.width / 2;
+  if (frontageDistance < 0.5 || frontageDistance > 6)
+    return invalid('Place the lot with its frontage 1–6 m from a road.');
+  const footprint = facility.lot.corners;
+  if (existing.some((other) => overlaps(footprint, other.lot.corners))
+    || lots.some((lot) => overlaps(footprint, lot.corners))
+    || cells.some((cell) => cell.zoneType && overlaps(footprint, cell.corners)))
+    return invalid('Service building overlaps another lot or zoned area.');
+  for (const segment of graph.segments) for (let index = 1; index < segment.geometry.points.length; index += 1)
+    if (overlaps(footprint, roadFootprint(segment.geometry.points[index - 1], segment.geometry.points[index], segment.width)))
+      return invalid('Service building overlaps a road.');
+  return { facility, valid: true };
 };
 
 const roadDistances = (source: Anchor, graph: RoadGraphSnapshot): Map<string, number> => {
@@ -143,20 +172,10 @@ export class ServiceSystem {
 
   place(type: ServiceType, position: Vec2, graph: RoadGraphSnapshot,
     lots: readonly Lot[] = [], cells: readonly ZoningCell[] = [], getHeight: (x: number, z: number) => number = () => 0): ServiceFacility {
-    if (!SERVICE_TYPES.includes(type) || !Number.isFinite(position.x) || !Number.isFinite(position.z)) throw new Error('Invalid service placement.');
     while (this.facilitiesById.has(`service-${this.nextFacilitySerial}`)) this.nextFacilitySerial += 1;
-    const facility = makeServiceBuilding(`service-${this.nextFacilitySerial}`, type, position, graph, getHeight);
-    const footprint = facility.lot.corners;
-    if (this.facilities.some((other) => overlaps(footprint, other.lot.corners))
-      || lots.some((lot) => overlaps(footprint, lot.corners))
-      || cells.some((cell) => cell.zoneType && overlaps(footprint, cell.corners))) {
-      throw new Error('Service building overlaps another lot or zoned area.');
-    }
-    for (const segment of graph.segments) for (let index = 1; index < segment.geometry.points.length; index += 1) {
-      if (overlaps(footprint, roadFootprint(segment.geometry.points[index - 1], segment.geometry.points[index], segment.width))) {
-        throw new Error('Service building overlaps a road.');
-      }
-    }
+    const plan = planServicePlacement(type, position, graph, lots, cells, this.facilities, getHeight, `service-${this.nextFacilitySerial}`);
+    if (!plan.valid || !plan.facility) throw new Error(plan.reason ?? 'Invalid service placement.');
+    const facility = plan.facility;
     this.nextFacilitySerial += 1;
     this.facilitiesById.set(facility.id, facility);
     this.revision += 1;
@@ -193,9 +212,18 @@ export class ServiceSystem {
     for (const raw of saved.facilities) {
       if (!raw || typeof raw.id !== 'string' || ids.has(raw.id) || !SERVICE_TYPES.includes(raw.type)
         || !Number.isFinite(raw.position?.x) || !Number.isFinite(raw.position?.z)) throw new Error('Save contains invalid service data.');
-      // Early v9 previews stored a point marker. Upgrade it into a roadside lot and building.
+      // Early v9 previews stored a road-center point marker. Upgrade with the old roadside setback.
       const facility = raw.lot && raw.building && raw.roadAccessPoint ? raw
-        : graph ? makeServiceBuilding(raw.id, raw.type, raw.position, graph, getHeight)
+        : graph ? (() => {
+          const anchor = nearestRoad(raw.position, graph.segments);
+          if (!anchor) return undefined;
+          const access = pointAtDistance(anchor.segment.geometry.points, anchor.along);
+          const cross = access.tangent.x * (raw.position.z - access.point.z) - access.tangent.z * (raw.position.x - access.point.x);
+          const side = cross < 0 ? -1 : 1;
+          const setback = anchor.segment.width / 2 + SERVICE_DEFINITIONS[raw.type].depth / 2 + 2;
+          return makeServiceBuilding(raw.id, raw.type, { x: access.point.x - access.tangent.z * side * setback,
+            z: access.point.z + access.tangent.x * side * setback }, graph, getHeight);
+        })()
           : undefined;
       if (!facility || facility.building.definitionId !== facility.type || facility.building.state !== 'Operating'
         || !Number.isFinite(facility.roadAccessPoint.x) || !Number.isFinite(facility.roadAccessPoint.z)
@@ -226,7 +254,7 @@ export class ServiceSystem {
     }).sort((a, b) => a.occupancy.buildingId.localeCompare(b.occupancy.buildingId));
     const coverage = Object.fromEntries(SERVICE_TYPES.map((type) => [type, emptyCoverage()])) as Record<ServiceType, ServiceCoverage>;
     const buildingCoverage: ServiceSnapshot['buildingCoverage'] = {};
-    const sources = this.facilities.map((facility) => ({ facility, anchor: nearestRoad(facility.roadAccessPoint, graph.segments) }));
+    const sources = this.facilities.map((facility) => ({ facility, anchor: nearestRoad(facility.roadAccessPoint, graph.segments, 16) }));
     for (const type of SERVICE_TYPES) {
       const metric = coverage[type];
       const definition = SERVICE_DEFINITIONS[type];
