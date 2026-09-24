@@ -29,6 +29,7 @@ import type { LotId } from '../lots/types';
 import type { ZoneBrush, ZoneType } from '../zoning/types';
 import { roadConstructionCost } from '../economy/system';
 import type { ServiceType } from '../services/types';
+import { SERVICE_DEFINITIONS } from '../services/system';
 
 export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain' | 'service';
 export type RoadMode = 'straight' | 'one-curve' | 'two-curve' | 'continuous';
@@ -439,7 +440,7 @@ export class ConstructionController {
       const segmentId = this.findClosestSegment(rawPoint);
       this.renderer.setHoveredSegment(segmentId);
       this.emit({ ...DEFAULT_STATUS, tool: 'service', roadMode: this.roadMode, serviceType: this.serviceType,
-        prompt: segmentId ? `Click to place ${this.serviceType} near this road` : 'Move within 16 m of a road',
+        prompt: segmentId ? `Click to place ${SERVICE_DEFINITIONS[this.serviceType].buildingName} beside this road` : 'Move within 16 m of a road',
         valid: !!segmentId, analysisMs: performance.now() - analysisStarted });
       return;
     }

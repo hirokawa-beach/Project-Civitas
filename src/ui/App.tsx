@@ -39,7 +39,7 @@ const toolLabel = (status: ConstructionStatus): string => {
   if (status.tool === 'demolish') return 'DEMOLISH';
   if (status.tool === 'zone') return `${status.zoneBrush ? status.zoneBrush.toUpperCase() : 'ERASE'} ZONING`;
   if (status.tool === 'terrain') return `${(status.terrainMode ?? 'raise').toUpperCase()} TERRAIN`;
-  if (status.tool === 'service') return `${(status.serviceType ?? 'electricity').toUpperCase()} SERVICE`;
+  if (status.tool === 'service') return SERVICE_DEFINITIONS[status.serviceType ?? 'electricity'].buildingName.toUpperCase();
   switch (status.roadMode) {
     case 'straight': return 'STRAIGHT ROAD';
     case 'one-curve': return '1-CURVE ROAD';
@@ -197,7 +197,7 @@ export function App({ runtime, simulation }: AppProps) {
         })}</div>
         <div class="service-maintenance">MAINTENANCE / CYCLE <b>−{money(snapshot.services.maintenancePerCycle)}</b></div>
         {construction?.tool === 'service' && snapshot.services.facilities.length > 0 && <details class="service-list"><summary>MANAGE FACILITIES</summary>
-          {snapshot.services.facilities.map((facility) => <div><span>{SERVICE_DEFINITIONS[facility.type].label} · {facility.id}</span><button title={`Remove ${facility.id}`} onClick={() => void simulation.execute({ type: 'remove-service', facilityId: facility.id })}>REMOVE</button></div>)}
+          {snapshot.services.facilities.map((facility) => <div><span>{SERVICE_DEFINITIONS[facility.type].buildingName} · {facility.id}</span><button title={`Remove ${facility.id}`} onClick={() => void simulation.execute({ type: 'remove-service', facilityId: facility.id })}>REMOVE</button></div>)}
         </details>}
       </aside>}
 
@@ -251,6 +251,7 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>OUTSIDE LINKS</dt><dd>{snapshot.traffic.outsideConnections.length}</dd>
             <dt>ECONOMY CYCLE</dt><dd>{snapshot.economy.lastEconomyTickGameSeconds} → {snapshot.economy.nextCycleAtGameSeconds}s</dd>
             <dt>SERVICE COST</dt><dd>{money(snapshot.services.maintenancePerCycle)} / cycle</dd>
+            <dt>SERVICE LOTS / BUILDINGS</dt><dd>{snapshot.services.facilities.length} / {snapshot.services.facilities.length}</dd>
             {SERVICE_TYPES.map((type) => <>
               <dt>{type.toUpperCase()}</dt><dd>{snapshot.services.coverage[type].supplied} / {snapshot.services.coverage[type].demand} demand · {snapshot.services.coverage[type].capacity} capacity</dd>
             </>)}
@@ -392,8 +393,8 @@ export function App({ runtime, simulation }: AppProps) {
 
       {construction?.tool === 'service' && <div class="service-palette panel" role="group" aria-label="City service facilities">
         {SERVICE_TYPES.map((type) => <button class={construction.serviceType === type ? 'active' : ''}
-          aria-pressed={construction.serviceType === type} title={`${SERVICE_DEFINITIONS[type].label}: ${money(SERVICE_DEFINITIONS[type].constructionCost)} construction, ${money(SERVICE_DEFINITIONS[type].maintenancePerCycle)} per cycle`}
-          onClick={() => runtime.setServiceType(type)}>{SERVICE_DEFINITIONS[type].label.toUpperCase()}</button>)}
+          aria-pressed={construction.serviceType === type} title={`${SERVICE_DEFINITIONS[type].buildingName}: ${money(SERVICE_DEFINITIONS[type].constructionCost)} construction, ${money(SERVICE_DEFINITIONS[type].maintenancePerCycle)} per cycle`}
+          onClick={() => runtime.setServiceType(type)}>{SERVICE_DEFINITIONS[type].buildingName.toUpperCase()}</button>)}
       </div>}
 
       {construction?.tool === 'zone' && construction.zoneSelectionRect && (

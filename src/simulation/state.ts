@@ -4,7 +4,7 @@ import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
 import { createChunks, worldToChunk, HALF_WORLD_SIZE, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
 import { HeightmapTerrain, TERRAIN_COLUMNS, TERRAIN_SAMPLE_SPACING } from '../terrain/heightmap';
-import { buildRoadTerrainProtection } from '../terrain/roadProtection';
+import { buildRoadTerrainProtection, protectServiceLots } from '../terrain/roadProtection';
 import { isZoneType, type ZoneAssignment, type ZoneType, type ZoningCell } from '../zoning/types';
 import { ZoningSystem } from '../zoning/system';
 import { isTerrainSuitableForZone } from '../zoning/terrainSuitability';
@@ -79,7 +79,8 @@ export class SimulationState {
     if (command.type === 'set-zone') {
       if (command.zoneType !== null && !isZoneType(command.zoneType)) throw new Error('Unknown zoning type.');
       const active = new Set(this.zoningCells.filter((cell) => command.zoneType === null
-        || isTerrainSuitableForZone(cell, (x, z) => this.terrain.getHeight(x, z))).map((cell) => cell.id));
+        || (isTerrainSuitableForZone(cell, (x, z) => this.terrain.getHeight(x, z))
+          && !this.services.overlapsCell(cell))).map((cell) => cell.id));
       const cellIds = [...new Set(command.cellIds)];
       if (cellIds.some((id) => !active.has(id))) throw new Error('Zoning cell no longer exists.');
       const changed = cellIds.filter((id) => (this.zoneAssignments.get(id) ?? null) !== command.zoneType);
@@ -87,11 +88,12 @@ export class SimulationState {
       accepted = { type: 'set-zone', cellIds: changed, zoneType: command.zoneType };
     }
     const result = this.history.execute(commandFromData(accepted, this.zoneAssignments,
-      (x, z) => this.terrain.getHeight(x, z), this.economy, () => this.clock.gameSeconds, this.services), this.graph);
+      (x, z) => this.terrain.getHeight(x, z), this.economy, () => this.clock.gameSeconds, this.services,
+      () => this.lots.lots, () => this.zoningCells), this.graph);
     if (this.history.lastDomain === 'road') {
       this.roadChanged();
       this.history.finalizeLastRoadCommand();
-    } else if (this.history.lastDomain === 'service') { this.refreshServices(); this.revision += 1; }
+    } else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
     else this.zonesChanged(this.history.lastAffectedCellIds);
     return result;
   }
@@ -101,7 +103,7 @@ export class SimulationState {
     if (changed) {
       if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
-      else if (this.history.lastDomain === 'service') { this.refreshServices(); this.revision += 1; }
+      else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
       else this.zonesChanged(this.history.lastAffectedCellIds);
     }
     return changed;
@@ -112,7 +114,7 @@ export class SimulationState {
     if (changed) {
       if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
-      else if (this.history.lastDomain === 'service') { this.refreshServices(); this.revision += 1; }
+      else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
       else this.zonesChanged(this.history.lastAffectedCellIds);
     }
     return changed;
@@ -289,7 +291,8 @@ export class SimulationState {
     if (world.hasTrafficData) validatedTraffic.restore(world.traffic, validatedClock.gameSeconds);
     validatedTraffic.reconcileLots(validatedLots.lots);
     const validatedServices = new ServiceSystem();
-    if (world.hasServiceData) validatedServices.restore(world.services);
+    if (world.hasServiceData) validatedServices.restore(world.services, validatedGraph.snapshot(),
+      (x, z) => validatedTerrain.getHeight(x, z));
     validatedServices.recalculate(validatedGraph.snapshot(), validatedLots.lots, validatedPopulation.snapshot());
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
@@ -305,12 +308,13 @@ export class SimulationState {
     this.economy = validatedEconomy;
     this.traffic = validatedTraffic;
     this.services = validatedServices;
+    this.refreshTerrainProtection();
     this.lotRevision += 1;
   }
 
   private roadChanged(): void {
     const graph = this.graph.snapshot();
-    this.roadTerrainEditWeights = buildRoadTerrainProtection(graph.segments);
+    this.refreshTerrainProtection();
     const oldCells = new Map(this.zoningCells.map((cell) => [cell.id, cell]));
     const cells = this.zoningSystem.update(graph);
     const active = new Set(cells.map((cell) => cell.id));
@@ -400,6 +404,11 @@ export class SimulationState {
 
   private refreshServices(): void {
     this.services.recalculate(this.graph.snapshot(), this.lots.lots, this.population.snapshot());
+  }
+
+  private refreshTerrainProtection(): void {
+    this.roadTerrainEditWeights = buildRoadTerrainProtection(this.graph.snapshot().segments);
+    protectServiceLots(this.roadTerrainEditWeights, this.services.facilities);
   }
 
   private boundsForVertices(values: ReadonlyMap<number, number>): TerrainEditBounds | undefined {

@@ -35,6 +35,7 @@ import type { ScreenPoint } from '../zoning/interaction';
 import { selectVisibleVehicles } from '../traffic/visibleVehicles';
 import { VehicleMotion, type VehiclePose } from '../traffic/vehicleMotion';
 import type { ServiceType } from '../services/types';
+import { SERVICE_DEFINITIONS } from '../services/system';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
   residential: '#67bd78',
@@ -104,7 +105,8 @@ export class GameRenderer {
   private readonly buildingSignatures = new Map<BuildingId, string>();
   private readonly buildingMaterials = {} as Record<ZoneType | 'planned' | 'constructing' | 'foundation', StandardMaterial>;
   private readonly serviceMaterials = {} as Record<ServiceType, StandardMaterial>;
-  private readonly serviceMeshes = new Map<string, Mesh>();
+  private readonly serviceMeshes = new Map<string, Mesh[]>();
+  private readonly serviceSignatures = new Map<string, string>();
   private appliedServiceRevision = -1;
   private appliedLotRevision = -1;
   private readonly lotDebugMeshes = new Map<ChunkDescriptor['id'], LinesMesh[]>();
@@ -294,22 +296,66 @@ export class GameRenderer {
 
   private syncServices(snapshot: WorldSnapshot): void {
     const active = new Set(snapshot.services.facilities.map((facility) => facility.id));
-    for (const [id, mesh] of this.serviceMeshes) if (!active.has(id)) { mesh.dispose(); this.serviceMeshes.delete(id); }
+    for (const [id, meshes] of this.serviceMeshes) if (!active.has(id)) {
+      for (const mesh of meshes) mesh.dispose();
+      this.serviceMeshes.delete(id);
+      this.serviceSignatures.delete(id);
+    }
     for (const facility of snapshot.services.facilities) {
-      let mesh = this.serviceMeshes.get(facility.id);
-      if (!mesh) {
-        mesh = CreateBox(`service-${facility.id}`, { width: 5, height: 6, depth: 5 }, this.scene);
-        if (!this.serviceMaterials[facility.type]) {
-          const material = new StandardMaterial(`service-${facility.type}`, this.scene);
-          material.diffuseColor = Color3.FromHexString(SERVICE_COLORS[facility.type]);
-          material.specularColor = Color3.Black();
-          this.serviceMaterials[facility.type] = material;
-        }
-        mesh.material = this.serviceMaterials[facility.type];
-        mesh.isPickable = false;
-        this.serviceMeshes.set(facility.id, mesh);
+      const signature = JSON.stringify([facility.type, facility.position, facility.lot]);
+      if (this.serviceSignatures.get(facility.id) === signature) continue;
+      for (const mesh of this.serviceMeshes.get(facility.id) ?? []) mesh.dispose();
+      if (!this.serviceMaterials[facility.type]) {
+        const material = new StandardMaterial(`service-${facility.type}`, this.scene);
+        material.diffuseColor = Color3.FromHexString(SERVICE_COLORS[facility.type]);
+        material.specularColor = Color3.Black();
+        this.serviceMaterials[facility.type] = material;
       }
-      mesh.position.set(facility.position.x, this.getHeight(facility.position.x, facility.position.z) + 3, facility.position.z);
+      const definition = SERVICE_DEFINITIONS[facility.type];
+      const { width, depth, rotation, baseElevation } = facility.lot;
+      const meshes: Mesh[] = [];
+      const addBox = (name: string, w: number, d: number, h: number, lx: number, lz: number, bottom: number,
+        material: StandardMaterial): void => {
+        const mesh = CreateBox(`${name}-${facility.id}`, { width: w, depth: d, height: h }, this.scene);
+        const cosine = Math.cos(rotation); const sine = Math.sin(rotation);
+        mesh.position.set(facility.position.x + lx * cosine - lz * sine, bottom + h / 2,
+          facility.position.z + lx * sine + lz * cosine);
+        mesh.rotation.y = -rotation;
+        mesh.material = material;
+        mesh.isPickable = false;
+        meshes.push(mesh);
+      };
+      const foundationHeight = Math.max(0.5, baseElevation - this.getHeight(facility.position.x, facility.position.z) + 0.5);
+      addBox('service-lot', width, depth, foundationHeight, 0, 0,
+        baseElevation + 0.1 - foundationHeight, this.buildingMaterials.foundation);
+      if (facility.type === 'parks') {
+        addBox('park-ground', width - 2, depth - 2, 0.3, 0, 0, baseElevation + 0.1, this.serviceMaterials.parks);
+        for (const [index, lx, lz] of [[0, -8, -8], [1, 8, -8], [2, -8, 8], [3, 8, 8]]) {
+          const cosine = Math.cos(rotation); const sine = Math.sin(rotation);
+          const tree = CreateSphere(`park-tree-${facility.id}-${index}`, { diameter: 4.5, segments: 8 }, this.scene);
+          tree.position.set(facility.position.x + lx * cosine - lz * sine, baseElevation + 3.2,
+            facility.position.z + lx * sine + lz * cosine);
+          tree.material = this.serviceMaterials.parks;
+          tree.isPickable = false;
+          meshes.push(tree);
+        }
+      } else {
+        addBox('service-building', width - 3, depth - 3, definition.height, 0, 0,
+          baseElevation + 0.2, this.serviceMaterials[facility.type]);
+        addBox('service-roof', width - 2, depth - 2, 0.8, 0, 0,
+          baseElevation + 0.2 + definition.height, this.buildingMaterials.foundation);
+        if (facility.type === 'electricity') addBox('power-stack', 3, 3, 8, width / 4, 0,
+          baseElevation + 0.2 + definition.height, this.buildingMaterials.foundation);
+        if (facility.type === 'water') {
+          const tank = CreateCylinder(`water-tank-${facility.id}`, { diameter: 7, height: 4, tessellation: 20 }, this.scene);
+          tank.position.set(facility.position.x, baseElevation + definition.height + 2.2, facility.position.z);
+          tank.material = this.serviceMaterials.water;
+          tank.isPickable = false;
+          meshes.push(tank);
+        }
+      }
+      this.serviceMeshes.set(facility.id, meshes);
+      this.serviceSignatures.set(facility.id, signature);
     }
   }
   getNormal(x: number, z: number): { x: number; y: number; z: number } { return this.terrain?.getNormal(x, z) ?? { x: 0, y: 1, z: 0 }; }

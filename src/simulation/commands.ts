@@ -12,6 +12,8 @@ import type { ServiceSystem } from '../services/system';
 import { SERVICE_DEFINITIONS } from '../services/system';
 import type { ServiceFacility, ServiceType } from '../services/types';
 import type { Vec2 } from '../world/types';
+import type { Lot } from '../lots/types';
+import type { ZoningCell } from '../zoning/types';
 
 export type SimulationCommandData =
   | { type: 'build-road'; input: BuildRoadInput }
@@ -100,13 +102,17 @@ export class BuildRoadCommand extends SnapshotCommand {
   private paidCost = 0;
   constructor(private readonly input: BuildRoadInput, assignments?: Map<ZoningCellId, ZoneType>,
     private readonly terrainHeight?: (x: number, z: number) => number,
-    private readonly economy?: EconomySystem, private readonly gameSeconds?: () => number) { super(assignments); }
+    private readonly economy?: EconomySystem, private readonly gameSeconds?: () => number,
+    private readonly services?: ServiceSystem) { super(assignments); }
   protected apply(graph: RoadGraph): SimulationCommandResult {
     const result = graph.buildRoad(this.input);
     if (this.terrainHeight && result.createdSegmentIds.some((id) => {
       const segment = graph.segments.get(id);
       return segment && exceedsTerrainGrade(segment.geometry.points, this.terrainHeight!);
     })) throw new Error('Road grade is too steep for surface placement.');
+    if (this.services && this.services.intersectsRoads(result.createdSegmentIds.map((id) => graph.segments.get(id)!).filter(Boolean))) {
+      throw new Error('Road overlaps an existing service building.');
+    }
     if (this.economy) {
       const actualLength = result.createdSegmentIds.reduce((sum, id) => sum + polylineLength(graph.segments.get(id)!.geometry.points), 0);
       const cost = Math.round(actualLength * getRoadType(this.input.roadTypeId).constructionCostPerMeter);
@@ -222,12 +228,13 @@ export class PlaceServiceCommand implements SimulationCommand {
   private readonly cost: number;
   constructor(private readonly type: ServiceType, private readonly position: Vec2,
     private readonly services: ServiceSystem, private readonly economy: EconomySystem,
-    private readonly gameSeconds: () => number) {
+    private readonly gameSeconds: () => number, private readonly lots: () => readonly Lot[],
+    private readonly cells: () => readonly ZoningCell[], private readonly terrainHeight: (x: number, z: number) => number) {
     this.cost = SERVICE_DEFINITIONS[type]?.constructionCost ?? NaN;
   }
   execute(graph: RoadGraph): SimulationCommandResult {
     if (!Number.isFinite(this.cost) || !this.economy.canAfford(this.cost)) throw new Error('Not enough funds.');
-    this.facility = this.services.place(this.type, this.position, graph.snapshot());
+    this.facility = this.services.place(this.type, this.position, graph.snapshot(), this.lots(), this.cells(), this.terrainHeight);
     this.economy.chargeService(this.cost, this.gameSeconds());
     return { type: 'place-service', facility: this.facility };
   }
@@ -327,14 +334,14 @@ export class CommandHistory {
 
 export const commandFromData = (data: SimulationCommandData, assignments: Map<ZoningCellId, ZoneType>,
   terrainHeight?: (x: number, z: number) => number, economy?: EconomySystem, gameSeconds?: () => number,
-  services?: ServiceSystem): SimulationCommand => {
+  services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[]): SimulationCommand => {
   switch (data.type) {
-    case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds);
+    case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds, services);
     case 'remove-road': return new RemoveRoadCommand(data.segmentId, assignments);
     case 'set-zone': return new SetZoneCommand(data.cellIds, data.zoneType, assignments);
     case 'place-service':
-      if (!services || !economy || !gameSeconds) throw new Error('Service system is unavailable.');
-      return new PlaceServiceCommand(data.serviceType, data.position, services, economy, gameSeconds);
+      if (!services || !economy || !gameSeconds || !lots || !cells || !terrainHeight) throw new Error('Service system is unavailable.');
+      return new PlaceServiceCommand(data.serviceType, data.position, services, economy, gameSeconds, lots, cells, terrainHeight);
     case 'remove-service':
       if (!services) throw new Error('Service system is unavailable.');
       return new RemoveServiceCommand(data.facilityId, services);
