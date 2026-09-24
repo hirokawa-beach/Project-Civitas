@@ -96,7 +96,7 @@ export const planServicePlacement = (type: ServiceType, position: Vec2, graph: R
   const front = { x: (facility.lot.corners[0].x + facility.lot.corners[1].x) / 2,
     z: (facility.lot.corners[0].z + facility.lot.corners[1].z) / 2 };
   const frontageDistance = closestPointOnPolyline(front, anchor.segment.geometry.points).distance - anchor.segment.width / 2;
-  if (frontageDistance < 0.5 || frontageDistance > 6)
+  if (frontageDistance < 1 || frontageDistance > 6)
     return invalid('Place the lot with its frontage 1–6 m from a road.');
   const footprint = facility.lot.corners;
   if (existing.some((other) => overlaps(footprint, other.lot.corners))
