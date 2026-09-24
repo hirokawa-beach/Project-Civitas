@@ -8,24 +8,32 @@ import { exceedsTerrainGrade } from '../roads/validation';
 import { polylineLength } from '../roads/geometry';
 import { getRoadType } from '../roads/roadTypes';
 import type { EconomySystem } from '../economy/system';
+import type { ServiceSystem } from '../services/system';
+import { SERVICE_DEFINITIONS } from '../services/system';
+import type { ServiceFacility, ServiceType } from '../services/types';
+import type { Vec2 } from '../world/types';
 
 export type SimulationCommandData =
   | { type: 'build-road'; input: BuildRoadInput }
   | { type: 'remove-road'; segmentId: RoadSegmentId }
-  | { type: 'set-zone'; cellIds: ZoningCellId[]; zoneType: ZoneBrush };
+  | { type: 'set-zone'; cellIds: ZoningCellId[]; zoneType: ZoneBrush }
+  | { type: 'place-service'; serviceType: ServiceType; position: Vec2 }
+  | { type: 'remove-service'; facilityId: string };
 
 export type SimulationCommandResult =
   | ({ type: 'build-road' } & BuildRoadResult)
   | { type: 'remove-road'; segmentId: RoadSegmentId }
   | { type: 'set-zone'; cellIds: ZoningCellId[]; zoneType: ZoneBrush }
   | { type: 'edit-terrain'; chunkIds: ChunkDescriptor['id'][] }
-  | { type: 'set-terrain-preset'; preset: TerrainPreset };
+  | { type: 'set-terrain-preset'; preset: TerrainPreset }
+  | { type: 'place-service'; facility: ServiceFacility }
+  | { type: 'remove-service'; facilityId: string };
 
 export interface TerrainEditBounds { minX: number; maxX: number; minZ: number; maxZ: number }
 
 export interface SimulationCommand {
   readonly label: string;
-  readonly domain: 'road' | 'zone' | 'terrain';
+  readonly domain: 'road' | 'zone' | 'terrain' | 'service';
   readonly affectedCellIds?: readonly ZoningCellId[];
   readonly affectedChunkIds?: readonly ChunkDescriptor['id'][];
   readonly affectedTerrainBounds?: TerrainEditBounds;
@@ -207,6 +215,54 @@ export class TerrainPresetCommand implements SimulationCommand {
   }
 }
 
+export class PlaceServiceCommand implements SimulationCommand {
+  readonly label = 'Place service';
+  readonly domain = 'service' as const;
+  private facility?: ServiceFacility;
+  private readonly cost: number;
+  constructor(private readonly type: ServiceType, private readonly position: Vec2,
+    private readonly services: ServiceSystem, private readonly economy: EconomySystem,
+    private readonly gameSeconds: () => number) {
+    this.cost = SERVICE_DEFINITIONS[type]?.constructionCost ?? NaN;
+  }
+  execute(graph: RoadGraph): SimulationCommandResult {
+    if (!Number.isFinite(this.cost) || !this.economy.canAfford(this.cost)) throw new Error('Not enough funds.');
+    this.facility = this.services.place(this.type, this.position, graph.snapshot());
+    this.economy.chargeService(this.cost, this.gameSeconds());
+    return { type: 'place-service', facility: this.facility };
+  }
+  undo(): void {
+    if (!this.facility) throw new Error('Service placement was not executed.');
+    this.services.remove(this.facility.id);
+    this.economy.refundService(this.cost, this.gameSeconds());
+  }
+  redo(): SimulationCommandResult {
+    if (!this.facility) throw new Error('Service placement was not executed.');
+    this.services.addExisting(this.facility);
+    this.economy.chargeService(this.cost, this.gameSeconds(), true);
+    return { type: 'place-service', facility: this.facility };
+  }
+}
+
+export class RemoveServiceCommand implements SimulationCommand {
+  readonly label = 'Remove service';
+  readonly domain = 'service' as const;
+  private removed?: ServiceFacility;
+  constructor(private readonly id: string, private readonly services: ServiceSystem) {}
+  execute(): SimulationCommandResult {
+    this.removed = this.services.remove(this.id);
+    return { type: 'remove-service', facilityId: this.id };
+  }
+  undo(): void {
+    if (!this.removed) throw new Error('Service removal was not executed.');
+    this.services.addExisting(this.removed);
+  }
+  redo(): SimulationCommandResult {
+    this.services.remove(this.id);
+    return { type: 'remove-service', facilityId: this.id };
+  }
+}
+
 export class CommandHistory {
   private readonly undoStack: SimulationCommand[] = [];
   private readonly redoStack: SimulationCommand[] = [];
@@ -270,10 +326,17 @@ export class CommandHistory {
 }
 
 export const commandFromData = (data: SimulationCommandData, assignments: Map<ZoningCellId, ZoneType>,
-  terrainHeight?: (x: number, z: number) => number, economy?: EconomySystem, gameSeconds?: () => number): SimulationCommand => {
+  terrainHeight?: (x: number, z: number) => number, economy?: EconomySystem, gameSeconds?: () => number,
+  services?: ServiceSystem): SimulationCommand => {
   switch (data.type) {
     case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds);
     case 'remove-road': return new RemoveRoadCommand(data.segmentId, assignments);
     case 'set-zone': return new SetZoneCommand(data.cellIds, data.zoneType, assignments);
+    case 'place-service':
+      if (!services || !economy || !gameSeconds) throw new Error('Service system is unavailable.');
+      return new PlaceServiceCommand(data.serviceType, data.position, services, economy, gameSeconds);
+    case 'remove-service':
+      if (!services) throw new Error('Service system is unavailable.');
+      return new RemoveServiceCommand(data.facilityId, services);
   }
 };

@@ -165,7 +165,7 @@ describe('road traffic', () => {
     const shop = lot('shop', id, 70);
     state.traffic.tick(30, populated([home], [shop]), [home, shop]);
     const save = state.serialize();
-    expect(save.saveVersion).toBe(8);
+    expect(save.saveVersion).toBe(9);
     expect(save.traffic.trips).toHaveLength(4);
     const restored = new TrafficSystem(state.graph.snapshot());
     restored.restore(save.traffic, 30);

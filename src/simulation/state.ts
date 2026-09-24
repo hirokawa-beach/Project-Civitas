@@ -1,5 +1,5 @@
 import { RoadGraph } from '../roads/roadGraph';
-import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV8 } from '../save/serializer';
+import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV9 } from '../save/serializer';
 import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
 import { createChunks, worldToChunk, HALF_WORLD_SIZE, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
@@ -16,6 +16,8 @@ import { EconomySystem } from '../economy/system';
 import type { EconomySnapshot } from '../economy/types';
 import { TrafficSystem } from '../traffic/system';
 import type { TrafficSnapshot } from '../traffic/types';
+import { ServiceSystem } from '../services/system';
+import type { ServiceSnapshot } from '../services/types';
 import { AppliedTerrainStrokeCommand, CommandHistory, TerrainPresetCommand, commandFromData, type SimulationCommandData, type SimulationCommandResult, type TerrainEditBounds } from './commands';
 import { GameClock, type GameSpeed } from './gameClock';
 
@@ -28,6 +30,7 @@ export class SimulationState {
   population = new PopulationSystem();
   economy = new EconomySystem();
   traffic = new TrafficSystem(this.graph.snapshot());
+  services = new ServiceSystem();
   private roadTerrainEditWeights = buildRoadTerrainProtection([]);
 
   private zoningCells: ZoningCell[] = [];
@@ -56,9 +59,12 @@ export class SimulationState {
       this.lotRevision += 1;
       this.syncPopulation();
     }
+    const populationRevision = this.population.revision;
     this.population.tick(this.clock.gameSeconds);
+    if (populationRevision !== this.population.revision) this.refreshServices();
     if (this.clock.speed !== 0 && this.clock.gameSeconds >= this.economy.nextCycleAtGameSeconds) {
-      this.economy.tick(this.clock.gameSeconds, this.population.snapshot().totals, this.graph.snapshot().segments);
+      this.economy.tick(this.clock.gameSeconds, this.population.snapshot().totals, this.graph.snapshot().segments,
+        this.services.snapshot().maintenancePerCycle);
     }
     if (this.clock.speed !== 0 && this.traffic.isDue(this.clock.gameSeconds)) {
       this.traffic.tick(this.clock.gameSeconds, this.population.snapshot(), this.lots.lots);
@@ -81,11 +87,12 @@ export class SimulationState {
       accepted = { type: 'set-zone', cellIds: changed, zoneType: command.zoneType };
     }
     const result = this.history.execute(commandFromData(accepted, this.zoneAssignments,
-      (x, z) => this.terrain.getHeight(x, z), this.economy, () => this.clock.gameSeconds), this.graph);
+      (x, z) => this.terrain.getHeight(x, z), this.economy, () => this.clock.gameSeconds, this.services), this.graph);
     if (this.history.lastDomain === 'road') {
       this.roadChanged();
       this.history.finalizeLastRoadCommand();
-    } else this.zonesChanged(this.history.lastAffectedCellIds);
+    } else if (this.history.lastDomain === 'service') { this.refreshServices(); this.revision += 1; }
+    else this.zonesChanged(this.history.lastAffectedCellIds);
     return result;
   }
 
@@ -94,6 +101,7 @@ export class SimulationState {
     if (changed) {
       if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
+      else if (this.history.lastDomain === 'service') { this.refreshServices(); this.revision += 1; }
       else this.zonesChanged(this.history.lastAffectedCellIds);
     }
     return changed;
@@ -104,6 +112,7 @@ export class SimulationState {
     if (changed) {
       if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
+      else if (this.history.lastDomain === 'service') { this.refreshServices(); this.revision += 1; }
       else this.zonesChanged(this.history.lastAffectedCellIds);
     }
     return changed;
@@ -204,6 +213,7 @@ export class SimulationState {
       population: this.population.snapshot(),
       economy: this.economy.snapshot(),
       traffic: this.traffic.snapshot(),
+      services: this.services.snapshot(),
       lotReevaluatedCells: this.lots.lastReevaluatedCells,
       zoningUpdatedChunkIds: [...this.zoningUpdatedChunkIds],
       gameClock: this.clock.snapshot(),
@@ -222,8 +232,9 @@ export class SimulationState {
   populationUpdate(): PopulationSnapshot { return this.population.snapshot(); }
   economyUpdate(): EconomySnapshot { return this.economy.snapshot(); }
   trafficUpdate(): TrafficSnapshot { return this.traffic.snapshot(); }
+  serviceUpdate(): ServiceSnapshot { return this.services.snapshot(); }
 
-  serialize(): SaveFileV8 {
+  serialize(): SaveFileV9 {
     const active = new Set(this.zoningCells.map((cell) => cell.id));
     const zoningAssignments: ZoneAssignment[] = [...this.zoneAssignments]
       .filter(([cellId]) => active.has(cellId))
@@ -231,7 +242,7 @@ export class SimulationState {
       .sort((left, right) => left.cellId.localeCompare(right.cellId));
     return serializeWorld({ terrain: this.terrain.state(), roadGraph: this.graph.snapshot(), gameClock: this.clock.snapshot(), zoningAssignments,
       lots: this.lots.lots, buildings: this.lots.buildings, population: this.population.save(),
-      economy: this.economy.save(), traffic: this.traffic.save() });
+      economy: this.economy.save(), traffic: this.traffic.save(), services: this.services.save() });
   }
 
   load(save: SaveFile): void {
@@ -277,6 +288,9 @@ export class SimulationState {
     const validatedTraffic = new TrafficSystem(validatedGraph.snapshot(), undefined, validatedClock.gameSeconds);
     if (world.hasTrafficData) validatedTraffic.restore(world.traffic, validatedClock.gameSeconds);
     validatedTraffic.reconcileLots(validatedLots.lots);
+    const validatedServices = new ServiceSystem();
+    if (world.hasServiceData) validatedServices.restore(world.services);
+    validatedServices.recalculate(validatedGraph.snapshot(), validatedLots.lots, validatedPopulation.snapshot());
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
@@ -290,6 +304,7 @@ export class SimulationState {
     this.population = validatedPopulation;
     this.economy = validatedEconomy;
     this.traffic = validatedTraffic;
+    this.services = validatedServices;
     this.lotRevision += 1;
   }
 
@@ -380,6 +395,11 @@ export class SimulationState {
 
   private syncPopulation(): void {
     this.population.syncBuildings(this.lots.buildings, this.lots.lots, this.clock.gameSeconds);
+    this.refreshServices();
+  }
+
+  private refreshServices(): void {
+    this.services.recalculate(this.graph.snapshot(), this.lots.lots, this.population.snapshot());
   }
 
   private boundsForVertices(values: ReadonlyMap<number, number>): TerrainEditBounds | undefined {

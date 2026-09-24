@@ -11,9 +11,11 @@ import { EconomySystem } from '../economy/system';
 import type { EconomyState } from '../economy/types';
 import { TrafficSystem } from '../traffic/system';
 import type { TrafficSaveState } from '../traffic/types';
+import { ServiceSystem } from '../services/system';
+import type { ServiceSaveState } from '../services/types';
 import packageInfo from '../../package.json';
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 export const GAME_VERSION = packageInfo.version;
 
 interface SaveFileBase {
@@ -74,8 +76,19 @@ export interface SaveFileV8 extends SaveFileBase {
   economy: EconomyState;
   traffic: TrafficSaveState;
 }
+export interface SaveFileV9 extends SaveFileBase {
+  saveVersion: 9;
+  world: SaveFileBase['world'] & { terrain: TerrainState };
+  zoningAssignments: ZoneAssignment[];
+  lots: Lot[];
+  buildings: Building[];
+  population: PopulationSaveState;
+  economy: EconomyState;
+  traffic: TrafficSaveState;
+  services: ServiceSaveState;
+}
 
-export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8;
+export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9;
 
 export interface SerializableWorld {
   terrain: LegacyTerrainState | TerrainState;
@@ -87,9 +100,10 @@ export interface SerializableWorld {
   population?: PopulationSaveState;
   economy?: EconomyState;
   traffic?: TrafficSaveState;
+  services?: ServiceSaveState;
 }
 
-export const serializeWorld = (world: SerializableWorld): SaveFileV8 => ({
+export const serializeWorld = (world: SerializableWorld): SaveFileV9 => ({
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
@@ -106,6 +120,7 @@ export const serializeWorld = (world: SerializableWorld): SaveFileV8 => ({
   population: structuredClone(world.population ?? new PopulationSystem().save()),
   economy: structuredClone(world.economy ?? new EconomySystem(undefined, world.gameClock.gameSeconds).save()),
   traffic: structuredClone(world.traffic ?? new TrafficSystem(world.roadGraph, undefined, world.gameClock.gameSeconds).save()),
+  services: structuredClone(world.services ?? new ServiceSystem().save()),
 });
 
 const isSaveFileV1 = (value: unknown): value is SaveFileV1 => {
@@ -174,6 +189,16 @@ const isSaveFileV8 = (value: unknown): value is SaveFileV8 => {
     && Array.isArray(candidate.traffic.outsideConnections);
 };
 
+const isSaveFileV9 = (value: unknown): value is SaveFileV9 => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SaveFileV9>;
+  return candidate.saveVersion === 9 && !!candidate.world && !!candidate.roadGraph
+    && !!candidate.gameClock && Array.isArray(candidate.zoningAssignments)
+    && Array.isArray(candidate.lots) && Array.isArray(candidate.buildings)
+    && !!candidate.population && !!candidate.economy && !!candidate.traffic
+    && !!candidate.services && Array.isArray(candidate.services.facilities);
+};
+
 const migrateToV6 = (value: unknown): SaveFileV6 => {
   if (isSaveFileV6(value)) return structuredClone(value);
   if (isSaveFileV5(value)) return { ...structuredClone(value), saveVersion: 6, gameVersion: GAME_VERSION,
@@ -222,19 +247,28 @@ const migrateToV7 = (value: unknown): SaveFileV7 => {
     economy: new EconomySystem(undefined, old.gameClock.gameSeconds).save() };
 };
 
-export const migrateSave = (value: unknown): SaveFileV8 => {
+const migrateToV8 = (value: unknown): SaveFileV8 => {
   if (isSaveFileV8(value)) return structuredClone(value);
   const old = migrateToV7(value);
   return { ...old, saveVersion: 8, gameVersion: GAME_VERSION,
     traffic: new TrafficSystem(old.roadGraph, undefined, old.gameClock.gameSeconds).save() };
 };
 
-export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean } => {
-  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value);
-  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value);
-  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value);
-  const hasTrafficData = isSaveFileV8(value);
-  let save: SaveFileV8;
+export const migrateSave = (value: unknown): SaveFileV9 => {
+  if (isSaveFileV9(value)) return structuredClone(value);
+  const old = migrateToV8(value);
+  return { ...old, saveVersion: 9, gameVersion: GAME_VERSION,
+    economy: { ...old.economy, lastCycleServiceMaintenance: 0 },
+    services: new ServiceSystem().save() };
+};
+
+export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; services: ServiceSaveState; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean; hasServiceData: boolean } => {
+  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value);
+  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value);
+  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value);
+  const hasTrafficData = isSaveFileV8(value) || isSaveFileV9(value);
+  const hasServiceData = isSaveFileV9(value);
+  let save: SaveFileV9;
   try {
     save = migrateSave(value);
   } catch {
@@ -250,9 +284,11 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
     population: structuredClone(save.population),
     economy: structuredClone(save.economy),
     traffic: structuredClone(save.traffic),
+    services: structuredClone(save.services),
     hasLotData,
     hasPopulationData,
     hasEconomyData,
     hasTrafficData,
+    hasServiceData,
   };
 };

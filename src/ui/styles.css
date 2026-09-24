@@ -36,8 +36,22 @@ button { font: inherit; }
 .file-actions { margin-left: auto; display: flex; gap: 4px; }
 .file-actions button { height: 32px; padding: 0 14px; font: 600 10px Consolas, monospace; letter-spacing: 0.12em; }
 
-.debug-panel { position: absolute; top: 270px; right: 18px; width: 220px; max-height: calc(100vh - 298px); overflow-y: auto; padding: 15px 16px 13px; }
+.debug-panel { position: absolute; top: 535px; right: 18px; width: 220px; max-height: calc(100vh - 560px); overflow-y: auto; padding: 15px 16px 13px; }
 .traffic-panel { position: absolute; top: 96px; right: 18px; width: 220px; padding: 12px 15px; }
+.services-panel { position: absolute; top: 270px; right: 18px; width: 220px; padding: 12px 15px; max-height: 250px; overflow-y: auto; }
+.services-panel .panel-title { justify-content: space-between; margin-bottom: 8px; }
+.services-panel .panel-title span { font-size: 8px; letter-spacing: 0; }
+.service-metrics { display: grid; gap: 5px; }
+.service-row { display: grid; grid-template-columns: 71px 1fr 31px; gap: 5px; align-items: center; font: 600 8px Consolas, monospace; color: var(--muted); }
+.service-row i { height: 6px; background: rgba(255,255,255,.1); }
+.service-row em { display: block; height: 100%; background: var(--mint); }
+.service-row b { text-align: right; color: #e9eee8; }
+.service-maintenance { display: flex; justify-content: space-between; gap: 4px; margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line); font: 600 8px Consolas, monospace; color: var(--muted); }
+.service-maintenance b { color: #e9eee8; }
+.service-list { pointer-events: auto; margin-top: 8px; font: 8px Consolas, monospace; }
+.service-list summary { cursor: pointer; }
+.service-list div { display: flex; justify-content: space-between; align-items: center; gap: 5px; margin-top: 5px; }
+.service-list button { font-size: 8px; }
 .traffic-panel .panel-title { justify-content: space-between; margin-bottom: 8px; }
 .traffic-panel .panel-title button { padding: 4px 6px; font: 600 8px Consolas, monospace; letter-spacing: .05em; }
 .traffic-metrics { display: grid; gap: 6px; color: var(--muted); font: 600 9px Consolas, monospace; letter-spacing: .02em; }
@@ -82,6 +96,7 @@ button { font: inherit; }
 
 .construction-readout { position: absolute; left: 18px; bottom: 112px; width: 330px; min-height: 74px; padding: 14px 16px; border-left: 3px solid var(--amber); }
 .construction-readout.is-valid { border-left-color: var(--mint); }
+.construction-readout.service-mode { bottom: 190px; left: 50%; transform: translateX(-50%); }
 .mode-tag { margin-bottom: 6px; color: var(--amber); font: 600 9px Consolas, monospace; letter-spacing: 0.15em; }
 .construction-readout.is-valid .mode-tag { color: var(--mint); }
 .construction-readout strong { display: block; color: #f0f4f1; font-size: 12px; font-weight: 600; }
@@ -97,6 +112,7 @@ button { font: inherit; }
 .demolish-icon { color: var(--danger); font-size: 27px; line-height: 1; font-weight: 300; }
 .zoning-icon { font-size: 27px; line-height: 1; font-weight: 400; }
 .terrain-icon { font-size: 28px; line-height: 1; font-weight: 500; }
+.service-icon { font-size: 25px; line-height: 1; }
 .dock-divider { width: 1px; margin: 7px 8px; background: var(--line); }
 .mode-group button { min-width: 70px; padding: 0 9px; font: 600 8px Consolas, monospace; letter-spacing: 0.08em; }
 .history-group button { min-width: 42px; padding: 0 9px; font: 600 11px Consolas, monospace; }
@@ -114,6 +130,8 @@ button { font: inherit; }
 .terrain-palette button { height: 30px; padding: 0 8px; font: 600 9px Consolas, monospace; }
 .terrain-palette label { pointer-events: auto; display: flex; align-items: center; gap: 4px; color: var(--muted); white-space: nowrap; font: 600 9px Consolas, monospace; }
 .terrain-palette input { width: 75px; accent-color: var(--mint); }
+.service-palette { position: absolute; left: 50%; bottom: 102px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 5px; transform: translateX(-50%); }
+.service-palette button { min-width: 82px; height: 24px; font: 600 8px Consolas, monospace; }
 .zone-selection-rect { position: absolute; z-index: 1; pointer-events: none; border: 1px solid #d9fff0; background: rgba(114, 213, 181, 0.14); box-shadow: inset 0 0 0 1px rgba(15, 46, 38, 0.7); }
 .hud-root .zone-residential.active { color: #10261a; background: #78d08c; border-color: #78d08c; }
 .hud-root .zone-commercial.active { color: #0a1d33; background: #72acef; border-color: #72acef; }
@@ -144,6 +162,7 @@ kbd { color: #dbe7df; font: inherit; }
   .file-actions { margin-left: 10px; }
   .debug-panel { right: 12px; }
   .traffic-panel { right: 12px; }
+  .services-panel { right: 12px; }
   .snap-palette { bottom: 102px; }
   .zone-palette .zone-choice { min-width: 35px; justify-content: center; }
   .zone-palette .zone-choice small { display: none; }
@@ -156,7 +175,9 @@ kbd { color: #dbe7df; font: inherit; }
   .city-stats { top: 88px; width: 180px; padding: 11px; }
   .economy-panel { top: 330px; width: 180px; max-height: 150px; padding: 11px; }
   .traffic-panel { top: 88px; right: 12px; width: 180px; padding: 11px; }
-  .debug-panel { top: 252px; right: 12px; width: 180px; max-height: min(350px, calc(100vh - 280px)); padding: 11px; }
+  .services-panel { top: 252px; right: 12px; width: 180px; }
+  .debug-panel { top: 510px; right: 12px; width: 180px; max-height: min(350px, calc(100vh - 535px)); padding: 11px; }
+  .service-palette button { min-width: 64px; }
   .debug-panel dl { font-size: 8px; }
   .construction-readout { left: 12px; width: min(330px, calc(100vw - 24px)); }
 }

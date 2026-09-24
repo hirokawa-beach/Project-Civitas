@@ -5,6 +5,7 @@ import type { WorldSnapshot } from '../shared/protocol';
 import type { SimulationClient } from './simulationClient';
 import type { ZoneBrush } from '../zoning/types';
 import type { TerrainBrushMode, TerrainPreset } from '../world/types';
+import type { ServiceType } from '../services/types';
 
 export class GameRuntime {
   readonly construction: ConstructionController;
@@ -30,6 +31,7 @@ export class GameRuntime {
   setZoneBrush(brush: ZoneBrush): void { this.construction.setZoneBrush(brush); }
   setZoneMode(mode: ZonePaintMode): void { this.construction.setZoneMode(mode); }
   setTerrainMode(mode: TerrainBrushMode): void { this.construction.setTerrainMode(mode); }
+  setServiceType(type: ServiceType): void { this.construction.setServiceType(type); }
   setTerrainBrush(size: number, strength: number): void { this.construction.setTerrainBrush(size, strength); }
   setTerrainPreset(preset: TerrainPreset): void { this.construction.setTerrainPreset(preset); }
   toggleSnap(setting: SnapSettingKey): void { this.construction.toggleSnap(setting); }

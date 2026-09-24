@@ -10,6 +10,7 @@ let previousTime = performance.now();
 let sentPopulationRevision = -1;
 let sentEconomyRevision = -1;
 let sentTrafficRevision = -1;
+let sentServiceRevision = -1;
 
 const post = (message: WorkerToUIMessage): void => workerScope.postMessage(message);
 const notify = (message: string, level: 'info' | 'error' = 'info'): void => post({ type: 'notification', message, level });
@@ -94,6 +95,7 @@ setInterval(() => {
         sentPopulationRevision = simulation.population.revision;
         sentEconomyRevision = simulation.economy.revision;
         sentTrafficRevision = simulation.traffic.revision;
+        sentServiceRevision = simulation.services.revision;
         simulation.consumeTerrainUpdate();
         simulation.lots.takeDelta();
       } else {
@@ -117,6 +119,10 @@ setInterval(() => {
         if (simulation.traffic.revision !== sentTrafficRevision) {
           post({ type: 'traffic-update', traffic: simulation.trafficUpdate() });
           sentTrafficRevision = simulation.traffic.revision;
+        }
+        if (simulation.services.revision !== sentServiceRevision) {
+          post({ type: 'service-update', services: simulation.serviceUpdate() });
+          sentServiceRevision = simulation.services.revision;
         }
         post({ type: 'clock-update', ...simulation.clockUpdate() });
       }

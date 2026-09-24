@@ -28,8 +28,9 @@ import { cellIntersectsScreenRect, pointInZoningCell, screenRect, ZoningCellInde
 import type { LotId } from '../lots/types';
 import type { ZoneBrush, ZoneType } from '../zoning/types';
 import { roadConstructionCost } from '../economy/system';
+import type { ServiceType } from '../services/types';
 
-export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain';
+export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain' | 'service';
 export type RoadMode = 'straight' | 'one-curve' | 'two-curve' | 'continuous';
 export type ZonePaintMode = 'brush' | 'box';
 
@@ -68,6 +69,7 @@ export interface ConstructionStatus {
   terrainHeight?: number;
   terrainNormal?: { x: number; y: number; z: number };
   hoveredLotId?: LotId;
+  serviceType?: ServiceType;
 }
 
 const DEFAULT_STATUS: ConstructionStatus = {
@@ -106,6 +108,7 @@ export class ConstructionController {
   private terrainMode: TerrainBrushMode = 'raise';
   private terrainSize = 48;
   private terrainStrength = 12;
+  private serviceType: ServiceType = 'electricity';
   private terrainPointerId?: number;
   private lastTerrainPoint?: Vec2;
   private lastTerrainTime = 0;
@@ -158,8 +161,15 @@ export class ConstructionController {
       terrainMode: this.terrainMode,
       terrainSize: this.terrainSize,
       terrainStrength: this.terrainStrength,
-      prompt: tool === 'road' ? 'Click to set a starting point' : tool === 'zone' ? this.zonePrompt() : tool === 'terrain' ? 'Drag to sculpt terrain' : 'Hover a road and click to demolish',
+      serviceType: this.serviceType,
+      prompt: tool === 'road' ? 'Click to set a starting point' : tool === 'zone' ? this.zonePrompt() : tool === 'terrain' ? 'Drag to sculpt terrain' : tool === 'service' ? 'Click near a road to place a service' : 'Hover a road and click to demolish',
     });
+  }
+
+  setServiceType(type: ServiceType): void {
+    this.serviceType = type;
+    this.setTool('service');
+    if (this.cursor) this.refreshAt(this.cursor);
   }
 
   setTerrainMode(mode: TerrainBrushMode): void {
@@ -234,7 +244,10 @@ export class ConstructionController {
     this.renderer.setTerrainBrushPreview();
     this.renderer.setHoveredSegment(undefined);
     this.hoveredSegmentId = undefined;
-    this.emit({ ...DEFAULT_STATUS, tool: this.tool, roadMode: this.roadMode, zoneBrush: this.zoneBrush, zoneMode: this.zoneMode, prompt: this.tool === 'road' ? 'Click to set a starting point' : this.tool === 'zone' ? this.zonePrompt() : this.tool === 'terrain' ? 'Drag to sculpt terrain' : 'Hover a road and click to demolish' });
+    this.emit({ ...DEFAULT_STATUS, tool: this.tool, roadMode: this.roadMode, zoneBrush: this.zoneBrush, zoneMode: this.zoneMode,
+      serviceType: this.serviceType, prompt: this.tool === 'road' ? 'Click to set a starting point' : this.tool === 'zone'
+        ? this.zonePrompt() : this.tool === 'terrain' ? 'Drag to sculpt terrain' : this.tool === 'service'
+          ? 'Click near a road to place a service' : 'Hover a road and click to demolish' });
   }
 
   dispose(): void {
@@ -291,6 +304,12 @@ export class ConstructionController {
       return;
     }
     if (!this.cursor) return;
+    if (this.tool === 'service') {
+      this.commandPending = true;
+      void this.simulation.execute({ type: 'place-service', serviceType: this.serviceType, position: { ...this.cursor } })
+        .finally(() => { this.commandPending = false; if (this.cursor) this.refreshAt(this.cursor); });
+      return;
+    }
     if (this.tool === 'zone') {
       this.zonePainting = true;
       this.zonePointerId = event.pointerId;
@@ -384,7 +403,7 @@ export class ConstructionController {
 
   private readonly onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
-    if (this.tool === 'terrain') {
+    if (this.tool === 'terrain' || this.tool === 'service') {
       this.setTool('road');
       return;
     }
@@ -399,7 +418,7 @@ export class ConstructionController {
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.code === 'Escape') {
-      if (this.tool === 'terrain') this.setTool('road');
+      if (this.tool === 'terrain' || this.tool === 'service') this.setTool('road');
       else this.cancel();
     }
     if (event.ctrlKey && event.code === 'KeyZ') {
@@ -416,6 +435,14 @@ export class ConstructionController {
 
   private refreshAt(rawPoint: Vec2): void {
     const analysisStarted = performance.now();
+    if (this.tool === 'service') {
+      const segmentId = this.findClosestSegment(rawPoint);
+      this.renderer.setHoveredSegment(segmentId);
+      this.emit({ ...DEFAULT_STATUS, tool: 'service', roadMode: this.roadMode, serviceType: this.serviceType,
+        prompt: segmentId ? `Click to place ${this.serviceType} near this road` : 'Move within 16 m of a road',
+        valid: !!segmentId, analysisMs: performance.now() - analysisStarted });
+      return;
+    }
     if (this.tool === 'terrain') {
       this.renderer.setTerrainBrushPreview(rawPoint, this.terrainSize);
       this.emit({ ...DEFAULT_STATUS, tool: 'terrain', roadMode: this.roadMode, prompt: this.terrainPointerId === undefined ? 'Drag to sculpt terrain' : 'Sculpting terrain',

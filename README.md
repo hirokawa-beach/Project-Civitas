@@ -1,4 +1,4 @@
-# Project Civitas — Road Traffic (0.11.0)
+# Project Civitas — City Services (0.12.0)
 
 ブラウザで動作する3D都市開発シミュレーションの第1弾Prototypeです。Simulation Workerが唯一のWorld Stateを所有し、Preact UIはCommandを送り、Babylon.js RendererはSnapshotだけを描画します。
 
@@ -14,9 +14,11 @@ Occupied住宅には30ゲーム秒ごとに各建物1世帯ずつ入居します
 
 交通は30ゲーム秒ごとに世帯・建物の集計から通勤、帰宅、買物、都市外との往来をまとめたTripを作ります。ルートは既存のRoad Graph上を車線方向に従って探索し、速度・混雑・交差点遅延をコストに含めます。5ゲーム秒ごとに車両の論理進行と道路・車線別の交通量、容量、平均速度、混雑率を更新します。地図端に接する道路ノードは都市外接続として扱います。近傍の簡易車両だけを最大40台描画し、更新間の位置と向きを補間して滑らかに動かします。右上のROAD TRAFFICパネルで集計と交通量Overlayを確認できます。詳細な車線変更や物理走行は行いません。
 
-市財政はSimulation Workerが管理します。初期資金250,000、道路建設費20/m、維持費1/mを仮設定とし、600ゲーム秒ごとに住宅の入居世帯数と商業・工業・オフィスの就業枠から税収を、Road Segmentの実長から維持費を計算します。道路Previewに推定費用・建設後資金を表示し、資金不足なら新規建設を止めます。建設費は確定時に1回引かれ、Undoで返金、Redoで同額を再適用します。解体による返金はありません。左側のCITY FINANCEパネルで資金と直近Cycleの収支・内訳を確認できます。負債で既存道路や建物を自動削除しません。
+SERVICESツールでは、電力・水道・ごみ・消防・警察・医療・教育・公園を道路から16m以内に配置できます。施設の供給は道路ネットワーク上の到達距離と容量で判定します。電力・水道は接続された道路網全体、ほかのサービスは種類ごとの道路距離範囲に供給します。人口・就業者から建物別の簡易需要を集計し、右側のCITY SERVICESパネルとDebugに供給率・需要・容量を表示します。配管や送電線の個別敷設はありません。
 
-クイックセーブにはHeightmap・地形設定・Terrain version、Lot、Building、成長状態・タイマー・Definition参照、世帯・建物別入居／求人・需要・更新タイマー、資金・収支・取引履歴に加え、都市外接続・論理Trip・交通更新時刻を含めます。Save schemaはv8で、旧v1～v7セーブを移行します。ゲーム版数とSave schemaは独立して管理します。詳細経済、水系、橋・高架・トンネル、鉄道はまだ対象外です。
+市財政はSimulation Workerが管理します。初期資金250,000、道路建設費20/m、維持費1/mを仮設定とし、600ゲーム秒ごとに住宅の入居世帯数と商業・工業・オフィスの就業枠から税収を、Road Segmentの実長と道路接続中のサービス施設から維持費を計算します。道路Previewに推定費用・建設後資金を表示し、資金不足なら新規建設を止めます。建設費は確定時に1回引かれ、Undoで返金、Redoで同額を再適用します。解体による返金はありません。左側のCITY FINANCEパネルで資金と直近Cycleの収支・内訳を確認できます。負債で既存道路や建物を自動削除しません。
+
+クイックセーブにはHeightmap・地形設定・Terrain version、Lot、Building、成長状態・タイマー・Definition参照、世帯・建物別入居／求人・需要・更新タイマー、資金・収支・取引履歴に加え、都市外接続・論理Trip・交通更新時刻・サービス施設を含めます。Save schemaはv9で、旧v1～v8セーブを移行します。ゲーム版数とSave schemaは独立して管理します。詳細な配管・配線、水系、橋・高架・トンネル、鉄道はまだ対象外です。
 
 ## 起動
 
@@ -49,6 +51,7 @@ npm test
 - 各モードを切り替えても、前の道路終端と接線方向を引き継いで連続施工できます
 - ZONING: R／C／I／OまたはEraseを選択。BRUSHはクリック／なぞり塗り、BOXはドラッグした矩形に重なる区画を一括指定
 - TERRAIN: Raise／Lower／Flatten／Smoothを選んで左ドラッグで編集。マウス移動だけでは編集しません。右クリック（またはEscape）で道路モードへ戻ります。SIZEはブラシ直径、STRENGTHは変化速度。Flattenはドラッグ開始点の標高に近づけます
+- SERVICES: 8種から施設を選択し、道路から16m以内をクリックして設置。CITY SERVICESのMANAGE FACILITIESで撤去します。設置費用は即時、維持費は600ゲーム秒ごとに計上します。設置・撤去はUndo/Redoできます
 - FLAT／HILLS: 地形テストプリセットを適用。既存の道路・区画は消えません
 - ゾーニングのドラッグ操作は1回でUndo/Redo可能。道路のUndo/Redoとも同じ履歴順序で扱います
 - SNAP palette: Node／Segment／終端延長Guide／15°／Parallel／Perpendicular／8m距離の各Snapを個別切替
@@ -68,7 +71,8 @@ npm test
 - `src/population`: 世帯、建物別入居・求人、雇用割当、RCIO需要
 - `src/economy`: 財政Cycle、用途別税収、道路建設費・維持費、取引履歴
 - `src/traffic`: 集約Trip、Road Graph経路探索、車線別の交通量・速度、近傍車両選択
-- `src/save`: version付きDTO、v1～v7→v8 migration、IndexedDB quick save
+- `src/services`: 道路ネットワーク接続・到達距離、施設容量、建物別供給率
+- `src/save`: version付きDTO、v1～v8→v9 migration、IndexedDB quick save
 - `src/ui`: World Stateを直接変更しない操作UI／Debug HUD
 
 Mapは1024m四方、Chunkは256m四方の4×4、1 world unit = 1mです。Small Roadは幅16m、対面2車線、速度上限40km/h、最小曲率半径24m、ゾーニング可能としてデータ定義されています。

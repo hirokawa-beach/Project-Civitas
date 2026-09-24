@@ -34,12 +34,17 @@ import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../z
 import type { ScreenPoint } from '../zoning/interaction';
 import { selectVisibleVehicles } from '../traffic/visibleVehicles';
 import { VehicleMotion, type VehiclePose } from '../traffic/vehicleMotion';
+import type { ServiceType } from '../services/types';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
   residential: '#67bd78',
   commercial: '#5b99e8',
   industrial: '#e7ae54',
   office: '#a77acf',
+};
+const SERVICE_COLORS: Record<ServiceType, string> = {
+  electricity: '#f5d35e', water: '#56b6df', garbage: '#879b65', fire: '#e76d5c',
+  police: '#627ed5', healthcare: '#e9a0aa', education: '#bb9ee5', parks: '#5fd393',
 };
 
 export interface RoadPreviewVisual {
@@ -98,6 +103,9 @@ export class GameRenderer {
   private readonly buildingMeshes = new Map<BuildingId, Mesh[]>();
   private readonly buildingSignatures = new Map<BuildingId, string>();
   private readonly buildingMaterials = {} as Record<ZoneType | 'planned' | 'constructing' | 'foundation', StandardMaterial>;
+  private readonly serviceMaterials = {} as Record<ServiceType, StandardMaterial>;
+  private readonly serviceMeshes = new Map<string, Mesh>();
+  private appliedServiceRevision = -1;
   private appliedLotRevision = -1;
   private readonly lotDebugMeshes = new Map<ChunkDescriptor['id'], LinesMesh[]>();
   private readonly lotDebugSignatures = new Map<ChunkDescriptor['id'], string>();
@@ -244,7 +252,8 @@ export class GameRenderer {
     const zoningChanged = snapshot.zoningRevision !== this.appliedZoningRevision;
     const lotChanged = snapshot.lotRevision !== this.appliedLotRevision;
     const trafficChanged = snapshot.traffic.revision !== this.appliedTrafficRevision;
-    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged) return;
+    const serviceChanged = snapshot.services.revision !== this.appliedServiceRevision;
+    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged && !serviceChanged) return;
     const affectedRoadIds = terrainChanged && !roadChanged ? this.invalidateRoadsInChunks(terrainChunks) : [];
     if (roadChanged) {
       this.appliedRoadRevision = snapshot.roadRevision;
@@ -266,6 +275,10 @@ export class GameRenderer {
       this.syncBuildings(snapshot.lots, snapshot.buildings);
       this.appliedLotRevision = snapshot.lotRevision;
     }
+    if (serviceChanged || terrainChanged) {
+      this.syncServices(snapshot);
+      this.appliedServiceRevision = snapshot.services.revision;
+    }
     if (this.debugVisible) {
       if (roadChanged || zoningChanged) this.rebuildDebugGeometry();
       else if (terrainChanged) {
@@ -278,6 +291,27 @@ export class GameRenderer {
   }
 
   getHeight(x: number, z: number): number { return this.terrain?.getHeight(x, z) ?? 0; }
+
+  private syncServices(snapshot: WorldSnapshot): void {
+    const active = new Set(snapshot.services.facilities.map((facility) => facility.id));
+    for (const [id, mesh] of this.serviceMeshes) if (!active.has(id)) { mesh.dispose(); this.serviceMeshes.delete(id); }
+    for (const facility of snapshot.services.facilities) {
+      let mesh = this.serviceMeshes.get(facility.id);
+      if (!mesh) {
+        mesh = CreateBox(`service-${facility.id}`, { width: 5, height: 6, depth: 5 }, this.scene);
+        if (!this.serviceMaterials[facility.type]) {
+          const material = new StandardMaterial(`service-${facility.type}`, this.scene);
+          material.diffuseColor = Color3.FromHexString(SERVICE_COLORS[facility.type]);
+          material.specularColor = Color3.Black();
+          this.serviceMaterials[facility.type] = material;
+        }
+        mesh.material = this.serviceMaterials[facility.type];
+        mesh.isPickable = false;
+        this.serviceMeshes.set(facility.id, mesh);
+      }
+      mesh.position.set(facility.position.x, this.getHeight(facility.position.x, facility.position.z) + 3, facility.position.z);
+    }
+  }
   getNormal(x: number, z: number): { x: number; y: number; z: number } { return this.terrain?.getNormal(x, z) ?? { x: 0, y: 1, z: 0 }; }
   getTerrainMeshUpdateMs(): number { return this.terrainMeshUpdateMs; }
   getTerrainUpdateFrameMs(): number { return this.terrainUpdateFrameMs; }
