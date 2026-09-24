@@ -103,6 +103,10 @@ export class SimulationClient {
       if (!this.latestSnapshot) return;
       this.latestSnapshot = { ...this.latestSnapshot, services: message.services };
       for (const listener of this.snapshotListeners) listener(this.latestSnapshot);
+    } else if (message.type === 'transit-update') {
+      if (!this.latestSnapshot) return;
+      this.latestSnapshot = { ...this.latestSnapshot, transit: message.transit };
+      for (const listener of this.snapshotListeners) listener(this.latestSnapshot);
     } else if (message.type === 'clock-update') {
       if (!this.latestSnapshot) return;
       this.latestSnapshot = {

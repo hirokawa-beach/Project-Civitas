@@ -14,7 +14,7 @@ const createHarness = () => {
   };
   const renderer = {
     pickGround: () => ({ x: 0, z: 0 }),
-    setPreview: vi.fn(), setServicePreview: vi.fn(), setZonePreview: vi.fn(), setHoveredSegment: vi.fn(), setTerrainBrushPreview: vi.fn(),
+    setPreview: vi.fn(), setServicePreview: vi.fn(), setTransitStopPreview: vi.fn(), setZonePreview: vi.fn(), setHoveredSegment: vi.fn(), setTerrainBrushPreview: vi.fn(),
     getHeight: () => 0, getNormal: () => ({ x: 0, y: 1, z: 0 }),
   };
   const simulation = {

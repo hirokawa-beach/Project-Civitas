@@ -75,6 +75,16 @@ export class GameRenderer {
   private readonly vehicleMaterial: StandardMaterial;
   private readonly vehicleMeshes = new Map<string, Mesh>();
   private readonly vehicleMotion = new VehicleMotion();
+  private readonly busMotion = new VehicleMotion();
+  private readonly busMeshes = new Map<string, Mesh>();
+  private readonly busMaterials = new Map<string, StandardMaterial>();
+  private readonly stopMeshes = new Map<string, Mesh>();
+  private readonly stopSignatures = new Map<string, string>();
+  private readonly routeMeshes = new Map<string, LinesMesh>();
+  private readonly routeSignatures = new Map<string, string>();
+  private readonly stopMaterial: StandardMaterial;
+  private transitStopPreview?: Mesh;
+  private appliedTransitRevision = -1;
   private trafficOverlay = false;
   private appliedTrafficRevision = -1;
   private lastVehicleCameraX = Number.NaN;
@@ -171,6 +181,9 @@ export class GameRenderer {
     this.vehicleMaterial = new StandardMaterial('traffic-vehicle', this.scene);
     this.vehicleMaterial.diffuseColor = Color3.FromHexString('#e9f5e9');
     this.vehicleMaterial.specularColor = Color3.Black();
+    this.stopMaterial = new StandardMaterial('bus-stop-material', this.scene);
+    this.stopMaterial.diffuseColor = Color3.FromHexString('#f6d176');
+    this.stopMaterial.emissiveColor = Color3.FromHexString('#493509');
     this.intersectionMaterial = new StandardMaterial('intersection-material', this.scene);
     this.intersectionMaterial.diffuseColor = Color3.FromHexString('#333a38');
     this.intersectionMaterial.specularColor = Color3.Black();
@@ -212,6 +225,7 @@ export class GameRenderer {
     this.scene.onBeforeRenderObservable.add(() => {
       const delta = this.updateCamera();
       this.animateVisibleVehicles(delta);
+      this.animateTransitVehicles(delta);
     });
     this.engine.runRenderLoop(() => {
       if (this.disposed) return;
@@ -256,7 +270,8 @@ export class GameRenderer {
     const lotChanged = snapshot.lotRevision !== this.appliedLotRevision;
     const trafficChanged = snapshot.traffic.revision !== this.appliedTrafficRevision;
     const serviceChanged = snapshot.services.revision !== this.appliedServiceRevision;
-    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged && !serviceChanged) return;
+    const transitChanged = snapshot.transit.revision !== this.appliedTransitRevision;
+    if (!roadChanged && !zoningChanged && !terrainChanged && !lotChanged && !trafficChanged && !serviceChanged && !transitChanged) return;
     const affectedRoadIds = terrainChanged && !roadChanged ? this.invalidateRoadsInChunks(terrainChunks) : [];
     if (roadChanged) {
       this.appliedRoadRevision = snapshot.roadRevision;
@@ -281,6 +296,10 @@ export class GameRenderer {
     if (serviceChanged || terrainChanged) {
       this.syncServices(snapshot);
       this.appliedServiceRevision = snapshot.services.revision;
+    }
+    if (transitChanged || roadChanged || terrainChanged) {
+      this.syncTransit(snapshot, roadChanged || terrainChanged);
+      this.appliedTransitRevision = snapshot.transit.revision;
     }
     if (this.debugVisible) {
       if (roadChanged || zoningChanged) this.rebuildDebugGeometry();
@@ -358,6 +377,117 @@ export class GameRenderer {
       this.serviceMeshes.set(facility.id, meshes);
       this.serviceSignatures.set(facility.id, signature);
     }
+  }
+
+  private syncTransit(snapshot: WorldSnapshot, snap = false): void {
+    const stopIds = new Set(snapshot.transit.stops.map((stop) => stop.id));
+    for (const [id, mesh] of this.stopMeshes) if (!stopIds.has(id)) {
+      mesh.dispose(); this.stopMeshes.delete(id); this.stopSignatures.delete(id);
+    }
+    for (const stop of snapshot.transit.stops) {
+      const signature = JSON.stringify([stop.position, stop.direction, snapshot.terrainRevision]);
+      if (this.stopSignatures.get(stop.id) === signature) continue;
+      this.stopMeshes.get(stop.id)?.dispose();
+      const marker = CreateCylinder(`bus-stop-${stop.id}`, { diameter: 2.6, height: 4, tessellation: 12 }, this.scene);
+      marker.position.set(stop.position.x, this.getHeight(stop.position.x, stop.position.z) + 2, stop.position.z);
+      marker.material = this.stopMaterial;
+      marker.isPickable = false;
+      this.stopMeshes.set(stop.id, marker);
+      this.stopSignatures.set(stop.id, signature);
+    }
+    const segments = new Map(snapshot.roadGraph.segments.map((segment) => [segment.id, segment]));
+    const lines = new Map(snapshot.transit.lines.map((line) => [line.id, line]));
+    const routeIds = new Set(snapshot.transit.routes.map((route) => route.id));
+    for (const [id, mesh] of this.routeMeshes) if (!routeIds.has(id)) {
+      mesh.dispose(); this.routeMeshes.delete(id); this.routeSignatures.delete(id);
+    }
+    for (const route of snapshot.transit.routes) {
+      const line = lines.get(route.lineId);
+      const signature = JSON.stringify([route.legs, line?.color, snapshot.terrainRevision]);
+      if (this.routeSignatures.get(route.id) === signature) continue;
+      this.routeMeshes.get(route.id)?.dispose();
+      const paths: Vector3[][] = [];
+      for (const leg of route.legs) {
+        const segment = segments.get(leg.segmentId);
+        if (!segment) continue;
+        const count = Math.max(2, Math.ceil(Math.abs(leg.toAlong - leg.fromAlong) / 8));
+        paths.push(Array.from({ length: count + 1 }, (_, index) => {
+          const along = leg.fromAlong + (leg.toAlong - leg.fromAlong) * index / count;
+          return this.toVector(pointAtDistance(segment.geometry.points, along).point, 0.9);
+        }));
+      }
+      if (paths.length > 0) {
+        const mesh = CreateLineSystem(`bus-route-${route.id}`, { lines: paths }, this.scene);
+        mesh.color = Color3.FromHexString(line?.color ?? '#f2c75c');
+        mesh.alpha = 0.9; mesh.isPickable = false;
+        this.routeMeshes.set(route.id, mesh);
+      }
+      this.routeSignatures.set(route.id, signature);
+    }
+    const routes = new Map(snapshot.transit.routes.map((route) => [route.id, route]));
+    const targets = new Map<string, VehiclePose>();
+    for (const vehicle of snapshot.transit.vehicles) {
+      const route = routes.get(vehicle.routeId);
+      if (!route) continue;
+      let remaining = vehicle.progressMeters;
+      for (const leg of route.legs) {
+        const length = Math.abs(leg.toAlong - leg.fromAlong);
+        if (remaining > length) { remaining -= length; continue; }
+        const segment = segments.get(leg.segmentId);
+        if (!segment) break;
+        const along = leg.fromAlong + (leg.direction === 'forward' ? remaining : -remaining);
+        const { point, tangent } = pointAtDistance(segment.geometry.points, along);
+        const side = leg.direction === 'forward' ? 1 : -1;
+        const offset = Math.min(2.7, segment.width * 0.24) * side;
+        const x = point.x - tangent.z * offset; const z = point.z + tangent.x * offset;
+        targets.set(vehicle.id, { x, y: this.getHeight(x, z) + 1.7, z,
+          yaw: Math.atan2(tangent.x * side, tangent.z * side) });
+        break;
+      }
+    }
+    this.busMotion.sync(targets, snap);
+    for (const [id, mesh] of this.busMeshes) if (!targets.has(id)) { mesh.dispose(); this.busMeshes.delete(id); }
+    for (const vehicle of snapshot.transit.vehicles) if (targets.has(vehicle.id) && !this.busMeshes.has(vehicle.id)) {
+      const line = lines.get(vehicle.lineId);
+      const color = line?.color ?? '#f2c75c';
+      let material = this.busMaterials.get(color);
+      if (!material) {
+        material = new StandardMaterial(`bus-${color}`, this.scene);
+        material.diffuseColor = Color3.FromHexString(color);
+        material.specularColor = Color3.Black();
+        this.busMaterials.set(color, material);
+      }
+      const mesh = CreateBox(`bus-${vehicle.id}`, { width: 2.7, height: 3.1, depth: 8.5 }, this.scene);
+      mesh.material = material; mesh.isPickable = false;
+      this.busMeshes.set(vehicle.id, mesh);
+    }
+    this.applyBusPoses();
+  }
+
+  private animateTransitVehicles(realSeconds: number): void {
+    if (!this.snapshot || this.busMeshes.size === 0) return;
+    this.busMotion.advance(realSeconds, this.snapshot.gameClock.speed, 5);
+    this.applyBusPoses();
+  }
+
+  private applyBusPoses(): void {
+    for (const [id, mesh] of this.busMeshes) {
+      const pose = this.busMotion.pose(id);
+      if (!pose) continue;
+      mesh.position.set(pose.x, pose.y, pose.z);
+      mesh.rotation.y = pose.yaw;
+    }
+  }
+
+  setTransitStopPreview(point?: Vec2, valid = false): void {
+    this.transitStopPreview?.dispose();
+    this.transitStopPreview = undefined;
+    if (!point) return;
+    const marker = CreateCylinder('bus-stop-preview', { diameter: 3, height: 1.2, tessellation: 12 }, this.scene);
+    marker.position.set(point.x, this.getHeight(point.x, point.z) + 0.7, point.z);
+    marker.material = valid ? this.previewValidMaterial : this.previewInvalidMaterial;
+    marker.isPickable = false;
+    this.transitStopPreview = marker;
   }
   getNormal(x: number, z: number): { x: number; y: number; z: number } { return this.terrain?.getNormal(x, z) ?? { x: 0, y: 1, z: 0 }; }
   getTerrainMeshUpdateMs(): number { return this.terrainMeshUpdateMs; }
