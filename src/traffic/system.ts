@@ -163,13 +163,20 @@ export class TrafficSystem {
       if (trip.routeState !== 'routed') continue;
       activeTrips += 1;
       logicalVehicles += trip.vehicleCount;
-      let remaining = trip.progressMeters;
-      for (const leg of trip.route) {
-        const length = legLength(leg);
-        if (remaining > length) { remaining -= length; continue; }
-        const along = leg.fromAlong + (leg.direction === 'forward' ? remaining : -remaining);
-        visibleCandidates.push({ tripId: trip.id, segmentId: leg.segmentId, direction: leg.direction, along });
-        break;
+      // Trip batches remain authoritative. These stable IDs expose their individual
+      // visual representatives without creating persistent citizen/vehicle objects.
+      const routeLength = totalRouteLength(trip.route);
+      for (let vehicle = 0; vehicle < trip.vehicleCount; vehicle += 1) {
+        let remaining = Math.max(0, Math.min(Math.max(0, routeLength - .01),
+          trip.progressMeters + (vehicle - (trip.vehicleCount - 1) / 2) * 6));
+        for (const leg of trip.route) {
+          const length = legLength(leg);
+          if (remaining > length) { remaining -= length; continue; }
+          const along = leg.fromAlong + (leg.direction === 'forward' ? remaining : -remaining);
+          visibleCandidates.push({ vehicleId: `${trip.id}:vehicle-${vehicle}`, tripId: trip.id,
+            segmentId: leg.segmentId, direction: leg.direction, along });
+          break;
+        }
       }
     }
     return {

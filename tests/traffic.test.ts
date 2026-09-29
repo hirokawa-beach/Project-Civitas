@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RoadGraph } from '../src/roads/roadGraph';
+import { pointAtDistance } from '../src/roads/geometry';
 import type { Lot } from '../src/lots/types';
 import { PopulationSystem } from '../src/population/system';
 import { SimulationState } from '../src/simulation/state';
@@ -7,6 +8,7 @@ import { RoadRouter } from '../src/traffic/routing';
 import { DEFAULT_TRAFFIC_CONFIG, TrafficSystem } from '../src/traffic/system';
 import type { TripEndpoint } from '../src/traffic/types';
 import { selectVisibleVehicles } from '../src/traffic/visibleVehicles';
+import { VehicleMotion } from '../src/traffic/vehicleMotion';
 
 const line = (a: number, b: number, z = 0) => ({
   geometry: { kind: 'straight' as const, points: [{ x: a, z }, { x: b, z }] }, roadTypeId: 'small',
@@ -67,11 +69,19 @@ describe('road traffic', () => {
       'home-work', 'work-home', 'home-commercial', 'commercial-home',
     ]));
     expect(system.snapshot().logicalVehicles).toBe(8);
+    expect(system.snapshot().visibleCandidates).toHaveLength(8);
+    expect(new Set(system.snapshot().visibleCandidates.map((candidate) => candidate.vehicleId)).size).toBe(8);
     expect(system.segmentStates[0].currentVolume).toBe(8);
     expect(system.segmentStates[0].lanes.reduce((sum, lane) => sum + lane.currentVolume, 0)).toBe(8);
     const initial = system.trips[0].progressMeters;
+    const ids = system.snapshot().visibleCandidates.map((candidate) => candidate.vehicleId);
+    const cameraFar = { x: 500, z: 500 };
+    expect(selectVisibleVehicles(system.snapshot().visibleCandidates, graph.snapshot().segments, cameraFar, 100, 500)).toHaveLength(0);
     system.tick(35, populated([home], [shop]), [home, shop]);
     expect(system.trips[0].progressMeters).toBeGreaterThan(initial);
+    expect(system.snapshot().visibleCandidates.map((candidate) => candidate.vehicleId)).toEqual(ids);
+    expect(selectVisibleVehicles(system.snapshot().visibleCandidates, graph.snapshot().segments,
+      { x: 0, z: 0 }, 220, 500).length).toBeGreaterThan(0);
   });
 
   it('derives outside connections from boundary nodes and creates outside-to-city trips', () => {
@@ -153,8 +163,40 @@ describe('road traffic', () => {
     const id = graph.snapshot().segments[0].id;
     const candidates = Array.from({ length: 100 }, (_, i) => ({ tripId: `trip-${i}`, segmentId: id,
       direction: 'forward' as const, along: i * 2 }));
-    expect(selectVisibleVehicles(candidates, graph.snapshot().segments, { x: 0, z: 0 }, 220, 40)).toHaveLength(40);
+    const selected = selectVisibleVehicles(candidates, graph.snapshot().segments, { x: 0, z: 0 }, 220, 40);
+    expect(selected.length).toBeGreaterThan(0);
+    expect(selected.length).toBeLessThanOrEqual(40);
+    for (const [index, candidate] of selected.entries())
+      expect(selected.slice(index + 1).every((other) => Math.abs(candidate.along - other.along) >= 4.5)).toBe(true);
     expect(selectVisibleVehicles(candidates, graph.snapshot().segments, { x: 500, z: 0 }, 20, 40)).toHaveLength(0);
+    const retained = candidates.find((candidate) => candidate.along === 100)!;
+    expect(selectVisibleVehicles([retained], graph.snapshot().segments, { x: 55, z: 0 }, 50, 1)).toHaveLength(0);
+    expect(selectVisibleVehicles([retained], graph.snapshot().segments, { x: 55, z: 0 }, 50, 1,
+      new Set([retained.tripId]), 70)).toHaveLength(1);
+    expect(selectVisibleVehicles([retained], graph.snapshot().segments, { x: 75, z: 0 }, 50, 1,
+      new Set([retained.tripId]), 70)).toHaveLength(0);
+  });
+
+  it('reconstructs a returning visual vehicle at its advanced logical position', () => {
+    const graph = road();
+    const segment = graph.snapshot().segments[0];
+    const home = lot('home', segment.id, -70);
+    const shop = lot('shop', segment.id, 70);
+    const population = populated([home], [shop]);
+    const system = new TrafficSystem(graph.snapshot());
+    system.tick(30, population, [home, shop]);
+    const motion = new VehicleMotion();
+    const initial = system.snapshot().visibleCandidates[0];
+    expect(selectVisibleVehicles(system.snapshot().visibleCandidates, [segment], { x: 500, z: 500 }, 100, 500))
+      .toHaveLength(0);
+    system.tick(35, population, [home, shop]);
+    const advanced = system.snapshot().visibleCandidates.find((candidate) => candidate.vehicleId === initial.vehicleId)!;
+    expect(advanced.along).not.toBe(initial.along);
+    const selected = selectVisibleVehicles([advanced], [segment], { x: 0, z: 0 }, 220, 500);
+    const { point } = pointAtDistance(segment.geometry.points, selected[0].along);
+    motion.sync(new Map([[selected[0].vehicleId!, { x: point.x, y: 1, z: point.z, yaw: 0 }]]));
+    expect(motion.pose(selected[0].vehicleId!)?.x).toBeCloseTo(point.x);
+    expect(motion.pose(selected[0].vehicleId!)?.z).toBeCloseTo(point.z);
   });
 
   it('round-trips active traffic and migrates an older save without losing roads', () => {
@@ -167,9 +209,12 @@ describe('road traffic', () => {
     const save = state.serialize();
     expect(save.saveVersion).toBe(12);
     expect(save.traffic.trips).toHaveLength(4);
+    expect('visibleCitizens' in save).toBe(false);
+    expect('visibleVehicles' in save.traffic).toBe(false);
     const restored = new TrafficSystem(state.graph.snapshot());
     restored.restore(save.traffic, 30);
     expect(restored.save()).toEqual(save.traffic);
+    expect(restored.snapshot().visibleCandidates).toEqual(state.traffic.snapshot().visibleCandidates);
     const older = { ...save, saveVersion: 7 as const, traffic: undefined };
     const migrated = new SimulationState();
     migrated.load(older);

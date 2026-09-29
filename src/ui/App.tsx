@@ -14,6 +14,7 @@ import { SERVICE_DEFINITIONS } from '../services/system';
 import type { TransitLine } from '../transit/types';
 import { TRANSIT_VEHICLE_TYPES } from '../transit/system';
 import type { RoadStructureType } from '../roads/types';
+import type { PerformanceProfile } from '../visual/agentBudget';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -27,6 +28,16 @@ interface Metrics {
   terrainMeshMs: number;
   terrainFrameMs: number;
   visibleVehicles: number;
+  visibleCitizens: number;
+  vehicleBudget: number;
+  citizenBudget: number;
+  culledAgents: number;
+  pooledMeshes: number;
+  near: number;
+  mid: number;
+  far: number;
+  updateMs: number;
+  profile: PerformanceProfile;
 }
 
 const formatClock = (seconds: number): string => {
@@ -73,7 +84,9 @@ const SNAP_CONTROLS: ReadonlyArray<{ key: SnapSettingKey; label: string; title: 
 export function App({ runtime, simulation }: AppProps) {
   const [snapshot, setSnapshot] = useState<WorldSnapshot | undefined>(simulation.latestSnapshot);
   const [construction, setConstruction] = useState<ConstructionStatus>();
-  const [metrics, setMetrics] = useState<Metrics>({ fps: 0, frameTime: 0, chunk: { x: 2, z: 2 }, terrainMeshMs: 0, terrainFrameMs: 0, visibleVehicles: 0 });
+  const [metrics, setMetrics] = useState<Metrics>({ fps: 0, frameTime: 0, chunk: { x: 2, z: 2 }, terrainMeshMs: 0,
+    terrainFrameMs: 0, visibleVehicles: 0, visibleCitizens: 0, vehicleBudget: 0, citizenBudget: 0,
+    culledAgents: 0, pooledMeshes: 0, near: 0, mid: 0, far: 0, updateMs: 0, profile: 'balanced' });
   const [saveBytes, setSaveBytes] = useState(0);
   const [debugVisible, setDebugVisible] = useState(true);
   const [trafficOverlay, setTrafficOverlay] = useState(false);
@@ -97,7 +110,7 @@ export function App({ runtime, simulation }: AppProps) {
       chunk: runtime.renderer.getCurrentChunk(),
       terrainMeshMs: runtime.renderer.getTerrainMeshUpdateMs(),
       terrainFrameMs: runtime.renderer.getTerrainUpdateFrameMs(),
-      visibleVehicles: runtime.renderer.getVisibleVehicleCount(),
+      ...runtime.renderer.getVisualAgentMetrics(),
     }), 350);
     return () => window.clearInterval(timer);
   }, [runtime]);
@@ -288,6 +301,10 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>FPS</dt><dd>{metrics.fps.toFixed(0)}</dd>
             <dt>FRAME</dt><dd>{metrics.frameTime.toFixed(2)} ms</dd>
             <dt>SIM TICK</dt><dd>{snapshot.simulationTickMs.toFixed(3)} ms</dd>
+            <dt>AGENT PROFILE</dt><dd><select class="agent-profile" aria-label="Agent performance profile" value={metrics.profile}
+              onChange={(event) => runtime.setPerformanceProfile(event.currentTarget.value as PerformanceProfile)}>
+              <option value="low">LOW</option><option value="balanced">BALANCED</option><option value="high">HIGH</option>
+            </select></dd>
             <dt>CLOCK</dt><dd>{snapshot.gameClock.gameSeconds}s</dd>
             <dt>SPEED</dt><dd>×{snapshot.gameClock.speed}</dd>
             <dt>CHUNK</dt><dd>{metrics.chunk.x}, {metrics.chunk.z}</dd>
@@ -315,7 +332,12 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>FUNDS / NET</dt><dd>{money(snapshot.economy.funds)} / {money(snapshot.economy.lastCycleNet)}</dd>
             <dt>INCOME / EXPENSE</dt><dd>{money(snapshot.economy.totalIncome)} / {money(snapshot.economy.totalExpenses)}</dd>
             <dt>TRIPS / VEHICLES</dt><dd>{snapshot.traffic.activeTrips} / {snapshot.traffic.logicalVehicles}</dd>
-            <dt>VISIBLE / LIMIT</dt><dd>{metrics.visibleVehicles} / {snapshot.traffic.maxVisibleVehicles}</dd>
+            <dt>VISIBLE VEHICLES / BUDGET</dt><dd>{metrics.visibleVehicles} / {metrics.vehicleBudget}</dd>
+            <dt>VISIBLE CITIZENS / BUDGET</dt><dd>{metrics.visibleCitizens} / {metrics.citizenBudget}</dd>
+            <dt>CULLED AGENTS</dt><dd>{metrics.culledAgents}</dd>
+            <dt>POOLED MESHES</dt><dd>{metrics.pooledMeshes}</dd>
+            <dt>LOD N / M / F</dt><dd>{metrics.near} / {metrics.mid} / {metrics.far}</dd>
+            <dt>AGENT UPDATE</dt><dd>{metrics.updateMs.toFixed(2)} ms</dd>
             <dt>AVG SPEED / JAM</dt><dd>{snapshot.traffic.averageRoadSpeed.toFixed(1)} km/h / {snapshot.traffic.congestedSegmentCount}</dd>
             <dt>OUTSIDE LINKS</dt><dd>{snapshot.traffic.outsideConnections.length}</dd>
             <dt>ECONOMY CYCLE</dt><dd>{snapshot.economy.lastEconomyTickGameSeconds} → {snapshot.economy.nextCycleAtGameSeconds}s</dd>

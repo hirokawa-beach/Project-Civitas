@@ -58,6 +58,8 @@ export interface SegmentTraffic {
 }
 
 export interface VisibleVehicleCandidate {
+  /** Stable representative of one vehicle in an aggregate logical trip. */
+  vehicleId?: string;
   tripId: string;
   segmentId: RoadSegmentId;
   direction: 'forward' | 'backward';

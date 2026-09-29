@@ -7,7 +7,7 @@ import '@babylonjs/core/Engines/Extensions/engine.dynamicTexture';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
-import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder';
@@ -20,6 +20,7 @@ import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder';
 import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder';
 import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import '@babylonjs/core/Meshes/thinInstanceMesh';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { Scene } from '@babylonjs/core/scene';
 import type { RoadNodeId, RoadSegmentId } from '../shared/ids';
@@ -36,6 +37,8 @@ import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../z
 import type { ScreenPoint } from '../zoning/interaction';
 import { selectVisibleVehicles } from '../traffic/visibleVehicles';
 import { VehicleMotion, type VehiclePose } from '../traffic/vehicleMotion';
+import { AdaptiveAgentBudget, agentLod, type AgentLod, type PerformanceProfile } from '../visual/agentBudget';
+import { CitizenSampler, type CitizenVisual, visualHash } from '../visual/citizenSampler';
 import type { ServiceFacility, ServiceType } from '../services/types';
 import { SERVICE_DEFINITIONS } from '../services/system';
 
@@ -78,7 +81,28 @@ export class GameRenderer {
   private readonly trafficMaterials: StandardMaterial[] = [];
   private readonly vehicleMaterial: StandardMaterial;
   private readonly vehicleMeshes = new Map<string, Mesh>();
+  private readonly vehiclePool: Mesh[] = [];
+  private readonly vehicleMaterials: StandardMaterial[] = [];
+  private readonly vehicleMidMesh: Mesh;
+  private readonly vehicleFarMesh: Mesh;
+  private readonly vehicleLods = new Map<string, AgentLod>();
   private readonly vehicleMotion = new VehicleMotion();
+  private readonly citizenSampler = new CitizenSampler();
+  private citizenSelection: CitizenVisual[] = [];
+  private readonly citizenBodyMeshes: Mesh[] = [];
+  private readonly citizenHeadMeshes: Mesh[] = [];
+  private readonly citizenMidMesh: Mesh;
+  private readonly citizenFarMesh: Mesh;
+  private readonly visualBudget = new AdaptiveAgentBudget();
+  private visualGameSeconds = 0;
+  private lastVisualSelectionGameSeconds = Number.NaN;
+  private appliedPopulationRevision = -1;
+  private visibleCitizenCount = 0;
+  private culledAgentCount = 0;
+  private visualAgentUpdateMs = 0;
+  private lodNearCount = 0;
+  private lodMidCount = 0;
+  private lodFarCount = 0;
   private readonly busMotion = new VehicleMotion();
   private readonly busMeshes = new Map<string, Mesh>();
   private readonly busMaterials = new Map<string, StandardMaterial>();
@@ -201,6 +225,38 @@ export class GameRenderer {
     this.vehicleMaterial = new StandardMaterial('traffic-vehicle', this.scene);
     this.vehicleMaterial.diffuseColor = Color3.FromHexString('#e9f5e9');
     this.vehicleMaterial.specularColor = Color3.Black();
+    for (const color of ['#e9f5e9', '#cc8262', '#7899ba']) {
+      const material = new StandardMaterial(`vehicle-${color}`, this.scene);
+      material.diffuseColor = Color3.FromHexString(color);
+      material.specularColor = Color3.Black();
+      this.vehicleMaterials.push(material);
+    }
+    this.vehicleMidMesh = CreateBox('mid-vehicle-instances', { width: 2, height: 1.1, depth: 3.5 }, this.scene);
+    this.vehicleMidMesh.material = this.vehicleMaterial;
+    this.vehicleMidMesh.isPickable = false;
+    this.vehicleMidMesh.thinInstanceCount = 0;
+    this.vehicleFarMesh = CreateBox('far-vehicle-instances', { width: 1.7, height: .9, depth: 2.8 }, this.scene);
+    this.vehicleFarMesh.material = this.vehicleMaterial;
+    this.vehicleFarMesh.isPickable = false;
+    this.vehicleFarMesh.thinInstanceCount = 0;
+    for (const [index, color] of ['#d7b99a', '#9ac8b3', '#b8b1d6'].entries()) {
+      const bodyMaterial = new StandardMaterial(`citizen-body-${index}`, this.scene);
+      bodyMaterial.diffuseColor = Color3.FromHexString(color);
+      bodyMaterial.specularColor = Color3.Black();
+      const body = CreateCylinder(`citizen-body-${index}`, { diameter: .8, height: 1.25, tessellation: 6 }, this.scene);
+      body.material = bodyMaterial; body.isPickable = false; body.thinInstanceCount = 0;
+      const head = CreateSphere(`citizen-head-${index}`, { diameter: .55, segments: 6 }, this.scene);
+      head.material = bodyMaterial; head.isPickable = false; head.thinInstanceCount = 0;
+      this.citizenBodyMeshes.push(body); this.citizenHeadMeshes.push(head);
+    }
+    this.citizenMidMesh = CreateCylinder('mid-citizen-instances', { diameter: .65, height: 1.5, tessellation: 4 }, this.scene);
+    this.citizenMidMesh.material = this.citizenBodyMeshes[0].material;
+    this.citizenMidMesh.isPickable = false;
+    this.citizenMidMesh.thinInstanceCount = 0;
+    this.citizenFarMesh = CreateCylinder('far-citizen-instances', { diameter: .5, height: 1.2, tessellation: 3 }, this.scene);
+    this.citizenFarMesh.material = this.citizenBodyMeshes[0].material;
+    this.citizenFarMesh.isPickable = false;
+    this.citizenFarMesh.thinInstanceCount = 0;
     this.stopMaterial = new StandardMaterial('bus-stop-material', this.scene);
     this.stopMaterial.diffuseColor = Color3.FromHexString('#f6d176');
     this.stopMaterial.emissiveColor = Color3.FromHexString('#493509');
@@ -243,8 +299,11 @@ export class GameRenderer {
     this.createChunkGrid();
     this.bindCameraKeys();
     this.scene.onBeforeRenderObservable.add(() => {
+      const agentStarted = performance.now();
       const delta = this.updateCamera();
       this.animateVisibleVehicles(delta);
+      this.animateVisibleCitizens(delta);
+      this.visualAgentUpdateMs = performance.now() - agentStarted;
       this.animateTransitVehicles(delta);
     });
     this.engine.runRenderLoop(() => {
@@ -253,6 +312,8 @@ export class GameRenderer {
       this.scene.render();
       this.frameSamples.push(performance.now() - started);
       if (this.frameSamples.length > 90) this.frameSamples.shift();
+      if (this.visualBudget.observe(this.frameSamples.at(-1)!, Math.min(.1, this.engine.getDeltaTime() / 1000)))
+        this.syncVisualAgents();
     });
     window.addEventListener('resize', this.resize);
   }
@@ -283,6 +344,8 @@ export class GameRenderer {
   updateSnapshot(snapshot: WorldSnapshot): void {
     const updateStarted = performance.now();
     this.snapshot = snapshot;
+    if (Math.abs(this.visualGameSeconds - snapshot.gameClock.gameSeconds) > 2)
+      this.visualGameSeconds = snapshot.gameClock.gameSeconds;
     const terrainChanged = snapshot.terrainRevision !== this.appliedTerrainRevision;
     const waterChanged = snapshot.water.revision !== this.appliedWaterRevision;
     const terrainChunks = terrainChanged ? this.syncTerrain(snapshot) : [];
@@ -290,9 +353,10 @@ export class GameRenderer {
     const zoningChanged = snapshot.zoningRevision !== this.appliedZoningRevision;
     const lotChanged = snapshot.lotRevision !== this.appliedLotRevision;
     const trafficChanged = snapshot.traffic.revision !== this.appliedTrafficRevision;
+    const populationChanged = snapshot.population.revision !== this.appliedPopulationRevision;
     const serviceChanged = snapshot.services.revision !== this.appliedServiceRevision;
     const transitChanged = snapshot.transit.revision !== this.appliedTransitRevision;
-    if (!roadChanged && !zoningChanged && !terrainChanged && !waterChanged && !lotChanged && !trafficChanged && !serviceChanged && !transitChanged) return;
+    if (!roadChanged && !zoningChanged && !terrainChanged && !waterChanged && !lotChanged && !trafficChanged && !serviceChanged && !transitChanged && !populationChanged) return;
     if (waterChanged) this.syncWater(snapshot);
     const affectedRoadIds = terrainChanged && !roadChanged ? this.invalidateRoadsInChunks(terrainChunks) : [];
     if (roadChanged) {
@@ -305,7 +369,6 @@ export class GameRenderer {
     if (roadChanged || trafficChanged) this.syncRoadTrafficMaterials();
     if (roadChanged || terrainChanged || trafficChanged) {
       this.appliedTrafficRevision = snapshot.traffic.revision;
-      this.syncVisibleVehicles(roadChanged || terrainChanged);
     }
     if (zoningChanged || terrainChanged) {
       this.appliedZoningRevision = snapshot.zoningRevision;
@@ -323,6 +386,16 @@ export class GameRenderer {
       this.syncTransit(snapshot, roadChanged || terrainChanged);
       this.appliedTransitRevision = snapshot.transit.revision;
     }
+    if (roadChanged || lotChanged || transitChanged) {
+      this.citizenSampler.rebuild(snapshot.roadGraph, snapshot.lots, snapshot.population.occupancies,
+        snapshot.transit.stops, snapshot.transit.stopMetrics, snapshot.traffic.segments);
+    } else if (populationChanged || trafficChanged)
+      this.citizenSampler.updateActivity(snapshot.lots, snapshot.population.occupancies,
+        snapshot.transit.stops, snapshot.transit.stopMetrics, snapshot.traffic.segments);
+    if (roadChanged || lotChanged || populationChanged || transitChanged || trafficChanged)
+      this.appliedPopulationRevision = snapshot.population.revision;
+    if (roadChanged || terrainChanged || trafficChanged || lotChanged || populationChanged || transitChanged)
+      this.syncVisualAgents(roadChanged || terrainChanged);
     if (this.debugVisible) {
       if (roadChanged || zoningChanged) this.rebuildDebugGeometry();
       else if (terrainChanged) {
@@ -854,6 +927,18 @@ export class GameRenderer {
   }
   getTrafficOverlay(): boolean { return this.trafficOverlay; }
   getVisibleVehicleCount(): number { return this.visibleVehicleCount; }
+  getVisualAgentMetrics(): { visibleVehicles: number; visibleCitizens: number; vehicleBudget: number; citizenBudget: number;
+    culledAgents: number; pooledMeshes: number; near: number; mid: number; far: number; updateMs: number; profile: PerformanceProfile } {
+    return { visibleVehicles: this.visibleVehicleCount, visibleCitizens: this.visibleCitizenCount,
+      vehicleBudget: this.visualBudget.vehicleBudget, citizenBudget: this.visualBudget.citizenBudget,
+      culledAgents: this.culledAgentCount, pooledMeshes: this.vehiclePool.length,
+      near: this.lodNearCount, mid: this.lodMidCount, far: this.lodFarCount,
+      updateMs: this.visualAgentUpdateMs, profile: this.visualBudget.profileName };
+  }
+  setPerformanceProfile(profile: PerformanceProfile): void {
+    this.visualBudget.setProfile(profile);
+    this.syncVisualAgents();
+  }
 
   private roadTrafficMaterial(segmentId: RoadSegmentId): StandardMaterial {
     if (!this.trafficOverlay || !this.snapshot) return this.roadMaterial;
@@ -866,14 +951,37 @@ export class GameRenderer {
       ? this.hoverMaterial : this.roadTrafficMaterial(id);
   }
 
+  private syncVisualAgents(snap = false): void {
+    if (!this.snapshot) return;
+    const started = performance.now();
+    this.syncVisibleVehicles(snap);
+    const snapshot = this.snapshot;
+    const citizens = this.citizenSampler.select({ x: this.camera.target.x, z: this.camera.target.z },
+      this.visualBudget.config, this.visualBudget.citizenBudget, this.citizenSelection,
+      this.visualGameSeconds, snapshot.population.totals.population);
+    this.citizenSelection = citizens.agents;
+    this.visibleCitizenCount = citizens.agents.length;
+    this.culledAgentCount = Math.max(0, snapshot.traffic.visibleCandidates.length - this.visibleVehicleCount) + citizens.culled;
+    this.lodNearCount = [...this.vehicleLods.values()].filter((lod) => lod === 'near').length
+      + citizens.agents.filter((agent) => agent.lod === 'near').length;
+    this.lodMidCount = [...this.vehicleLods.values()].filter((lod) => lod === 'mid').length
+      + citizens.agents.filter((agent) => agent.lod === 'mid').length;
+    this.lodFarCount = this.visibleVehicleCount + this.visibleCitizenCount - this.lodNearCount - this.lodMidCount;
+    this.lastVisualSelectionGameSeconds = this.visualGameSeconds;
+    this.applyCitizenPoses();
+    this.visualAgentUpdateMs = performance.now() - started;
+  }
+
   private syncVisibleVehicles(snap = false): void {
     const snapshot = this.snapshot;
     if (!snapshot) return;
+    const profile = this.visualBudget.config;
     const selected = selectVisibleVehicles(snapshot.traffic.visibleCandidates, snapshot.roadGraph.segments,
-      { x: this.camera.target.x, z: this.camera.target.z }, snapshot.traffic.visibleRadiusMeters,
-      snapshot.traffic.maxVisibleVehicles);
+      { x: this.camera.target.x, z: this.camera.target.z }, profile.spawnMeters,
+      this.visualBudget.vehicleBudget, new Set(this.vehicleMotion.ids), profile.despawnMeters);
     const segmentById = new Map(snapshot.roadGraph.segments.map((segment) => [segment.id, segment]));
     const targets = new Map<string, VehiclePose>();
+    const nextLods = new Map<string, AgentLod>();
     for (const candidate of selected) {
       const segment = segmentById.get(candidate.segmentId)!;
       const { point, tangent } = pointAtDistance(segment.geometry.points, candidate.along);
@@ -881,28 +989,39 @@ export class GameRenderer {
       const offset = Math.min(2.5, segment.width * 0.24) * side;
       const x = point.x - tangent.z * offset;
       const z = point.z + tangent.x * offset;
-      targets.set(candidate.tripId, { x, y: roadHeightAt(segment.geometry, point, (a, b) => this.getHeight(a, b)) + 1.0, z,
+      const id = candidate.vehicleId ?? candidate.tripId;
+      targets.set(id, { x, y: roadHeightAt(segment.geometry, point, (a, b) => this.getHeight(a, b)) + 1.0, z,
         yaw: Math.atan2(tangent.x * side, tangent.z * side) });
+      const meters = Math.hypot(x - this.camera.target.x, z - this.camera.target.z);
+      nextLods.set(id, agentLod(meters, profile));
     }
     this.vehicleMotion.sync(targets, snap);
-    for (const [id, mesh] of this.vehicleMeshes) if (!targets.has(id)) {
-      mesh.dispose();
+    for (const [id, mesh] of this.vehicleMeshes) if (nextLods.get(id) !== 'near') {
+      mesh.setEnabled(false);
+      if (this.vehiclePool.length < 350) this.vehiclePool.push(mesh);
+      else mesh.dispose();
       this.vehicleMeshes.delete(id);
     }
-    for (const id of this.vehicleMotion.ids) if (!this.vehicleMeshes.has(id)) {
-      const mesh = CreateBox(`visible-car-${id}`, { width: 2, height: 1.3, depth: 3.8 }, this.scene);
-      mesh.material = this.vehicleMaterial;
+    for (const [id, lod] of nextLods) if (lod === 'near' && !this.vehicleMeshes.has(id)) {
+      const mesh = this.vehiclePool.pop() ?? CreateBox('visible-vehicle', { width: 2, height: 1.3, depth: 3.8 }, this.scene);
+      const variation = Math.floor(visualHash(id) * 3);
+      mesh.name = `visible-vehicle-${id}`;
+      mesh.scaling.set(variation === 2 ? 1.15 : 1, variation === 1 ? 1.35 : 1, variation === 2 ? 1.4 : 1);
+      mesh.material = this.vehicleMaterials[variation];
       mesh.isPickable = false;
+      mesh.setEnabled(true);
       this.vehicleMeshes.set(id, mesh);
     }
+    this.vehicleLods.clear();
+    for (const [id, lod] of nextLods) this.vehicleLods.set(id, lod);
     this.applyVehiclePoses();
-    this.visibleVehicleCount = this.vehicleMeshes.size;
+    this.visibleVehicleCount = nextLods.size;
     this.lastVehicleCameraX = this.camera.target.x;
     this.lastVehicleCameraZ = this.camera.target.z;
   }
 
   private animateVisibleVehicles(realSeconds: number): void {
-    if (!this.snapshot || this.vehicleMeshes.size === 0) return;
+    if (!this.snapshot || this.visibleVehicleCount === 0) return;
     this.vehicleMotion.advance(realSeconds, this.snapshot.gameClock.speed,
       this.snapshot.traffic.sampleIntervalGameSeconds);
     this.applyVehiclePoses();
@@ -915,6 +1034,55 @@ export class GameRenderer {
       mesh.position.set(pose.x, pose.y, pose.z);
       mesh.rotation.y = pose.yaw;
     }
+    const mid: number[] = [];
+    const far: number[] = [];
+    for (const [id, lod] of this.vehicleLods) if (lod !== 'near') {
+      const pose = this.vehicleMotion.pose(id);
+      if (pose) (lod === 'mid' ? mid : far).push(...Matrix.Compose(Vector3.One(), Quaternion.FromEulerAngles(0, pose.yaw, 0),
+        new Vector3(pose.x, pose.y, pose.z)).toArray());
+    }
+    this.updateThinInstances(this.vehicleMidMesh, mid);
+    this.updateThinInstances(this.vehicleFarMesh, far);
+  }
+
+  private animateVisibleCitizens(realSeconds: number): void {
+    if (!this.snapshot) return;
+    this.visualGameSeconds += realSeconds * this.snapshot.gameClock.speed;
+    if (this.visualGameSeconds - this.lastVisualSelectionGameSeconds > 60) this.syncVisualAgents();
+    else if (this.visibleCitizenCount) this.applyCitizenPoses();
+  }
+
+  private applyCitizenPoses(): void {
+    const bodies: number[][] = [[], [], []];
+    const heads: number[][] = [[], [], []];
+    const mid: number[] = [];
+    const far: number[] = [];
+    for (const agent of this.citizenSelection) {
+      const pose = this.citizenSampler.pose(agent.edgeId, agent.slot, this.visualGameSeconds);
+      if (!pose) continue;
+      const y = this.getHeight(pose.position.x, pose.position.z);
+      const rotation = Quaternion.FromEulerAngles(0, pose.yaw, 0);
+      if (agent.lod === 'near') {
+        bodies[agent.variation].push(...Matrix.Compose(Vector3.One(), rotation,
+          new Vector3(pose.position.x, y + .9, pose.position.z)).toArray());
+        heads[agent.variation].push(...Matrix.Compose(Vector3.One(), rotation,
+          new Vector3(pose.position.x, y + 1.8, pose.position.z)).toArray());
+      } else {
+        (agent.lod === 'mid' ? mid : far).push(...Matrix.Compose(Vector3.One(), rotation,
+          new Vector3(pose.position.x, y + (agent.lod === 'mid' ? .8 : .65), pose.position.z)).toArray());
+      }
+    }
+    for (let index = 0; index < 3; index++) {
+      this.updateThinInstances(this.citizenBodyMeshes[index], bodies[index]);
+      this.updateThinInstances(this.citizenHeadMeshes[index], heads[index]);
+    }
+    this.updateThinInstances(this.citizenMidMesh, mid);
+    this.updateThinInstances(this.citizenFarMesh, far);
+  }
+
+  private updateThinInstances(mesh: Mesh, matrices: number[]): void {
+    if (matrices.length) mesh.thinInstanceSetBuffer('matrix', new Float32Array(matrices), 16, true);
+    else mesh.thinInstanceCount = 0;
   }
 
   setDebugVisible(visible: boolean): void {
@@ -977,7 +1145,7 @@ export class GameRenderer {
       this.camera.target.z = Math.max(-HALF_WORLD_SIZE, Math.min(HALF_WORLD_SIZE, this.camera.target.z + direction.z * speed));
     }
     if (this.snapshot && distance({ x: this.lastVehicleCameraX, z: this.lastVehicleCameraZ },
-      { x: this.camera.target.x, z: this.camera.target.z }) > 12) this.syncVisibleVehicles();
+      { x: this.camera.target.x, z: this.camera.target.z }) > 12) this.syncVisualAgents();
     return delta;
   }
 

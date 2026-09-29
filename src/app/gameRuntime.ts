@@ -7,6 +7,7 @@ import type { ZoneBrush } from '../zoning/types';
 import type { TerrainBrushMode, TerrainPreset } from '../world/types';
 import type { ServiceType } from '../services/types';
 import type { RoadStructureType } from '../roads/types';
+import type { PerformanceProfile } from '../visual/agentBudget';
 
 export class GameRuntime {
   readonly construction: ConstructionController;
@@ -57,6 +58,7 @@ export class GameRuntime {
     this.renderer.setTrafficOverlay(next);
     return next;
   }
+  setPerformanceProfile(profile: PerformanceProfile): void { this.renderer.setPerformanceProfile(profile); }
   subscribeConstruction(listener: (status: ConstructionStatus) => void): () => void { return this.construction.subscribe(listener); }
   getLatestSnapshot(): WorldSnapshot | undefined { return this.simulation.latestSnapshot; }
 }

@@ -37,6 +37,7 @@ button { font: inherit; }
 .file-actions button { height: 32px; padding: 0 14px; font: 600 10px Consolas, monospace; letter-spacing: 0.12em; }
 
 .debug-panel { position: absolute; top: 535px; right: 18px; width: 220px; max-height: calc(100vh - 560px); overflow-y: auto; padding: 15px 16px 13px; }
+.agent-profile { max-width: 100px; color: #e9eee8; background: #1b2a25; border: 1px solid var(--line); pointer-events: auto; font: 9px Consolas, monospace; }
 .traffic-panel { position: absolute; top: 96px; right: 18px; width: 220px; padding: 12px 15px; }
 .transit-panel { position: absolute; top: 96px; right: 255px; width: 294px; max-height: calc(100vh - 205px); overflow-y: auto; padding: 12px 14px; pointer-events: auto; }
 .transit-panel .panel-title { justify-content: space-between; margin-bottom: 8px; }
