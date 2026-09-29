@@ -161,7 +161,7 @@ export function App({ runtime, simulation }: AppProps) {
       <header class="topbar panel">
         <div class="identity">
           <span class="identity-mark" aria-hidden="true">C</span>
-          <div><strong>PROJECT CIVITAS</strong><small>WORLD INFRASTRUCTURE / PROTOTYPE</small></div>
+          <div><strong>PROJECT CIVITAS</strong><small>PROCEDURAL WORLDS / PROTOTYPE</small></div>
         </div>
         <div class="clock-block">
           <span>{clock}</span>

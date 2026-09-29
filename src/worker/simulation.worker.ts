@@ -23,6 +23,7 @@ workerScope.onmessage = (event: MessageEvent<UIToWorkerMessage>) => {
 const processMessage = (message: UIToWorkerMessage): 'initial' | 'full' | 'terrain' | 'none' => {
   switch (message.type) {
     case 'initialize':
+      if (message.generatedMap) simulation.startGeneratedCity(message.generatedMap);
       initialized = true;
       return 'initial';
     case 'execute-command':
@@ -89,7 +90,7 @@ setInterval(() => {
       if (result === 'initial') { needsFullSnapshot = true; includeTerrainHeightmap = true; }
       needsTerrainUpdate ||= result === 'terrain';
     }
-    needsFullSnapshot ||= simulation.tick(deltaSeconds);
+    if (initialized) needsFullSnapshot ||= simulation.tick(deltaSeconds);
     if (initialized) {
       if (needsFullSnapshot) {
         post({ type: 'snapshot', snapshot: simulation.snapshot(includeTerrainHeightmap || needsTerrainUpdate) });

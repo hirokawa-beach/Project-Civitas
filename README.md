@@ -1,4 +1,4 @@
-# Project Civitas — World Infrastructure (0.14.0)
+# Project Civitas — Procedural Maps (0.15.0)
 
 ブラウザで動作する3D都市開発シミュレーションの第1弾Prototypeです。Simulation Workerが唯一のWorld Stateを所有し、Preact UIはCommandを送り、Babylon.js RendererはSnapshotだけを描画します。
 
@@ -7,6 +7,8 @@
 道路沿いに生成された8mセルには、RCIO（住宅・商業・工業・オフィス）を塗り分けられます。ZONINGパレットで用途とBRUSH／BOXを選びます。BRUSHはクリック・なぞり塗り、BOXは画面上をドラッグした矩形に重なる区画を一括指定します。消去にも両モードを使え、1回の操作を1つのUndo/Redoとして扱います。
 
 地形はWorkerが正本を持つ4m間隔の257×257 Heightmapです。Y座標はメートル単位の標高で、`getHeight(x,z)`／`getNormal(x,z)` を道路・区画表示と今後のシステムが使います。TERRAINツールではRaise／Lower／Flatten／Smoothをドラッグ操作でき、ブラシ径・強度、Flat／Hillsテスト地形を切り替えられます。1ドラッグが1つのUndo/Redoです。編集時は256mチャンク単位の変更だけをWorkerからRendererへ送り、地形・道路面・RCIO区画表示を追従させます。急勾配（12%超）の新規道路は無効です。区画IDと塗り分けは地形編集だけでは変更されません。
+
+新規都市画面では8種類の地形Presetを選び、Seed・起伏・山・水・川の設定からMapを生成します。Presetは変更可能なParameterの初期値です。Generate Previewで水面、地形、建設しやすい土地と検証値を確認し、Start Cityで257×257 HeightmapをWorkerに渡します。川は明示的な経路を河床として掘り込み、海岸は方角と不規則さを指定できます。生成結果は通常のTerrainツールで編集できます。
 
 同じRCIOの連続セルから道路に接するLotを決定論的に生成します。対応サイズは1×1、1×2、2×1、2×2、2×3、3×2、3×3、4×4セルです。Lotは標高と傾斜をサンプリングし、急斜面では建物を生成しません。建物DefinitionはSimulation側のデータで、現在のAssetはZoneType別の仮Boxです。建物はGameClockによりEmpty→Planned→Constructing→Occupiedと成長します。需要が25未満なら新規計画を待機させますが、既存建物は需要低下だけで消しません。DebugのLot境界・道路側の辺と、カーソル下LotのID・サイズ・傾斜・建物状態を確認できます。
 
@@ -22,7 +24,7 @@ SERVICESツールでは、発電所・ポンプ場・ごみ処理施設・消防
 
 市財政はSimulation Workerが管理します。初期資金250,000、道路建設費20/m、維持費1/mを仮設定とし、600ゲーム秒ごとに住宅の入居世帯数と商業・工業・オフィスの就業枠から税収を、Road Segmentの実長と道路接続中のサービス施設から維持費を計算します。道路Previewに推定費用・建設後資金を表示し、資金不足なら新規建設を止めます。建設費は確定時に1回引かれ、Undoで返金、Redoで同額を再適用します。解体による返金はありません。左側のCITY FINANCEパネルで資金と直近Cycleの収支・内訳を確認できます。負債で既存道路や建物を自動削除しません。
 
-クイックセーブにはHeightmap・地形設定・Terrain version、Lot、Building、成長状態・タイマー・Definition参照、世帯・建物別入居／求人・需要・更新タイマー、資金・収支・取引履歴に加え、都市外接続・論理Trip・交通更新時刻・サービス施設・バス停・路線・運行状態・水面設定・道路の構造種別と3D中心線を含めます。Save schemaはv11で、旧v1～v10セーブを移行します。ゲーム版数とSave schemaは独立して管理します。詳細な配管・配線、動的な水流、鉄道はまだ対象外です。
+クイックセーブにはHeightmap・地形設定・Terrain version、Lot、Building、成長状態・タイマー・Definition参照、世帯・建物別入居／求人・需要・更新タイマー、資金・収支・取引履歴に加え、都市外接続・論理Trip・交通更新時刻・サービス施設・バス停・路線・運行状態・水面設定・道路の構造種別と3D中心線を含めます。Save schemaはv12で、地形生成のVersion・Seed・Preset・Parametersも記録し、旧v1～v11セーブを移行します。読み込みでは保存済みHeightmapをそのまま使い、地形を再生成しません。ゲーム版数とSave schemaは独立して管理します。詳細な配管・配線、動的な水流、鉄道はまだ対象外です。
 
 ## 起動
 
@@ -81,7 +83,7 @@ npm test
 - `src/traffic`: 集約Trip、Road Graph経路探索、車線別の交通量・速度、近傍車両選択
 - `src/services`: 専用敷地・施設建物Definition、道路ネットワーク接続・到達距離、施設容量、建物別供給率
 - `src/transit`: Bus Stop／Line／物理Route、集約乗客・乗降・運行間隔、車とバスの簡易選択
-- `src/save`: version付きDTO、v1～v10→v11 migration、IndexedDB quick save
+- `src/save`: version付きDTO、v1～v11→v12 migration、IndexedDB quick save
 - `src/ui`: World Stateを直接変更しない操作UI／Debug HUD
 
 Mapは1024m四方、Chunkは256m四方の4×4、1 world unit = 1mです。Small Roadは幅16m、対面2車線、速度上限40km/h、最小曲率半径24m、ゾーニング可能としてデータ定義されています。

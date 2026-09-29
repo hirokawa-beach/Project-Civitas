@@ -1,5 +1,6 @@
 import { RoadGraph } from '../roads/roadGraph';
-import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV11 } from '../save/serializer';
+import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV12 } from '../save/serializer';
+import { validateGenerationMetadata, validateMap, type GeneratedMap, type GenerationMetadata } from '../terrain/generator';
 import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
 import { createChunks, worldToChunk, HALF_WORLD_SIZE, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
@@ -36,6 +37,7 @@ export class SimulationState {
   services = new ServiceSystem();
   transit = new TransitSystem(this.graph.snapshot());
   water = new StaticWater();
+  generation: GenerationMetadata | null = null;
   private roadTerrainEditWeights = buildRoadTerrainProtection([]);
 
   private zoningCells: ZoningCell[] = [];
@@ -55,6 +57,19 @@ export class SimulationState {
   constructor() {
     this.zoningCells = this.withZoneTypes(this.zoningSystem.update(this.graph.snapshot()));
     this.traffic.setTransitSystem(this.transit);
+  }
+
+  startGeneratedCity(map: GeneratedMap): void {
+    if (this.graph.segments.size || this.clock.gameSeconds > 0 || this.generation) throw new Error('A city is already active.');
+    validateGenerationMetadata(map.metadata);
+    if (!validateMap(map.heights, map.metadata.parameters.seaLevel).valid) throw new Error('Generated map is not buildable.');
+    const terrain = HeightmapTerrain.fromBuffer(new HeightmapTerrain().metadata(), map.heights);
+    const water = new StaticWater({ version: 1, seaLevel: map.metadata.parameters.seaLevel });
+    this.terrain = terrain;
+    this.water = water;
+    this.generation = structuredClone(map.metadata);
+    this.history.clear();
+    this.terrainChanged(createChunks().map((chunk) => chunk.id));
   }
 
   tick(realSeconds: number): boolean {
@@ -250,7 +265,7 @@ export class SimulationState {
   serviceUpdate(): ServiceSnapshot { return this.services.snapshot(); }
   transitUpdate(): TransitSnapshot { return this.transit.snapshot(); }
 
-  serialize(): SaveFileV11 {
+  serialize(): SaveFileV12 {
     const active = new Set(this.zoningCells.map((cell) => cell.id));
     const zoningAssignments: ZoneAssignment[] = [...this.zoneAssignments]
       .filter(([cellId]) => active.has(cellId))
@@ -259,7 +274,7 @@ export class SimulationState {
     return serializeWorld({ terrain: this.terrain.state(), roadGraph: this.graph.snapshot(), gameClock: this.clock.snapshot(), zoningAssignments,
       lots: this.lots.lots, buildings: this.lots.buildings, population: this.population.save(),
       economy: this.economy.save(), traffic: this.traffic.save(), services: this.services.save(), transit: this.transit.save(),
-      water: this.water.save() });
+      water: this.water.save(), generation: this.generation });
   }
 
   load(save: SaveFile): void {
@@ -317,6 +332,7 @@ export class SimulationState {
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
     this.water = validatedWater;
+    this.generation = world.generation;
     this.activeTerrainStroke = undefined;
     this.terrainChanged(createChunks().map((chunk) => chunk.id));
     this.zoneAssignments.clear();

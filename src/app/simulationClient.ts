@@ -3,6 +3,7 @@ import type { UIToWorkerMessage, WorkerToUIMessage, WorldSnapshot } from '../sha
 import type { SimulationCommandData, SimulationCommandResult } from '../simulation/commands';
 import type { GameSpeed } from '../simulation/gameClock';
 import type { TerrainBrushMode, TerrainPreset, Vec2 } from '../world/types';
+import type { GeneratedMap } from '../terrain/generator';
 
 type SnapshotListener = (snapshot: WorldSnapshot) => void;
 type NotificationListener = (message: string, level: 'info' | 'error') => void;
@@ -20,7 +21,7 @@ export class SimulationClient {
     worker.onmessage = (event: MessageEvent<WorkerToUIMessage>) => this.onMessage(event.data);
   }
 
-  initialize(): void { this.post({ type: 'initialize' }); }
+  initialize(generatedMap?: GeneratedMap): void { this.post({ type: 'initialize', generatedMap }); }
   execute(command: SimulationCommandData): Promise<CommandResponse> {
     const requestId = crypto.randomUUID();
     return new Promise((resolve) => {
