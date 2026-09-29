@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { GameRuntime } from './app/gameRuntime';
 import { SimulationClient } from './app/simulationClient';
 import { App } from './ui/App';
+import { NewGame } from './ui/NewGame';
+import type { GeneratedMap } from './terrain/generator';
 import './ui/styles.css';
 
 const simulation = new SimulationClient(new Worker(new URL('./worker/simulation.worker.ts', import.meta.url), { type: 'module' }));
@@ -11,24 +13,26 @@ function Bootstrap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [runtime, setRuntime] = useState<GameRuntime>();
   const [failure, setFailure] = useState<string>();
+  const [selectedMap, setSelectedMap] = useState<GeneratedMap>();
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !selectedMap) return;
     let active = true;
     GameRuntime.create(canvasRef.current, simulation)
       .then((created) => {
         if (!active) return;
         setRuntime(created);
-        simulation.initialize();
+        simulation.initialize(selectedMap);
       })
       .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
     return () => { active = false; };
-  }, []);
+  }, [selectedMap]);
 
   return (
     <main class="game-shell">
       <canvas ref={canvasRef} id="game-canvas" aria-label="Project Civitas 3D city view" />
-      {!runtime && !failure && <div class="boot-screen"><span class="boot-mark">C</span><p>INITIALIZING CIVITAS</p><div class="boot-line" /></div>}
+      {!selectedMap && <NewGame onStart={setSelectedMap} />}
+      {selectedMap && !runtime && !failure && <div class="boot-screen"><span class="boot-mark">C</span><p>INITIALIZING CIVITAS</p><div class="boot-line" /></div>}
       {failure && <div class="boot-screen error"><p>RENDERER STARTUP FAILED</p><pre>{failure}</pre></div>}
       {runtime && <App runtime={runtime} simulation={simulation} />}
     </main>

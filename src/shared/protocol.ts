@@ -10,6 +10,7 @@ import type { TrafficSnapshot } from '../traffic/types';
 import type { ServiceSnapshot } from '../services/types';
 import type { TransitSnapshot } from '../transit/types';
 import type { WaterState } from '../water/staticWater';
+import type { GeneratedMap } from '../terrain/generator';
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
@@ -42,7 +43,7 @@ export interface WorldSnapshot {
 }
 
 export type UIToWorkerMessage =
-  | { type: 'initialize' }
+  | { type: 'initialize'; generatedMap?: GeneratedMap }
   | { type: 'execute-command'; requestId: string; command: SimulationCommandData }
   | { type: 'undo' }
   | { type: 'redo' }
