@@ -1,8 +1,10 @@
 import type { Vec2 } from '../world/types';
 import type { PedestrianGraph } from '../visual/pedestrianGraph';
 import { pointAtDistance, polylineLength } from '../roads/geometry';
+import { PerformanceLedger } from '../performance/metrics';
 
 export class PedestrianRouter {
+  readonly performance = new PerformanceLedger();
   private nodes = new Map<string, Vec2>();
   private links = new Map<string, Array<{ to: string; length: number }>>();
   private cache = new Map<string, Vec2[] | null>();
@@ -15,6 +17,9 @@ export class PedestrianRouter {
     }
   }
   route(from: string, to: string): Vec2[] | null {
+    return this.performance.measure('pedestrianPathMs', () => this.findRoute(from, to));
+  }
+  private findRoute(from: string, to: string): Vec2[] | null {
     const key = `${from}>${to}`;
     if (this.cache.has(key)) return this.cache.get(key)!;
     if (!this.nodes.has(from) || !this.nodes.has(to)) return null;

@@ -16,6 +16,7 @@ import { TRANSIT_VEHICLE_TYPES } from '../transit/system';
 import type { RoadStructureType } from '../roads/types';
 import type { PerformanceProfile } from '../visual/agentBudget';
 import type { AgentDetails } from '../citizens/types';
+import { downloadReport } from '../performance/download';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -90,6 +91,7 @@ export function App({ runtime, simulation }: AppProps) {
     terrainFrameMs: 0, visibleVehicles: 0, visibleCitizens: 0, vehicleBudget: 0, citizenBudget: 0,
     culledAgents: 0, pooledMeshes: 0, near: 0, mid: 0, far: 0, updateMs: 0, profile: 'balanced' });
   const [saveBytes, setSaveBytes] = useState(0);
+  const [profiling, setProfiling] = useState<ReturnType<GameRuntime['renderer']['getPerformanceMetrics']>>();
   const [debugVisible, setDebugVisible] = useState(true);
   const [trafficOverlay, setTrafficOverlay] = useState(false);
   const [inspecting, setInspecting] = useState(false);
@@ -112,6 +114,7 @@ export function App({ runtime, simulation }: AppProps) {
   useEffect(() => {
     const timer = window.setInterval(() => {
       runtime.updateAgentView(); runtime.refreshAgentSelection();
+      setProfiling(runtime.renderer.getPerformanceMetrics());
       setNearbyAgents(runtime.renderer.getNearbyAgentDetails().slice(0, 40));
       setMetrics({
       fps: runtime.renderer.getFps(),
@@ -305,6 +308,19 @@ export function App({ runtime, simulation }: AppProps) {
       {debugVisible && snapshot && (
         <aside class="debug-panel panel">
           <div class="panel-title"><span>LIVE SYSTEMS</span><i /></div>
+          <details><summary>PERFORMANCE BASELINE</summary>
+            <button onClick={() => downloadReport({ schemaVersion: 1, environment: { browser: navigator.userAgent, renderer: runtime.renderer.rendererName },
+              worker: simulation.performanceMetrics, renderer: profiling, agents: runtime.renderer.getVisualAgentMetrics(),
+              individualCitizens: snapshot.traffic.individualCitizens, activeJourneys: snapshot.traffic.activeCitizenJourneys }, 'civitas-performance.json')}>EXPORT METRICS JSON</button>
+            <dl><dt>INDIVIDUAL CITIZENS</dt><dd>{snapshot.traffic.individualCitizens ?? 0}</dd>
+              <dt>ACTIVE JOURNEYS</dt><dd>{snapshot.traffic.activeCitizenJourneys ?? 0}</dd>
+              <dt>CAMERA CITIZENS</dt><dd>{snapshot.traffic.cameraCitizenCount ?? 0}</dd>
+              <dt>DRAW CALLS</dt><dd>{profiling?.drawCalls ?? 0}</dd>
+              <dt>SELECTION / POSE / INSTANCE</dt><dd>{profiling?.citizenSelectionMs.toFixed(2)} / {profiling?.citizenPoseMs.toFixed(2)} / {profiling?.citizenInstanceMs.toFixed(2)} ms</dd>
+              <dt>MESSAGE / SNAPSHOT EST.</dt><dd>{((simulation.performanceMetrics?.messageBytes ?? 0) / 1024).toFixed(1)} / {((simulation.performanceMetrics?.snapshotBytes ?? 0) / 1024).toFixed(1)} KiB</dd>
+              {Object.entries(simulation.performanceMetrics?.timings ?? {}).map(([key, value]) => <><dt>{key}</dt><dd>{value.mean.toFixed(3)} / {value.p95.toFixed(3)} ms mean/p95</dd></>)}
+            </dl>
+          </details>
           <dl>
             <dt>BUILD</dt><dd>v{GAME_VERSION}</dd>
             <dt>RENDERER</dt><dd class="accent">{runtime.renderer.rendererName}</dd>

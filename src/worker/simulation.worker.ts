@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import type { UIToWorkerMessage, WorkerToUIMessage } from '../shared/protocol';
 import { SimulationState } from '../simulation/state';
+import { payloadBytes } from '../performance/metrics';
 
 const workerScope: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 const simulation = new SimulationState();
@@ -13,7 +14,18 @@ let sentTrafficRevision = -1;
 let sentServiceRevision = -1;
 let sentTransitRevision = -1;
 
-const post = (message: WorkerToUIMessage): void => workerScope.postMessage(message);
+let messageSampleAt = 0;
+let messageBytes = 0;
+let snapshotBytes = 0;
+const post = (message: WorkerToUIMessage): void => {
+  // Sample at most once per second and on full snapshots; instrumentation stays bounded.
+  if (message.type === 'snapshot' || (message.type !== 'performance-update' && performance.now() >= messageSampleAt)) {
+    messageBytes = payloadBytes(message); messageSampleAt = performance.now() + 1000;
+    if (message.type === 'snapshot') snapshotBytes = messageBytes;
+  }
+  workerScope.postMessage(message);
+};
+let metricsAt = 0;
 const notify = (message: string, level: 'info' | 'error' = 'info'): void => post({ type: 'notification', message, level });
 
 workerScope.onmessage = (event: MessageEvent<UIToWorkerMessage>) => {
@@ -106,6 +118,10 @@ setInterval(() => {
     }
     if (initialized) needsFullSnapshot ||= simulation.tick(deltaSeconds);
     if (initialized) {
+      if (now >= metricsAt) {
+        workerScope.postMessage({ type: 'performance-update', timings: { ...simulation.performance.report(), ...simulation.traffic.performanceMetrics }, messageBytes, snapshotBytes } satisfies WorkerToUIMessage);
+        metricsAt = now + 1000;
+      }
       if (needsFullSnapshot) {
         post({ type: 'snapshot', snapshot: simulation.snapshot(includeTerrainHeightmap || needsTerrainUpdate) });
         sentPopulationRevision = simulation.population.revision;

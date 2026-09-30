@@ -2,6 +2,7 @@ import { closestPointOnPolyline, polylineLength } from '../roads/geometry';
 import type { RoadGraphSnapshot, RoadSegment } from '../roads/types';
 import type { RoadNodeId, RoadSegmentId } from '../shared/ids';
 import type { TripEndpoint, RouteLeg, SegmentTraffic, TrafficConfig } from './types';
+import { PerformanceLedger } from '../performance/metrics';
 
 type Direction = RouteLeg['direction'];
 interface Edge { to: RoadNodeId; segmentId: RoadSegmentId; direction: Direction; length: number }
@@ -13,6 +14,7 @@ const cloneRoute = (route: RouteLeg[] | null): RouteLeg[] | null => route?.map((
 
 /** Directed road routing. Each graph edge exists only if a lane permits its direction. */
 export class RoadRouter {
+  readonly performance = new PerformanceLedger();
   private graph: RoadGraphSnapshot = { nodes: [], segments: [], lanes: [] };
   private readonly segments = new Map<RoadSegmentId, RoadSegment>();
   private readonly adjacency = new Map<RoadNodeId, Edge[]>();
@@ -68,6 +70,9 @@ export class RoadRouter {
   }
 
   route(origin: TripEndpoint, destination: TripEndpoint, traffic: ReadonlyMap<RoadSegmentId, SegmentTraffic>): RouteLeg[] | null {
+    return this.performance.measure('roadPathMs', () => this.findRoute(origin, destination, traffic));
+  }
+  private findRoute(origin: TripEndpoint, destination: TripEndpoint, traffic: ReadonlyMap<RoadSegmentId, SegmentTraffic>): RouteLeg[] | null {
     const key = `${origin.kind}:${origin.id}:${origin.roadSegmentId ?? origin.roadNodeId}:${origin.position.x},${origin.position.z}`
       + `>${destination.kind}:${destination.id}:${destination.roadSegmentId ?? destination.roadNodeId}:${destination.position.x},${destination.position.z}`;
     const cached = this.cache.get(key);

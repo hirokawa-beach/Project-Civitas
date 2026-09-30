@@ -36,6 +36,8 @@ const integer = (value: number): boolean => Number.isSafeInteger(value);
 
 /** Worker-authoritative traffic. Resident journeys own one named driver and vehicle each. */
 export class TrafficSystem {
+  get performanceMetrics() { return { ...this.router.performance.report(), ...this.citizens.pathfindingPerformance,
+    ...this.citizens.performance.report() }; }
   readonly citizens = new CitizenSystem();
   private individualMode = false;
   private citizenView = { position: { x: 0, z: 0 }, radius: 470, cap: 3000 };
@@ -239,6 +241,7 @@ export class TrafficSystem {
       maxVisibleVehicles: this.config.maxVisibleVehicles, visibleRadiusMeters: this.config.visibleRadiusMeters,
       citizenCandidates: this.individualMode ? this.citizens.nearby(this.citizenView.position, this.citizenView.radius,
         this.citizenView.cap, this.gameSeconds) : [], individualCitizens: this.citizens.count,
+      activeCitizenJourneys: this.citizens.activeJourneys, cameraCitizenCount: this.citizens.lastQueryCount,
     };
   }
 

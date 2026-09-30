@@ -43,6 +43,7 @@ import type { AgentDetails } from '../citizens/types';
 import { buildingLabel } from '../citizens/identity';
 import type { ServiceFacility, ServiceType } from '../services/types';
 import { SERVICE_DEFINITIONS } from '../services/system';
+import { PerformanceLedger } from '../performance/metrics';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
   residential: '#67bd78',
@@ -69,6 +70,12 @@ export interface RoadPreviewVisual {
 }
 
 export class GameRenderer {
+  readonly performance = new PerformanceLedger();
+  private lastRenderAt = 0;
+  private citizenSelectionMs = 0;
+  private citizenPoseMs = 0;
+  private citizenInstanceMs = 0;
+  private cameraVehicleMetrics = { candidates: 0 };
   readonly scene: Scene;
   readonly camera: ArcRotateCamera;
   readonly rendererName: 'WebGPU' | 'WebGL2';
@@ -313,7 +320,10 @@ export class GameRenderer {
     this.engine.runRenderLoop(() => {
       if (this.disposed) return;
       const started = performance.now();
+      if (this.lastRenderAt) this.performance.record('frameIntervalMs', started - this.lastRenderAt);
+      this.lastRenderAt = started;
       this.scene.render();
+      this.performance.record('renderCpuMs', performance.now() - started);
       this.frameSamples.push(performance.now() - started);
       if (this.frameSamples.length > 90) this.frameSamples.shift();
       if (this.visualBudget.observe(this.frameSamples.at(-1)!, Math.min(.1, this.engine.getDeltaTime() / 1000)))
@@ -970,9 +980,12 @@ export class GameRenderer {
     this.agentDetails.clear();
     this.syncVisibleVehicles(snap);
     const snapshot = this.snapshot;
+    const selectionStarted = performance.now();
     const citizens = this.citizenSampler.select({ x: this.camera.target.x, z: this.camera.target.z },
       this.visualBudget.config, this.visualBudget.citizenBudget, this.citizenSelection,
       this.visualGameSeconds, snapshot.population.totals.population);
+    this.citizenSelectionMs = performance.now() - selectionStarted;
+    this.performance.record('citizenSelectionMs', this.citizenSelectionMs);
     this.citizenSelection = citizens.agents;
     for (const citizen of citizens.agents) this.agentDetails.set(citizen.id, { id: citizen.id, name: citizen.name,
       kind: 'citizen', activity: `walk:${citizen.activity}`, origin: citizen.origin.label, destination: citizen.destination.label,
@@ -999,7 +1012,7 @@ export class GameRenderer {
     const profile = this.visualBudget.config;
     const selected = selectVisibleVehicles(snapshot.traffic.visibleCandidates, snapshot.roadGraph.segments,
       { x: this.camera.target.x, z: this.camera.target.z }, profile.spawnMeters,
-      this.visualBudget.vehicleBudget, new Set(this.vehicleMotion.ids), profile.despawnMeters);
+      this.visualBudget.vehicleBudget, new Set(this.vehicleMotion.ids), profile.despawnMeters, this.cameraVehicleMetrics);
     const segmentById = new Map(snapshot.roadGraph.segments.map((segment) => [segment.id, segment]));
     const targets = new Map<string, VehiclePose>();
     const nextLods = new Map<string, AgentLod>();
@@ -1084,6 +1097,7 @@ export class GameRenderer {
   }
 
   private applyCitizenPoses(): void {
+    const poseStarted = performance.now();
     const bodies: number[][] = [[], [], []];
     const heads: number[][] = [[], [], []];
     const mid: number[] = [];
@@ -1106,12 +1120,17 @@ export class GameRenderer {
           new Vector3(pose.position.x, y + (agent.lod === 'mid' ? .8 : .65), pose.position.z)).toArray());
       }
     }
+    this.citizenPoseMs = performance.now() - poseStarted;
+    this.performance.record('citizenPoseMs', this.citizenPoseMs);
+    const instanceStarted = performance.now();
     for (let index = 0; index < 3; index++) {
       this.updateThinInstances(this.citizenBodyMeshes[index], bodies[index], bodyIds[index]);
       this.updateThinInstances(this.citizenHeadMeshes[index], heads[index], bodyIds[index]);
     }
     this.updateThinInstances(this.citizenMidMesh, mid, midIds);
     this.updateThinInstances(this.citizenFarMesh, far, farIds);
+    this.citizenInstanceMs = performance.now() - instanceStarted;
+    this.performance.record('citizenInstanceMs', this.citizenInstanceMs);
   }
 
   private updateThinInstances(mesh: Mesh, matrices: number[], ids: string[] = []): void {
@@ -1145,7 +1164,15 @@ export class GameRenderer {
   getDebugVisible(): boolean { return this.debugVisible; }
   getFps(): number { return this.engine.getFps(); }
   getFrameTime(): number {
-    return this.frameSamples.length === 0 ? 0 : this.frameSamples.reduce((sum, value) => sum + value, 0) / this.frameSamples.length;
+    return this.performance.report().frameIntervalMs?.mean ?? 0;
+  }
+  getPerformanceMetrics() {
+    return { timings: this.performance.report(), citizenSelectionMs: this.citizenSelectionMs,
+      citizenPoseMs: this.citizenPoseMs, citizenInstanceMs: this.citizenInstanceMs,
+      drawCalls: this.scene.getEngine()._drawCalls.current,
+      candidateCitizens: this.snapshot?.traffic.cameraCitizenCount ?? 0,
+      candidateVehicles: this.cameraVehicleMetrics.candidates,
+      terrainMeshMs: this.terrainMeshUpdateMs, chunkUpdateMs: this.terrainUpdateFrameMs };
   }
   getCurrentChunk(): ChunkCoordinate { return worldToChunk({ x: this.camera.target.x, z: this.camera.target.z }); }
 

@@ -24,8 +24,10 @@ import type { TransitSnapshot } from '../transit/types';
 import { StaticWater } from '../water/staticWater';
 import { AppliedTerrainStrokeCommand, CommandHistory, TerrainPresetCommand, commandFromData, type SimulationCommandData, type SimulationCommandResult, type TerrainEditBounds } from './commands';
 import { GameClock, type GameSpeed } from './gameClock';
+import { PerformanceLedger } from '../performance/metrics';
 
 export class SimulationState {
+  readonly performance = new PerformanceLedger();
   readonly graph = new RoadGraph();
   readonly clock = new GameClock();
   readonly history = new CommandHistory();
@@ -84,20 +86,21 @@ export class SimulationState {
       this.syncPopulation();
     }
     const populationRevision = this.population.revision;
-    this.population.tick(this.clock.gameSeconds);
+    this.performance.measure('populationMs', () => this.population.tick(this.clock.gameSeconds));
     if (populationRevision !== this.population.revision) this.refreshServices();
     this.ensureCitizens();
     if (this.clock.speed !== 0 && this.clock.gameSeconds >= this.economy.nextCycleAtGameSeconds) {
-      this.economy.tick(this.clock.gameSeconds, this.population.snapshot().totals, this.graph.snapshot().segments,
-        this.services.snapshot().maintenancePerCycle);
+      this.performance.measure('economyMs', () => this.economy.tick(this.clock.gameSeconds, this.population.snapshot().totals, this.graph.snapshot().segments,
+        this.services.snapshot().maintenancePerCycle));
     }
     if (this.clock.speed !== 0 && this.traffic.isDue(this.clock.gameSeconds)) {
-      this.traffic.tick(this.clock.gameSeconds, this.population.snapshot(), this.lots.lots);
+      this.performance.measure('trafficMs', () => this.traffic.tick(this.clock.gameSeconds, this.population.snapshot(), this.lots.lots));
     }
     if (this.clock.speed !== 0 && this.transit.isDue(this.clock.gameSeconds))
       this.transit.tick(this.clock.gameSeconds, this.traffic.segmentStates);
     this.revision += 1;
     this.simulationTickMs = performance.now() - started;
+    this.performance.record('simulationTickMs', this.simulationTickMs);
     return buildingChanged;
   }
 

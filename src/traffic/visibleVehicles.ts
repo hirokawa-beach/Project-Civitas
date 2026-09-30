@@ -6,7 +6,7 @@ import type { VisibleVehicleCandidate } from './types';
 /** Rendering-only selection; traffic state is never inferred from meshes. */
 export function selectVisibleVehicles(candidates: readonly VisibleVehicleCandidate[], segments: readonly RoadSegment[],
   cameraTarget: Vec2, radius: number, cap: number, previousIds: ReadonlySet<string> = new Set(),
-  despawnRadius = radius): VisibleVehicleCandidate[] {
+  despawnRadius = radius, metrics?: { candidates: number }): VisibleVehicleCandidate[] {
   if (cap <= 0 || radius <= 0) return [];
   const byId = new Map(segments.map((segment) => [segment.id, segment]));
   const radiusSquared = radius * radius;
@@ -23,6 +23,7 @@ export function selectVisibleVehicles(candidates: readonly VisibleVehicleCandida
   visible.sort((a, b) => (a.distanceSquared - (a.retained ? 144 : 0))
     - (b.distanceSquared - (b.retained ? 144 : 0))
     || (a.candidate.vehicleId ?? a.candidate.tripId).localeCompare(b.candidate.vehicleId ?? b.candidate.tripId));
+  if (metrics) metrics.candidates = visible.length;
   // A trip batch can put many logical vehicles onto the same short road.
   // Render representatives with room for their low-poly bodies, preserving
   // the simulation count and the candidates' logical positions.

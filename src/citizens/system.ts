@@ -7,6 +7,7 @@ import { buildPedestrianGraph, type PedestrianGraph } from '../visual/pedestrian
 import { buildingLabel, citizenName, stableHash } from './identity';
 import { PedestrianRouter, pedestrianPose, polylineLength } from './routing';
 import type { Citizen, CitizenCandidate, CitizenJourney, CitizenPlace, CitizenSaveState } from './types';
+import { PerformanceLedger } from '../performance/metrics';
 
 const CELL = 64;
 const cellKey = (x: number, z: number) => `${x}:${z}`;
@@ -39,6 +40,10 @@ class EventQueue {
 
 /** Individual identities and journeys live in the worker. Only nearby walkers cross to the renderer. */
 export class CitizenSystem {
+  readonly performance = new PerformanceLedger();
+  lastQueryCount = 0;
+  get activeJourneys(): number { return this.cellsByWalker.size + this.drivers.size; }
+  get pathfindingPerformance() { return this.router.performance.report(); }
   private residents = new Map<string, Citizen>();
   private buildings = new Map<string, CitizenPlace>();
   private shops: CitizenPlace[] = [];
@@ -137,6 +142,10 @@ export class CitizenSystem {
 
   tick(now: number, createCar: (citizen: Citizen, origin: CitizenPlace, destination: CitizenPlace) => string | null,
     carExists: (tripId: string) => boolean): void {
+    this.performance.measure('citizenEventsMs', () => this.processEvents(now, createCar, carExists));
+  }
+  private processEvents(now: number, createCar: (citizen: Citizen, origin: CitizenPlace, destination: CitizenPlace) => string | null,
+    carExists: (tripId: string) => boolean): void {
     for (const id of this.drivers) {
       const citizen = this.residents.get(id);
       if (!citizen?.journey?.tripId || !carExists(citizen.journey.tripId)) {
@@ -219,6 +228,9 @@ export class CitizenSystem {
   }
 
   nearby(camera: Vec2, radius: number, cap: number, now: number): CitizenCandidate[] {
+    return this.performance.measure('citizenQueryMs', () => this.query(camera, radius, cap, now));
+  }
+  private query(camera: Vec2, radius: number, cap: number, now: number): CitizenCandidate[] {
     const ids = new Set<string>();
     for (let x = Math.floor((camera.x - radius) / CELL); x <= Math.floor((camera.x + radius) / CELL); x++)
       for (let z = Math.floor((camera.z - radius) / CELL); z <= Math.floor((camera.z + radius) / CELL); z++)
@@ -231,6 +243,7 @@ export class CitizenSystem {
       if (!pose.arrived && distance <= radius) nearby.push({ citizen, distance });
     }
     nearby.sort((a, b) => a.distance - b.distance || a.citizen.id.localeCompare(b.citizen.id));
+    this.lastQueryCount = nearby.length;
     return nearby.slice(0, cap).map(({ citizen }) => ({ id: citizen.id, name: citizen.name, homeBuildingId: citizen.homeBuildingId,
       workBuildingId: citizen.workBuildingId, ...structuredClone(citizen.journey!) }));
   }
