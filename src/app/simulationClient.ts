@@ -4,6 +4,7 @@ import type { SimulationCommandData, SimulationCommandResult } from '../simulati
 import type { GameSpeed } from '../simulation/gameClock';
 import type { TerrainBrushMode, TerrainPreset, Vec2 } from '../world/types';
 import type { GeneratedMap } from '../terrain/generator';
+import type { AgentDetails } from '../citizens/types';
 
 type SnapshotListener = (snapshot: WorldSnapshot) => void;
 type NotificationListener = (message: string, level: 'info' | 'error') => void;
@@ -14,6 +15,7 @@ export class SimulationClient {
   private readonly notificationListeners = new Set<NotificationListener>();
   private readonly saveRequests = new Map<string, (save: SaveFile) => void>();
   private readonly commandRequests = new Map<string, (response: CommandResponse) => void>();
+  private readonly citizenRequests = new Map<string, (details?: AgentDetails) => void>();
   latestSnapshot?: WorldSnapshot;
   private terrainHeights?: Float32Array;
 
@@ -32,6 +34,11 @@ export class SimulationClient {
   undo(): void { this.post({ type: 'undo' }); }
   redo(): void { this.post({ type: 'redo' }); }
   setSpeed(speed: GameSpeed): void { this.post({ type: 'set-speed', speed }); }
+  setAgentView(position: Vec2, radius: number, cap: number): void { this.post({ type: 'set-agent-view', position, radius, cap }); }
+  inspectCitizen(citizenId: string): Promise<AgentDetails | undefined> {
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve) => { this.citizenRequests.set(requestId, resolve); this.post({ type: 'inspect-citizen', requestId, citizenId }); });
+  }
   load(save: SaveFile): void { this.post({ type: 'load', save }); }
   beginTerrainStroke(point: Vec2, mode: TerrainBrushMode, size: number, strength: number): void { this.post({ type: 'begin-terrain-stroke', point, mode, size, strength }); }
   terrainStroke(points: Vec2[], seconds: number): void { this.post({ type: 'terrain-stroke', points, seconds }); }
@@ -61,7 +68,9 @@ export class SimulationClient {
   private post(message: UIToWorkerMessage): void { this.worker.postMessage(message); }
 
   private onMessage(message: WorkerToUIMessage): void {
-    if (message.type === 'snapshot') {
+    if (message.type === 'citizen-details') {
+      this.citizenRequests.get(message.requestId)?.(message.details); this.citizenRequests.delete(message.requestId);
+    } else if (message.type === 'snapshot') {
       if (message.snapshot.terrainHeightmap) this.terrainHeights = message.snapshot.terrainHeightmap;
       this.latestSnapshot = { ...message.snapshot, terrainHeightmap: this.terrainHeights };
       for (const listener of this.snapshotListeners) listener(this.latestSnapshot);

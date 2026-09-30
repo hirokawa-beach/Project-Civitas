@@ -53,6 +53,8 @@ export class SimulationState {
   private activeTerrainStroke?: { mode: TerrainBrushMode; size: number; strength: number; flattenHeight: number; before: Map<number, number>; chunks: Set<ChunkDescriptor['id']> };
   private zoningUpdatedChunkIds: ChunkDescriptor['id'][] = [];
   private simulationTickMs = 0;
+  private citizenPopulationRevision = -1;
+  private citizensDirty = true;
 
   constructor() {
     this.zoningCells = this.withZoneTypes(this.zoningSystem.update(this.graph.snapshot()));
@@ -83,6 +85,7 @@ export class SimulationState {
     const populationRevision = this.population.revision;
     this.population.tick(this.clock.gameSeconds);
     if (populationRevision !== this.population.revision) this.refreshServices();
+    this.ensureCitizens();
     if (this.clock.speed !== 0 && this.clock.gameSeconds >= this.economy.nextCycleAtGameSeconds) {
       this.economy.tick(this.clock.gameSeconds, this.population.snapshot().totals, this.graph.snapshot().segments,
         this.services.snapshot().maintenancePerCycle);
@@ -117,7 +120,7 @@ export class SimulationState {
       this.roadChanged();
       this.history.finalizeLastRoadCommand();
     } else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
-    else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') this.revision += 1;
+    else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') { this.citizensDirty = true; this.revision += 1; }
     else this.zonesChanged(this.history.lastAffectedCellIds);
     return result;
   }
@@ -128,7 +131,7 @@ export class SimulationState {
       if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
       else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
-      else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') this.revision += 1;
+      else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') { this.citizensDirty = true; this.revision += 1; }
       else this.zonesChanged(this.history.lastAffectedCellIds);
     }
     return changed;
@@ -140,7 +143,7 @@ export class SimulationState {
       if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
       else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
-      else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') this.revision += 1;
+      else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') { this.citizensDirty = true; this.revision += 1; }
       else this.zonesChanged(this.history.lastAffectedCellIds);
     }
     return changed;
@@ -223,6 +226,7 @@ export class SimulationState {
   }
 
   snapshot(includeTerrainHeightmap = true): WorldSnapshot {
+    this.ensureCitizens();
     return {
       revision: this.revision,
       roadRevision: this.roadRevision,
@@ -266,6 +270,7 @@ export class SimulationState {
   transitUpdate(): TransitSnapshot { return this.transit.snapshot(); }
 
   serialize(): SaveFileV12 {
+    this.ensureCitizens();
     const active = new Set(this.zoningCells.map((cell) => cell.id));
     const zoningAssignments: ZoneAssignment[] = [...this.zoneAssignments]
       .filter(([cellId]) => active.has(cellId))
@@ -328,6 +333,7 @@ export class SimulationState {
     const validatedTransit = new TransitSystem(validatedGraph.snapshot(), undefined, validatedClock.gameSeconds);
     if (world.hasTransitData) validatedTransit.restore(world.transit, validatedClock.gameSeconds);
     validatedTraffic.setTransitSystem(validatedTransit);
+    validatedTraffic.syncCitizens(validatedPopulation.households, validatedPopulation.snapshot(), validatedLots.lots, validatedClock.gameSeconds);
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
@@ -345,6 +351,8 @@ export class SimulationState {
     this.traffic = validatedTraffic;
     this.services = validatedServices;
     this.transit = validatedTransit;
+    this.citizenPopulationRevision = this.population.revision;
+    this.citizensDirty = false;
     this.refreshTerrainProtection();
     this.lotRevision += 1;
   }
@@ -377,6 +385,7 @@ export class SimulationState {
     this.traffic.updateGraph(graph);
     this.traffic.reconcileLots(this.lots.lots);
     this.transit.updateGraph(graph, this.clock.gameSeconds);
+    this.citizensDirty = true;
     this.roadRevision += 1;
     this.zoningRevision += 1;
     this.revision += 1;
@@ -438,6 +447,13 @@ export class SimulationState {
   private syncPopulation(): void {
     this.population.syncBuildings(this.lots.buildings, this.lots.lots, this.clock.gameSeconds);
     this.refreshServices();
+    this.citizensDirty = true;
+  }
+
+  private ensureCitizens(): void {
+    if (!this.citizensDirty && this.citizenPopulationRevision === this.population.revision) return;
+    this.traffic.syncCitizens(this.population.households, this.population.snapshot(), this.lots.lots, this.clock.gameSeconds);
+    this.citizenPopulationRevision = this.population.revision; this.citizensDirty = false;
   }
 
   private refreshServices(): void {

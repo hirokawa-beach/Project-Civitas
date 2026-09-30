@@ -15,6 +15,7 @@ import type { TransitLine } from '../transit/types';
 import { TRANSIT_VEHICLE_TYPES } from '../transit/system';
 import type { RoadStructureType } from '../roads/types';
 import type { PerformanceProfile } from '../visual/agentBudget';
+import type { AgentDetails } from '../citizens/types';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -50,6 +51,7 @@ const formatClock = (seconds: number): string => {
 const money = (amount: number): string => amount.toLocaleString();
 
 const toolLabel = (status: ConstructionStatus): string => {
+  if (status.tool === 'inspect') return 'CITIZEN INSPECTOR';
   if (status.tool === 'demolish') return 'DEMOLISH';
   if (status.tool === 'zone') return `${status.zoneBrush ? status.zoneBrush.toUpperCase() : 'ERASE'} ZONING`;
   if (status.tool === 'terrain') return `${(status.terrainMode ?? 'raise').toUpperCase()} TERRAIN`;
@@ -90,6 +92,9 @@ export function App({ runtime, simulation }: AppProps) {
   const [saveBytes, setSaveBytes] = useState(0);
   const [debugVisible, setDebugVisible] = useState(true);
   const [trafficOverlay, setTrafficOverlay] = useState(false);
+  const [inspecting, setInspecting] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<AgentDetails>();
+  const [nearbyAgents, setNearbyAgents] = useState<AgentDetails[]>([]);
   const [toast, setToast] = useState<{ message: string; error?: boolean }>();
   const [editingLineId, setEditingLineId] = useState<string>();
   const [lineName, setLineName] = useState('Bus Line 1');
@@ -102,16 +107,21 @@ export function App({ runtime, simulation }: AppProps) {
 
   useEffect(() => simulation.subscribe(setSnapshot), [simulation]);
   useEffect(() => runtime.subscribeConstruction(setConstruction), [runtime]);
+  useEffect(() => runtime.subscribeAgentSelection((enabled, details) => { setInspecting(enabled); setSelectedAgent(details); }), [runtime]);
   useEffect(() => simulation.onNotification((message, level) => setToast({ message, error: level === 'error' })), [simulation]);
   useEffect(() => {
-    const timer = window.setInterval(() => setMetrics({
+    const timer = window.setInterval(() => {
+      runtime.updateAgentView(); runtime.refreshAgentSelection();
+      setNearbyAgents(runtime.renderer.getNearbyAgentDetails().slice(0, 40));
+      setMetrics({
       fps: runtime.renderer.getFps(),
       frameTime: runtime.renderer.getFrameTime(),
       chunk: runtime.renderer.getCurrentChunk(),
       terrainMeshMs: runtime.renderer.getTerrainMeshUpdateMs(),
       terrainFrameMs: runtime.renderer.getTerrainUpdateFrameMs(),
       ...runtime.renderer.getVisualAgentMetrics(),
-    }), 350);
+      });
+    }, 350);
     return () => window.clearInterval(timer);
   }, [runtime]);
   useEffect(() => {
@@ -192,7 +202,7 @@ export function App({ runtime, simulation }: AppProps) {
         </div>
       </header>
 
-      {snapshot && <aside class="city-stats panel" aria-label="Population and RCIO demand">
+      {snapshot && !inspecting && <aside class="city-stats panel" aria-label="Population and RCIO demand">
         <div class="panel-title">CITY LIFE</div>
         <div class="city-totals">
           <div><strong>{snapshot.population.totals.population.toLocaleString()}</strong><span>POPULATION</span></div>
@@ -214,7 +224,7 @@ export function App({ runtime, simulation }: AppProps) {
         </div>
       </aside>}
 
-      {snapshot && <aside class="economy-panel panel" aria-label="City economy">
+      {snapshot && !inspecting && <aside class="economy-panel panel" aria-label="City economy">
         <div class="panel-title">CITY FINANCE</div>
         <div class="economy-funds"><span>CURRENT FUNDS</span><strong class={snapshot.economy.funds < 0 ? 'negative' : ''}>{money(snapshot.economy.funds)}</strong></div>
         <div class="economy-summary">
@@ -431,6 +441,9 @@ export function App({ runtime, simulation }: AppProps) {
           <button class={construction?.tool === 'bus-stop' ? 'tool active' : 'tool'} onClick={() => runtime.setTool('bus-stop')}>
             <span class="tool-icon bus-icon">▣</span><small>BUS</small>
           </button>
+          <button class={inspecting ? 'tool active' : 'tool'} onClick={() => runtime.setAgentInspection(!inspecting)}>
+            <span class="tool-icon">⌕</span><small>INSPECT</small>
+          </button>
         </div>
         <div class="dock-divider" />
         <div class="mode-group">
@@ -446,6 +459,29 @@ export function App({ runtime, simulation }: AppProps) {
           <button class={debugVisible ? 'active' : ''} onClick={() => { setDebugVisible(runtime.toggleDebug()); }}>DEBUG</button>
         </div>
       </nav>
+
+      {inspecting && <aside class="agent-inspector panel" aria-label="Citizen inspector">
+        <div class="agent-inspector-heading"><strong>市民・車両を調べる</strong><button aria-label="Close citizen inspector" onClick={() => runtime.setAgentInspection(false)}>×</button></div>
+        <p>画面の人や車両をクリックして選択</p>
+        <select aria-label="Visible citizen" value={selectedAgent?.id ?? ''}
+          onChange={(event) => runtime.selectAgent(nearbyAgents.find((agent) => agent.id === event.currentTarget.value))}>
+            <option value="">近くの人物から選択</option>
+            {selectedAgent && !nearbyAgents.some((agent) => agent.id === selectedAgent.id)
+              && <option value={selectedAgent.id}>{selectedAgent.name} · 選択中</option>}
+            {nearbyAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {agent.kind === 'vehicle' ? '運転中' : '徒歩'}</option>)}
+        </select>
+        {selectedAgent && <div class="agent-person-details">
+          <h3>{selectedAgent.name}</h3><small>{selectedAgent.id}</small>
+          <dl><dt>現在</dt><dd>{{ home: '在宅', work: '勤務中', shopping: '買い物中', stroll: '散歩先', 'returning-home': '帰宅中',
+            'walk:work': '徒歩で通勤中', 'walk:shopping': '徒歩で買い物へ', 'walk:stroll': '散歩中', 'walk:returning-home': '徒歩で帰宅中',
+              'car:work': '車で通勤中', 'car:shopping': '車で買い物へ', 'car:returning-home': '車で帰宅中',
+              'transit:work': 'バスで通勤中', 'transit:shopping': 'バスで買い物へ', 'transit:returning-home': 'バスで帰宅中', driving: '車で移動中' }[selectedAgent.activity] ?? selectedAgent.activity}</dd>
+            <dt>出発地</dt><dd>{selectedAgent.origin}</dd><dt>行先</dt><dd>{selectedAgent.destination}</dd>
+            <dt>自宅</dt><dd>{selectedAgent.home}</dd><dt>勤務先</dt><dd>{selectedAgent.work ?? '未就業'}</dd>
+            {selectedAgent.vehicleId && <><dt>車両</dt><dd>{selectedAgent.vehicleId}</dd></>}
+          </dl>
+        </div>}
+      </aside>}
 
       {construction?.tool === 'road' && (
         <div class="elevation-palette panel" role="group" aria-label="Road elevation mode">

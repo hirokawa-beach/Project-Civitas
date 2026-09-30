@@ -39,6 +39,8 @@ import { selectVisibleVehicles } from '../traffic/visibleVehicles';
 import { VehicleMotion, type VehiclePose } from '../traffic/vehicleMotion';
 import { AdaptiveAgentBudget, agentLod, type AgentLod, type PerformanceProfile } from '../visual/agentBudget';
 import { CitizenSampler, type CitizenVisual, visualHash } from '../visual/citizenSampler';
+import type { AgentDetails } from '../citizens/types';
+import { buildingLabel } from '../citizens/identity';
 import type { ServiceFacility, ServiceType } from '../services/types';
 import { SERVICE_DEFINITIONS } from '../services/system';
 
@@ -88,6 +90,8 @@ export class GameRenderer {
   private readonly vehicleLods = new Map<string, AgentLod>();
   private readonly vehicleMotion = new VehicleMotion();
   private readonly citizenSampler = new CitizenSampler();
+  private readonly agentDetails = new Map<string, AgentDetails>();
+  private agentBuildingLabels = new Map<string, string>();
   private citizenSelection: CitizenVisual[] = [];
   private readonly citizenBodyMeshes: Mesh[] = [];
   private readonly citizenHeadMeshes: Mesh[] = [];
@@ -352,6 +356,8 @@ export class GameRenderer {
     const roadChanged = snapshot.roadRevision !== this.appliedRoadRevision;
     const zoningChanged = snapshot.zoningRevision !== this.appliedZoningRevision;
     const lotChanged = snapshot.lotRevision !== this.appliedLotRevision;
+    if (lotChanged || roadChanged) this.agentBuildingLabels = new Map(snapshot.lots.filter((lot) => lot.buildingId)
+      .map((lot) => [lot.buildingId!, buildingLabel(lot.buildingId!, lot.zoneType)]));
     const trafficChanged = snapshot.traffic.revision !== this.appliedTrafficRevision;
     const populationChanged = snapshot.population.revision !== this.appliedPopulationRevision;
     const serviceChanged = snapshot.services.revision !== this.appliedServiceRevision;
@@ -386,12 +392,7 @@ export class GameRenderer {
       this.syncTransit(snapshot, roadChanged || terrainChanged);
       this.appliedTransitRevision = snapshot.transit.revision;
     }
-    if (roadChanged || lotChanged || transitChanged) {
-      this.citizenSampler.rebuild(snapshot.roadGraph, snapshot.lots, snapshot.population.occupancies,
-        snapshot.transit.stops, snapshot.transit.stopMetrics, snapshot.traffic.segments);
-    } else if (populationChanged || trafficChanged)
-      this.citizenSampler.updateActivity(snapshot.lots, snapshot.population.occupancies,
-        snapshot.transit.stops, snapshot.transit.stopMetrics, snapshot.traffic.segments);
+    if (trafficChanged || roadChanged) this.citizenSampler.sync(snapshot.traffic.citizenCandidates ?? []);
     if (roadChanged || lotChanged || populationChanged || transitChanged || trafficChanged)
       this.appliedPopulationRevision = snapshot.population.revision;
     if (roadChanged || terrainChanged || trafficChanged || lotChanged || populationChanged || transitChanged)
@@ -939,6 +940,18 @@ export class GameRenderer {
     this.visualBudget.setProfile(profile);
     this.syncVisualAgents();
   }
+  getAgentView(): { position: Vec2; radius: number; cap: number } {
+    return { position: { x: this.camera.target.x, z: this.camera.target.z },
+      radius: this.visualBudget.config.despawnMeters + 30, cap: this.visualBudget.citizenBudget };
+  }
+  pickAgent(x: number, y: number): AgentDetails | undefined {
+    const pick = this.scene.pick(x, y, (mesh) => !!mesh.metadata?.agentId || !!mesh.metadata?.agentIds);
+    if (!pick?.hit || !pick.pickedMesh) return;
+    const metadata = pick.pickedMesh.metadata;
+    const id = pick.thinInstanceIndex >= 0 ? metadata.agentIds?.[pick.thinInstanceIndex] : metadata.agentId;
+    return this.agentDetails.get(id);
+  }
+  getNearbyAgentDetails(): AgentDetails[] { return [...this.agentDetails.values()]; }
 
   private roadTrafficMaterial(segmentId: RoadSegmentId): StandardMaterial {
     if (!this.trafficOverlay || !this.snapshot) return this.roadMaterial;
@@ -954,12 +967,16 @@ export class GameRenderer {
   private syncVisualAgents(snap = false): void {
     if (!this.snapshot) return;
     const started = performance.now();
+    this.agentDetails.clear();
     this.syncVisibleVehicles(snap);
     const snapshot = this.snapshot;
     const citizens = this.citizenSampler.select({ x: this.camera.target.x, z: this.camera.target.z },
       this.visualBudget.config, this.visualBudget.citizenBudget, this.citizenSelection,
       this.visualGameSeconds, snapshot.population.totals.population);
     this.citizenSelection = citizens.agents;
+    for (const citizen of citizens.agents) this.agentDetails.set(citizen.id, { id: citizen.id, name: citizen.name,
+      kind: 'citizen', activity: `walk:${citizen.activity}`, origin: citizen.origin.label, destination: citizen.destination.label,
+      home: this.agentBuildingLabel(citizen.homeBuildingId), work: citizen.workBuildingId && this.agentBuildingLabel(citizen.workBuildingId) });
     this.visibleCitizenCount = citizens.agents.length;
     this.culledAgentCount = Math.max(0, snapshot.traffic.visibleCandidates.length - this.visibleVehicleCount) + citizens.culled;
     this.lodNearCount = [...this.vehicleLods.values()].filter((lod) => lod === 'near').length
@@ -970,6 +987,10 @@ export class GameRenderer {
     this.lastVisualSelectionGameSeconds = this.visualGameSeconds;
     this.applyCitizenPoses();
     this.visualAgentUpdateMs = performance.now() - started;
+  }
+
+  private agentBuildingLabel(id: string): string {
+    return this.agentBuildingLabels.get(id) ?? '都市外';
   }
 
   private syncVisibleVehicles(snap = false): void {
@@ -990,6 +1011,11 @@ export class GameRenderer {
       const x = point.x - tangent.z * offset;
       const z = point.z + tangent.x * offset;
       const id = candidate.vehicleId ?? candidate.tripId;
+      const activity = candidate.purpose === 'home-work' ? 'work' : candidate.purpose === 'home-commercial' ? 'shopping' : 'returning-home';
+      this.agentDetails.set(id, { id: candidate.citizenId ?? id, name: candidate.driverName ?? id,
+        kind: 'vehicle', activity: candidate.citizenId?.startsWith('visitor-') ? 'driving' : `car:${activity}`,
+        origin: this.agentBuildingLabel(candidate.origin ?? ''),
+        destination: this.agentBuildingLabel(candidate.destination ?? ''), vehicleId: id });
       targets.set(id, { x, y: roadHeightAt(segment.geometry, point, (a, b) => this.getHeight(a, b)) + 1.0, z,
         yaw: Math.atan2(tangent.x * side, tangent.z * side) });
       const meters = Math.hypot(x - this.camera.target.x, z - this.camera.target.z);
@@ -1008,7 +1034,8 @@ export class GameRenderer {
       mesh.name = `visible-vehicle-${id}`;
       mesh.scaling.set(variation === 2 ? 1.15 : 1, variation === 1 ? 1.35 : 1, variation === 2 ? 1.4 : 1);
       mesh.material = this.vehicleMaterials[variation];
-      mesh.isPickable = false;
+      mesh.isPickable = true;
+      mesh.metadata = { agentId: id };
       mesh.setEnabled(true);
       this.vehicleMeshes.set(id, mesh);
     }
@@ -1036,18 +1063,22 @@ export class GameRenderer {
     }
     const mid: number[] = [];
     const far: number[] = [];
+    const midIds: string[] = []; const farIds: string[] = [];
     for (const [id, lod] of this.vehicleLods) if (lod !== 'near') {
       const pose = this.vehicleMotion.pose(id);
-      if (pose) (lod === 'mid' ? mid : far).push(...Matrix.Compose(Vector3.One(), Quaternion.FromEulerAngles(0, pose.yaw, 0),
-        new Vector3(pose.x, pose.y, pose.z)).toArray());
+      if (pose) {
+        (lod === 'mid' ? mid : far).push(...Matrix.Compose(Vector3.One(), Quaternion.FromEulerAngles(0, pose.yaw, 0),
+          new Vector3(pose.x, pose.y, pose.z)).toArray());
+        (lod === 'mid' ? midIds : farIds).push(id);
+      }
     }
-    this.updateThinInstances(this.vehicleMidMesh, mid);
-    this.updateThinInstances(this.vehicleFarMesh, far);
+    this.updateThinInstances(this.vehicleMidMesh, mid, midIds);
+    this.updateThinInstances(this.vehicleFarMesh, far, farIds);
   }
 
   private animateVisibleCitizens(realSeconds: number): void {
     if (!this.snapshot) return;
-    this.visualGameSeconds += realSeconds * this.snapshot.gameClock.speed;
+    this.visualGameSeconds += realSeconds * this.snapshot.gameClock.speed * 10;
     if (this.visualGameSeconds - this.lastVisualSelectionGameSeconds > 60) this.syncVisualAgents();
     else if (this.visibleCitizenCount) this.applyCitizenPoses();
   }
@@ -1057,30 +1088,35 @@ export class GameRenderer {
     const heads: number[][] = [[], [], []];
     const mid: number[] = [];
     const far: number[] = [];
+    const bodyIds: string[][] = [[], [], []]; const midIds: string[] = []; const farIds: string[] = [];
     for (const agent of this.citizenSelection) {
-      const pose = this.citizenSampler.pose(agent.edgeId, agent.slot, this.visualGameSeconds);
+      const pose = this.citizenSampler.pose(agent.id, this.visualGameSeconds);
       if (!pose) continue;
       const y = this.getHeight(pose.position.x, pose.position.z);
       const rotation = Quaternion.FromEulerAngles(0, pose.yaw, 0);
       if (agent.lod === 'near') {
+        bodyIds[agent.variation].push(agent.id);
         bodies[agent.variation].push(...Matrix.Compose(Vector3.One(), rotation,
           new Vector3(pose.position.x, y + .9, pose.position.z)).toArray());
         heads[agent.variation].push(...Matrix.Compose(Vector3.One(), rotation,
           new Vector3(pose.position.x, y + 1.8, pose.position.z)).toArray());
       } else {
+        (agent.lod === 'mid' ? midIds : farIds).push(agent.id);
         (agent.lod === 'mid' ? mid : far).push(...Matrix.Compose(Vector3.One(), rotation,
           new Vector3(pose.position.x, y + (agent.lod === 'mid' ? .8 : .65), pose.position.z)).toArray());
       }
     }
     for (let index = 0; index < 3; index++) {
-      this.updateThinInstances(this.citizenBodyMeshes[index], bodies[index]);
-      this.updateThinInstances(this.citizenHeadMeshes[index], heads[index]);
+      this.updateThinInstances(this.citizenBodyMeshes[index], bodies[index], bodyIds[index]);
+      this.updateThinInstances(this.citizenHeadMeshes[index], heads[index], bodyIds[index]);
     }
-    this.updateThinInstances(this.citizenMidMesh, mid);
-    this.updateThinInstances(this.citizenFarMesh, far);
+    this.updateThinInstances(this.citizenMidMesh, mid, midIds);
+    this.updateThinInstances(this.citizenFarMesh, far, farIds);
   }
 
-  private updateThinInstances(mesh: Mesh, matrices: number[]): void {
+  private updateThinInstances(mesh: Mesh, matrices: number[], ids: string[] = []): void {
+    mesh.setEnabled(matrices.length > 0);
+    mesh.isPickable = true; mesh.thinInstanceEnablePicking = true; mesh.metadata = { agentIds: ids };
     if (matrices.length) mesh.thinInstanceSetBuffer('matrix', new Float32Array(matrices), 16, true);
     else mesh.thinInstanceCount = 0;
   }

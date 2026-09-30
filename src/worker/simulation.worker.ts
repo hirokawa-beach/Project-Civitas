@@ -51,6 +51,12 @@ const processMessage = (message: UIToWorkerMessage): 'initial' | 'full' | 'terra
     case 'set-speed':
       simulation.setSpeed(message.speed);
       return 'none';
+    case 'set-agent-view':
+      simulation.traffic.setCitizenView(message.position, message.radius, message.cap);
+      return 'none';
+    case 'inspect-citizen':
+      post({ type: 'citizen-details', requestId: message.requestId, details: simulation.traffic.inspectCitizen(message.citizenId) });
+      return 'none';
     case 'request-save':
       post({ type: 'save-data', requestId: message.requestId, save: simulation.serialize() });
       return 'none';

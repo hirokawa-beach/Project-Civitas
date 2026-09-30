@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { RoadGraph } from '../src/roads/roadGraph';
 import type { Lot } from '../src/lots/types';
-import type { BuildingOccupancy } from '../src/population/types';
+import type { CitizenCandidate } from '../src/citizens/types';
 import type { TransitStop } from '../src/transit/types';
 import { AdaptiveAgentBudget, agentLod, VISUAL_AGENT_PROFILES } from '../src/visual/agentBudget';
-import { CitizenSampler, citizenDensity } from '../src/visual/citizenSampler';
+import { CitizenSampler } from '../src/visual/citizenSampler';
 import { buildPedestrianGraph } from '../src/visual/pedestrianGraph';
 
 const roads = () => {
@@ -20,11 +20,6 @@ const home = (roadSegmentId: Lot['roadAccess']['roadSegmentId']): Lot => ({
   averageElevation: 0, minElevation: 0, maxElevation: 0, baseElevation: 0, slope: 0,
   buildable: true, buildingId: 'building-home',
 });
-const occupancy: BuildingOccupancy = {
-  buildingId: 'building-home', zoneType: 'residential', active: true,
-  householdCapacity: 20, populationCapacity: 100, currentHouseholds: 20, currentPopulation: 80,
-  totalJobs: 0, filledJobs: 0, availableJobs: 0, commercialCapacity: 0,
-};
 const stop = (road: ReturnType<typeof roads>): TransitStop => ({
   id: 'stop-1', name: 'Central', position: { x: 10, z: 4 }, roadSegmentId: road.segments[0].id,
   laneId: road.lanes[0].id, direction: road.lanes[0].direction, along: 110,
@@ -44,21 +39,15 @@ describe('derived visual agents', () => {
     expect(derived.nodes.some((node) => node.id === 'stop:stop-1')).toBe(true);
   });
 
-  it('uses zone activity, trips, transit use and game time for visual density', () => {
-    const base = { residential: 0, commercial: 0, office: 0, industrial: 0, transit: 0, trips: 0 };
-    expect(citizenDensity({ ...base, residential: 4 }, 2 * 3600))
-      .toBeGreaterThan(citizenDensity({ ...base, residential: 4 }, 12 * 3600));
-    expect(citizenDensity({ ...base, commercial: 4 }, 12 * 3600))
-      .toBeGreaterThan(citizenDensity({ ...base, commercial: 4 }, 2 * 3600));
-    expect(citizenDensity({ ...base, office: 4, transit: 2 }, 8 * 3600))
-      .toBeGreaterThan(citizenDensity({ ...base, office: 4, transit: 2 }, 12 * 3600));
-    expect(citizenDensity({ ...base, trips: 3 }, 12 * 3600)).toBeGreaterThan(0);
-  });
-
   it('samples stable citizens near the camera, caps them and releases them outside the despawn radius', () => {
-    const road = roads();
     const sampler = new CitizenSampler();
-    sampler.rebuild(road, [home(road.segments[0].id)], [occupancy], [], [], []);
+    const candidates: CitizenCandidate[] = Array.from({ length: 80 }, (_, i) => ({
+      id: `citizen-${i}`, name: `人物 ${i}`, homeBuildingId: 'building-home', activity: 'shopping',
+      origin: { id: 'home', label: '自宅', nodeId: 'home', position: { x: -50, z: i } },
+      destination: { id: 'shop', label: '店舗', nodeId: 'shop', position: { x: 50, z: i } },
+      route: [{ x: -50, z: i }, { x: 50, z: i }], length: 100, speed: 1.2, departedAt: 12 * 3600,
+    }));
+    sampler.sync(candidates);
     const profile = VISUAL_AGENT_PROFILES.balanced;
     const first = sampler.select({ x: 0, z: 0 }, profile, 1500, [], 12 * 3600, 80);
     expect(first.agents.length).toBeGreaterThan(0);
@@ -68,8 +57,10 @@ describe('derived visual agents', () => {
     expect(sampler.select({ x: 0, z: 0 }, profile, 2, first.agents, 12 * 3600, 80).agents).toHaveLength(2);
     expect(sampler.select({ x: 0, z: 0 }, profile, 1500, first.agents, 12 * 3600, 1).agents).toHaveLength(1);
     expect(sampler.select({ x: 500, z: 500 }, profile, 1500, first.agents, 12 * 3600, 80).agents).toHaveLength(0);
-    const pose = sampler.pose(first.agents[0].edgeId, first.agents[0].slot, 12 * 3600 + 5);
+    const pose = sampler.pose(first.agents[0].id, 12 * 3600 + 5);
     expect(pose?.position).not.toEqual(first.agents[0].position);
+    expect(sampler.pose(first.agents[0].id, 12 * 3600 + 100)).toBeUndefined();
+    expect(sampler.select({ x: 0, z: 0 }, profile, 1500, [], 12 * 3600 + 100, 80).agents).toHaveLength(0);
   });
 
   it('adapts only after sustained frame time and assigns three distance levels', () => {

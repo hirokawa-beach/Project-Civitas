@@ -2,7 +2,11 @@ import { polylineLength } from '../roads/geometry';
 import type { RoadGraphSnapshot, RoadSegment } from '../roads/types';
 import type { RoadSegmentId } from '../shared/ids';
 import type { Lot } from '../lots/types';
-import type { BuildingOccupancy, PopulationSnapshot } from '../population/types';
+import type { BuildingOccupancy, Household, PopulationSnapshot } from '../population/types';
+import { CitizenSystem } from '../citizens/system';
+import { buildingLabel, citizenName } from '../citizens/identity';
+import type { AgentDetails, Citizen, CitizenPlace } from '../citizens/types';
+import type { Vec2 } from '../world/types';
 import { HALF_WORLD_SIZE } from '../world/types';
 import { RoadRouter } from './routing';
 import type { TransitSystem } from '../transit/system';
@@ -10,6 +14,7 @@ import type { LaneTraffic, LogicalTrip, OutsideConnection, RouteLeg, SegmentTraf
   TrafficSaveState, TrafficSnapshot, TripEndpoint, TripPurpose, VisibleVehicleCandidate } from './types';
 
 export const DEFAULT_TRAFFIC_CONFIG: TrafficConfig = {
+  maxIndividualTrips: 2000,
   version: 1,
   generationIntervalGameSeconds: 30,
   trafficIntervalGameSeconds: 5,
@@ -29,8 +34,13 @@ const totalRouteLength = (route: readonly RouteLeg[]): number => route.reduce((s
 const finiteNonnegative = (value: number): boolean => Number.isFinite(value) && value >= 0;
 const integer = (value: number): boolean => Number.isSafeInteger(value);
 
-/** Worker-authoritative macro traffic. One logical trip can represent several vehicles. */
+/** Worker-authoritative traffic. Resident journeys own one named driver and vehicle each. */
 export class TrafficSystem {
+  readonly citizens = new CitizenSystem();
+  private individualMode = false;
+  private citizenView = { position: { x: 0, z: 0 }, radius: 470, cap: 3000 };
+  private gameSeconds = 0;
+  private citizenLots = new Map<string, Lot>();
   readonly router: RoadRouter;
   private graph: RoadGraphSnapshot;
   private readonly tripsById = new Map<string, LogicalTrip>();
@@ -61,6 +71,42 @@ export class TrafficSystem {
   get outside(): OutsideConnection[] { return structuredClone(this.outsideConnections); }
   get segmentStates(): SegmentTraffic[] { return [...this.segmentTraffic.values()].map((item) => structuredClone(item)); }
   setTransitSystem(transit: TransitSystem): void { this.transit = transit; }
+  syncCitizens(households: readonly Household[], population: PopulationSnapshot, lots: readonly Lot[], gameSeconds: number): void {
+    this.individualMode = true;
+    for (const [id, trip] of this.tripsById) if (!trip.citizenId) this.tripsById.delete(id);
+    this.citizenLots = new Map(lots.filter((lot) => lot.buildingId).map((lot) => [lot.buildingId!, lot]));
+    this.citizens.sync(households, population.occupancies, lots, this.graph, this.transit?.snapshot().stops ?? [], gameSeconds);
+    for (const [id, trip] of this.tripsById) if (!trip.citizenId?.startsWith('visitor-')
+      && !this.citizens.has(trip.citizenId!)) this.tripsById.delete(id);
+    this.gameSeconds = gameSeconds; this.rebuildTraffic(); this.revision++;
+  }
+  setCitizenView(position: Vec2, radius: number, cap: number): void {
+    if (![position.x, position.z, radius, cap].every(Number.isFinite) || radius <= 0 || cap < 0) return;
+    this.citizenView = { position: { ...position }, radius: Math.min(600, radius), cap: Math.min(3000, Math.floor(cap)) };
+    this.revision++;
+  }
+  inspectCitizen(id: string): AgentDetails | undefined {
+    const label = (buildingId: string): string => {
+      const lot = this.citizenLots.get(buildingId);
+      return lot ? buildingLabel(buildingId, lot.zoneType) : '都市外';
+    };
+    if (id.startsWith('visitor-')) {
+      const trip = [...this.tripsById.values()].find((item) => item.citizenId === id);
+      if (!trip) return;
+      return { id, name: trip.driverName!, kind: 'vehicle', activity: 'driving',
+        origin: trip.origin.kind === 'outside' ? '都市外' : label(trip.origin.id),
+        destination: trip.destination.kind === 'outside' ? '都市外' : label(trip.destination.id), vehicleId: trip.vehicleId };
+    }
+    const citizen = this.citizens.get(id);
+    if (!citizen) return;
+    const journey = citizen.journey;
+    return { id, name: citizen.name, kind: journey?.mode === 'car' ? 'vehicle' : 'citizen',
+      activity: journey ? `${journey.mode}:${journey.activity}` : citizen.activity,
+      origin: journey?.origin.label ?? citizen.location.label,
+      destination: journey?.destination.label ?? citizen.location.label,
+      home: label(citizen.homeBuildingId), work: citizen.workBuildingId && label(citizen.workBuildingId),
+      vehicleId: journey?.mode === 'car' ? `vehicle-${id}` : undefined };
+  }
   isDue(gameSeconds: number): boolean {
     return gameSeconds >= this.nextGenerationAtGameSeconds || gameSeconds >= this.nextTrafficAtGameSeconds;
   }
@@ -134,6 +180,7 @@ export class TrafficSystem {
   /** Called every worker frame, but scans trips and roads only on due GameClock intervals. */
   tick(gameSeconds: number, population: PopulationSnapshot, lots: readonly Lot[]): boolean {
     if (gameSeconds < this.nextGenerationAtGameSeconds && gameSeconds < this.nextTrafficAtGameSeconds) return false;
+    this.gameSeconds = gameSeconds;
     let changed = false;
     if (gameSeconds >= this.nextTrafficAtGameSeconds) {
       const elapsed = Math.min(this.config.generationIntervalGameSeconds,
@@ -144,10 +191,14 @@ export class TrafficSystem {
     }
     if (gameSeconds >= this.nextGenerationAtGameSeconds) {
       this.router.clearCache(); // Congestion costs change between generation intervals.
-      this.generateTrips(gameSeconds, population, lots);
+      this.generateTrips(gameSeconds, population, lots, this.individualMode);
       this.nextGenerationAtGameSeconds = gameSeconds + this.config.generationIntervalGameSeconds;
       changed = true;
     }
+    const transitPassengers = this.individualMode && this.transit?.passengerIds();
+    if (this.individualMode) this.citizens.tick(gameSeconds,
+      (citizen, origin, destination) => this.createCitizenTrip(citizen, origin, destination, gameSeconds),
+      (id) => id.startsWith('transit:') ? !!transitPassengers && transitPassengers.has(id.slice(8)) : this.tripsById.has(id));
     if (changed) {
       this.rebuildTraffic();
       this.revision += 1;
@@ -163,8 +214,7 @@ export class TrafficSystem {
       if (trip.routeState !== 'routed') continue;
       activeTrips += 1;
       logicalVehicles += trip.vehicleCount;
-      // Trip batches remain authoritative. These stable IDs expose their individual
-      // visual representatives without creating persistent citizen/vehicle objects.
+      // Legacy aggregate trips are still readable; new citizen journeys own one vehicle each.
       const routeLength = totalRouteLength(trip.route);
       for (let vehicle = 0; vehicle < trip.vehicleCount; vehicle += 1) {
         let remaining = Math.max(0, Math.min(Math.max(0, routeLength - .01),
@@ -173,8 +223,10 @@ export class TrafficSystem {
           const length = legLength(leg);
           if (remaining > length) { remaining -= length; continue; }
           const along = leg.fromAlong + (leg.direction === 'forward' ? remaining : -remaining);
-          visibleCandidates.push({ vehicleId: `${trip.id}:vehicle-${vehicle}`, tripId: trip.id,
-            segmentId: leg.segmentId, direction: leg.direction, along });
+          visibleCandidates.push({ vehicleId: trip.vehicleId ?? `${trip.id}:vehicle-${vehicle}`, tripId: trip.id,
+            segmentId: leg.segmentId, direction: leg.direction, along,
+            citizenId: trip.citizenId, driverName: trip.driverName, origin: trip.origin.id,
+            destination: trip.destination.id, purpose: trip.purpose });
           break;
         }
       }
@@ -185,6 +237,8 @@ export class TrafficSystem {
       congestedSegmentCount: this.congestedSegmentCount, outsideConnections: this.outside,
       segments: this.segmentStates, visibleCandidates,
       maxVisibleVehicles: this.config.maxVisibleVehicles, visibleRadiusMeters: this.config.visibleRadiusMeters,
+      citizenCandidates: this.individualMode ? this.citizens.nearby(this.citizenView.position, this.citizenView.radius,
+        this.citizenView.cap, this.gameSeconds) : [], individualCitizens: this.citizens.count,
     };
   }
 
@@ -193,6 +247,7 @@ export class TrafficSystem {
       config: structuredClone(this.config), outsideConnections: this.outside, trips: this.trips,
       nextTripSerial: this.nextTripSerial, nextGenerationAtGameSeconds: this.nextGenerationAtGameSeconds,
       nextTrafficAtGameSeconds: this.nextTrafficAtGameSeconds, generatorCursor: this.generatorCursor,
+      ...(this.individualMode ? { citizens: this.citizens.save() } : {}),
     };
   }
 
@@ -201,9 +256,10 @@ export class TrafficSystem {
       || !integer(saved.nextTripSerial) || saved.nextTripSerial < 1
       || !finiteNonnegative(saved.nextGenerationAtGameSeconds) || !finiteNonnegative(saved.nextTrafficAtGameSeconds)
       || !integer(saved.generatorCursor) || saved.generatorCursor < 0
-      || !Array.isArray(saved.trips) || saved.trips.length > this.config.maxActiveTrips
+      || !Array.isArray(saved.trips) || saved.trips.length > (saved.citizens
+        ? this.config.maxIndividualTrips ?? DEFAULT_TRAFFIC_CONFIG.maxIndividualTrips! : this.config.maxActiveTrips)
       || !Array.isArray(saved.outsideConnections)
-      || JSON.stringify(saved.config) !== JSON.stringify(this.config)
+      || JSON.stringify({ ...this.config, ...saved.config }) !== JSON.stringify(this.config)
       || JSON.stringify(saved.outsideConnections) !== JSON.stringify(this.outsideConnections)) {
       throw new Error('Save contains invalid traffic data.');
     }
@@ -226,6 +282,21 @@ export class TrafficSystem {
     this.nextGenerationAtGameSeconds = saved.nextGenerationAtGameSeconds;
     this.nextTrafficAtGameSeconds = saved.nextTrafficAtGameSeconds;
     this.generatorCursor = saved.generatorCursor;
+    this.gameSeconds = gameSeconds;
+    if (saved.citizens) {
+      this.citizens.restore(saved.citizens); this.individualMode = true;
+      for (const trip of saved.trips) {
+        if (trip.citizenId?.startsWith('visitor-') && (trip.origin.kind === 'outside' || trip.destination.kind === 'outside')
+          && trip.vehicleCount === 1 && typeof trip.driverName === 'string' && trip.vehicleId === `vehicle-${trip.citizenId}`) continue;
+        const driver = trip.citizenId && this.citizens.get(trip.citizenId);
+        if (!driver || trip.vehicleCount !== 1 || trip.driverName !== driver.name || trip.vehicleId !== `vehicle-${driver.id}`
+          || driver.journey?.mode !== 'car' || driver.journey.tripId !== trip.id
+          || driver.journey.origin.id !== trip.origin.id || driver.journey.destination.id !== trip.destination.id)
+          throw new Error('Save contains inconsistent vehicle driver.');
+      }
+      for (const driver of saved.citizens.residents) if (driver.journey?.mode === 'car'
+        && !this.tripsById.has(driver.journey.tripId!)) throw new Error('Save contains a missing citizen vehicle.');
+    }
     this.rebuildTraffic();
     this.revision += 1;
   }
@@ -239,8 +310,32 @@ export class TrafficSystem {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  private generateTrips(gameSeconds: number, population: PopulationSnapshot, lots: readonly Lot[]): void {
-    const remainingSlots = Math.min(this.config.maxNewTripsPerGeneration, this.config.maxActiveTrips - this.tripsById.size);
+  private createCitizenTrip(citizen: Citizen, origin: CitizenPlace, destination: CitizenPlace, now: number): string | null {
+    const fromLot = this.citizenLots.get(origin.buildingId!); const toLot = this.citizenLots.get(destination.buildingId!);
+    if (!fromLot || !toLot || fromLot.buildingId === toLot.buildingId) return null;
+    const endpoint = (lot: Lot): TripEndpoint => ({ kind: 'building', id: lot.buildingId!,
+      roadSegmentId: lot.roadAccess.roadSegmentId, position: { ...lot.position } });
+    const from = endpoint(fromLot); const to = endpoint(toLot);
+    const route = this.router.route(from, to, this.segmentTraffic);
+    const roadCost = route ? route.reduce((sum, leg) => sum + legLength(leg)
+      / Math.max(1, (this.segmentTraffic.get(leg.segmentId)?.averageSpeed ?? 30) / 3.6) / this.config.vehicleSpeedScale, 0) : Infinity;
+    if (this.transit?.offerTrip(from, to, 1, roadCost + this.transit.config.parkingPenaltyGameSeconds,
+      now, this.segmentStates, citizen.id)) return `transit:${citizen.id}`;
+    if (this.tripsById.size >= (this.config.maxIndividualTrips ?? DEFAULT_TRAFFIC_CONFIG.maxIndividualTrips!)) return null;
+    if (!route?.length) return null;
+    const purpose: TripPurpose = destination.buildingId === citizen.homeBuildingId
+      ? (origin.buildingId === citizen.workBuildingId ? 'work-home' : 'commercial-home')
+      : destination.buildingId === citizen.workBuildingId ? 'home-work' : 'home-commercial';
+    const id = `trip-${this.nextTripSerial++}`;
+    this.tripsById.set(id, { id, citizenId: citizen.id, driverName: citizen.name, vehicleId: `vehicle-${citizen.id}`,
+      origin: from, destination: to, purpose, departureGameSeconds: now, mode: 'car', routeState: 'routed',
+      route, progressMeters: 0, vehicleCount: 1 });
+    return id;
+  }
+
+  private generateTrips(gameSeconds: number, population: PopulationSnapshot, lots: readonly Lot[], outsideOnly = false): void {
+    const remainingSlots = Math.min(this.config.maxNewTripsPerGeneration,
+      (outsideOnly ? this.config.maxIndividualTrips ?? DEFAULT_TRAFFIC_CONFIG.maxIndividualTrips! : this.config.maxActiveTrips) - this.tripsById.size);
     if (remainingSlots <= 0) return;
     const lotByBuilding = new Map(lots.filter((lot) => lot.buildingId).map((lot) => [lot.buildingId!, lot]));
     const endpoint = (occupancy: BuildingOccupancy): TripEndpoint | undefined => {
@@ -271,10 +366,14 @@ export class TrafficSystem {
         origin: structuredClone(origin), destination: structuredClone(destination), purpose,
         departureGameSeconds: gameSeconds, mode: 'car', routeState: route ? 'routed' : 'unreachable',
         route: route ?? [], progressMeters: 0, vehicleCount: Math.min(8, Math.max(1, count)) };
+      if (outsideOnly) {
+        trip.citizenId = `visitor-${trip.id}`; trip.driverName = citizenName(trip.citizenId, trip.citizenId);
+        trip.vehicleId = `vehicle-${trip.citizenId}`; trip.vehicleCount = 1;
+      }
       this.tripsById.set(trip.id, trip);
       added += 1;
     };
-    const takeHomes = Math.min(homes.length, Math.ceil(remainingSlots / 4));
+    const takeHomes = outsideOnly ? 0 : Math.min(homes.length, Math.ceil(remainingSlots / 4));
     for (let index = 0; index < takeHomes && added < remainingSlots; index += 1) {
       const home = homes[(this.generatorCursor + index) % homes.length];
       const homeEndpoint = endpoint(home)!;

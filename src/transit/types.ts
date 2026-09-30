@@ -51,10 +51,11 @@ export interface TransitVehicle {
   departedAtGameSeconds: number;
   progressMeters: number;
   nextStopIndex: number;
-  onboard: Array<{ destinationStopId: string; count: number; transferLineId?: string; finalStopId?: string }>;
+  onboard: Array<{ destinationStopId: string; count: number; transferLineId?: string; finalStopId?: string; citizenId?: string }>;
 }
 
 export interface TransitWaitingGroup {
+  citizenId?: string;
   id: string;
   lineId: string;
   originStopId: string;
