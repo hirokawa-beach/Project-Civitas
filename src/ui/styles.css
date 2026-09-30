@@ -37,6 +37,16 @@ button { font: inherit; }
 .file-actions button { height: 32px; padding: 0 14px; font: 600 10px Consolas, monospace; letter-spacing: 0.12em; }
 
 .debug-panel { position: absolute; top: 535px; right: 18px; width: 220px; max-height: calc(100vh - 560px); overflow-y: auto; padding: 15px 16px 13px; }
+.agent-profile { max-width: 100px; color: #e9eee8; background: #1b2a25; border: 1px solid var(--line); pointer-events: auto; font: 9px Consolas, monospace; }
+.agent-inspector { position: absolute; left: 18px; top: 96px; width: 240px; max-height: calc(100vh - 205px); overflow-y: auto; padding: 16px; pointer-events: auto; z-index: 8; }
+.agent-inspector-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.agent-inspector-heading button { background: transparent; border: 0; color: inherit; font-size: 20px; cursor: pointer; }
+.agent-inspector p, .agent-person-details small { color: var(--muted); font-size: 11px; }
+.agent-inspector select { width: 100%; color: #e9eee8; background: #1b2a25; border: 1px solid var(--line); padding: 7px; }
+.agent-person-details h3 { margin: 14px 0 4px; font-size: 19px; }
+.agent-person-details dl { display: grid; grid-template-columns: 50px 1fr; gap: 8px 10px; font-size: 11px; line-height: 1.5; }
+.agent-person-details dt { color: var(--muted); }
+.agent-person-details dd { margin: 0; overflow-wrap: anywhere; }
 .traffic-panel { position: absolute; top: 96px; right: 18px; width: 220px; padding: 12px 15px; }
 .transit-panel { position: absolute; top: 96px; right: 255px; width: 294px; max-height: calc(100vh - 205px); overflow-y: auto; padding: 12px 14px; pointer-events: auto; }
 .transit-panel .panel-title { justify-content: space-between; margin-bottom: 8px; }

@@ -1,5 +1,6 @@
 import type { RoadNodeId, RoadSegmentId } from '../shared/ids';
 import type { Vec2 } from '../world/types';
+import type { CitizenCandidate, CitizenSaveState } from '../citizens/types';
 
 export type TripPurpose = 'home-work' | 'work-home' | 'home-commercial' | 'commercial-home' | 'outside-city' | 'city-outside';
 export type TripMode = 'car';
@@ -31,6 +32,9 @@ export interface LogicalTrip {
   route: RouteLeg[];
   progressMeters: number;
   vehicleCount: number;
+  citizenId?: string;
+  driverName?: string;
+  vehicleId?: string;
 }
 
 export interface OutsideConnection {
@@ -58,13 +62,21 @@ export interface SegmentTraffic {
 }
 
 export interface VisibleVehicleCandidate {
+  /** Persistent logical vehicle ID; legacy trip batches also have stable representatives. */
+  vehicleId?: string;
   tripId: string;
   segmentId: RoadSegmentId;
   direction: 'forward' | 'backward';
   along: number;
+  citizenId?: string;
+  driverName?: string;
+  origin?: string;
+  destination?: string;
+  purpose?: TripPurpose;
 }
 
 export interface TrafficConfig {
+  maxIndividualTrips?: number;
   version: 1;
   generationIntervalGameSeconds: number;
   trafficIntervalGameSeconds: number;
@@ -87,6 +99,7 @@ export interface TrafficSaveState {
   nextGenerationAtGameSeconds: number;
   nextTrafficAtGameSeconds: number;
   generatorCursor: number;
+  citizens?: CitizenSaveState;
 }
 
 export interface TrafficSnapshot {
@@ -101,4 +114,6 @@ export interface TrafficSnapshot {
   visibleCandidates: VisibleVehicleCandidate[];
   maxVisibleVehicles: number;
   visibleRadiusMeters: number;
+  citizenCandidates?: CitizenCandidate[];
+  individualCitizens?: number;
 }

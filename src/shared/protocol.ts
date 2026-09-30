@@ -7,6 +7,7 @@ import type { Building, Lot, LotId } from '../lots/types';
 import type { PopulationSnapshot } from '../population/types';
 import type { EconomySnapshot } from '../economy/types';
 import type { TrafficSnapshot } from '../traffic/types';
+import type { AgentDetails } from '../citizens/types';
 import type { ServiceSnapshot } from '../services/types';
 import type { TransitSnapshot } from '../transit/types';
 import type { WaterState } from '../water/staticWater';
@@ -48,6 +49,8 @@ export type UIToWorkerMessage =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'set-speed'; speed: GameSpeed }
+  | { type: 'set-agent-view'; position: Vec2; radius: number; cap: number }
+  | { type: 'inspect-citizen'; requestId: string; citizenId: string }
   | { type: 'request-save'; requestId: string }
   | { type: 'load'; save: SaveFile }
   | { type: 'begin-terrain-stroke'; point: Vec2; mode: TerrainBrushMode; size: number; strength: number }
@@ -57,6 +60,7 @@ export type UIToWorkerMessage =
   | { type: 'set-terrain-preset'; preset: TerrainPreset };
 
 export type WorkerToUIMessage =
+  | { type: 'citizen-details'; requestId: string; details?: AgentDetails }
   | { type: 'snapshot'; snapshot: WorldSnapshot }
   | { type: 'clock-update'; revision: number; gameClock: GameClockSnapshot; simulationTickMs: number }
   | { type: 'population-update'; population: PopulationSnapshot }

@@ -33,7 +33,7 @@ import type { ServiceType } from '../services/types';
 import { SERVICE_DEFINITIONS, planServicePlacement } from '../services/system';
 import { planBusStopPlacement } from '../transit/system';
 
-export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain' | 'service' | 'bus-stop';
+export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain' | 'service' | 'bus-stop' | 'inspect';
 export type RoadMode = 'straight' | 'one-curve' | 'two-curve' | 'continuous';
 export type ZonePaintMode = 'brush' | 'box';
 
@@ -181,7 +181,7 @@ export class ConstructionController {
       terrainSize: this.terrainSize,
       terrainStrength: this.terrainStrength,
       serviceType: this.serviceType,
-      prompt: tool === 'road' ? 'Click to set a starting point' : tool === 'zone' ? this.zonePrompt() : tool === 'terrain' ? 'Drag to sculpt terrain' : tool === 'service' ? 'Choose an empty lot location beside a road' : tool === 'bus-stop' ? 'Click beside a road to place a bus stop' : 'Hover a road and click to demolish',
+      prompt: tool === 'inspect' ? '人や車を選択すると名前と行先を確認できます' : tool === 'road' ? 'Click to set a starting point' : tool === 'zone' ? this.zonePrompt() : tool === 'terrain' ? 'Drag to sculpt terrain' : tool === 'service' ? 'Choose an empty lot location beside a road' : tool === 'bus-stop' ? 'Click beside a road to place a bus stop' : 'Hover a road and click to demolish',
     });
   }
 
@@ -283,7 +283,7 @@ export class ConstructionController {
     this.renderer.setHoveredSegment(undefined);
     this.hoveredSegmentId = undefined;
     this.emit({ ...DEFAULT_STATUS, tool: this.tool, roadMode: this.roadMode, zoneBrush: this.zoneBrush, zoneMode: this.zoneMode,
-      serviceType: this.serviceType, prompt: this.tool === 'road' ? 'Click to set a starting point' : this.tool === 'zone'
+      serviceType: this.serviceType, prompt: this.tool === 'inspect' ? '人や車を選択すると名前と行先を確認できます' : this.tool === 'road' ? 'Click to set a starting point' : this.tool === 'zone'
         ? this.zonePrompt() : this.tool === 'terrain' ? 'Drag to sculpt terrain' : this.tool === 'service'
           ? 'Choose an empty lot location beside a road' : this.tool === 'bus-stop'
             ? 'Click beside a road to place a bus stop' : 'Hover a road and click to demolish' });
@@ -300,6 +300,7 @@ export class ConstructionController {
   }
 
   private readonly onPointerMove = (event: PointerEvent): void => {
+    if (this.tool === 'inspect') return;
     if (this.tool === 'zone' && this.zonePainting && event.pointerId === this.zonePointerId && this.zoneMode === 'box') {
       this.zoneSelectionEnd = this.canvasPoint(event);
     }
@@ -329,6 +330,7 @@ export class ConstructionController {
   };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
+    if (this.tool === 'inspect') return;
     if (event.button !== 0 || this.commandPending) return;
     const picked = this.renderer.pickGround(event.clientX, event.clientY);
     if (picked) this.cursor = picked;

@@ -196,7 +196,7 @@ export class TransitSystem {
 
   /** Direct-line mode choice. A cache holds topology candidates, not per-passenger paths or mutable waiting time. */
   offerTrip(origin: TripEndpoint, destination: TripEndpoint, count: number, carCostSeconds: number,
-    gameSeconds: number, traffic: readonly SegmentTraffic[]): boolean {
+    gameSeconds: number, traffic: readonly SegmentTraffic[], citizenId?: string): boolean {
     if (origin.kind !== 'building' || destination.kind !== 'building' || count <= 0) return false;
     const key = `${origin.id}>${destination.id}`;
     let candidates = this.passengerRouteCache.get(key);
@@ -260,9 +260,22 @@ export class TransitSystem {
       destinationStopId: best.transferStopId ?? best.destinationStopId,
       transferLineId: best.transferLineId,
       finalStopId: best.transferStopId ? best.destinationStopId : undefined,
-      count: Math.max(1, Math.floor(count)), requestedAtGameSeconds: gameSeconds });
+      count: Math.max(1, Math.floor(count)), requestedAtGameSeconds: gameSeconds, ...(citizenId ? { citizenId } : {}) });
     this.revision += 1;
     return true;
+  }
+
+  hasPassenger(citizenId: string): boolean {
+    return [...this.waitingById.values()].some((group) => group.citizenId === citizenId)
+      || [...this.vehiclesById.values()].some((vehicle) => vehicle.onboard.some((person) => person.citizenId === citizenId));
+  }
+
+  passengerIds(): ReadonlySet<string> {
+    const ids = new Set<string>();
+    for (const group of this.waitingById.values()) if (group.citizenId) ids.add(group.citizenId);
+    for (const vehicle of this.vehiclesById.values()) for (const person of vehicle.onboard)
+      if (person.citizenId) ids.add(person.citizenId);
+    return ids;
   }
 
   isDue(gameSeconds: number): boolean { return gameSeconds >= this.nextOperationAtGameSeconds; }
@@ -449,7 +462,7 @@ export class TransitSystem {
         const id = `passenger-group-${this.nextGroupSerial++}`;
         this.waitingById.set(id, { id, lineId: passenger.transferLineId, originStopId: stopId,
           destinationStopId: passenger.finalStopId, count: passenger.count,
-          requestedAtGameSeconds: this.lastOperationAtGameSeconds });
+          requestedAtGameSeconds: this.lastOperationAtGameSeconds, ...(passenger.citizenId ? { citizenId: passenger.citizenId } : {}) });
       }
     }
     vehicle.onboard = vehicle.onboard.filter((passenger) => passenger.destinationStopId !== stopId);
@@ -465,9 +478,10 @@ export class TransitSystem {
       const count = Math.min(group.count, available);
       group.count -= count; available -= count;
       const onboard = vehicle.onboard.find((item) => item.destinationStopId === group.destinationStopId
-        && item.transferLineId === group.transferLineId && item.finalStopId === group.finalStopId);
+        && item.transferLineId === group.transferLineId && item.finalStopId === group.finalStopId && item.citizenId === group.citizenId);
       if (onboard) onboard.count += count;
       else vehicle.onboard.push({ destinationStopId: group.destinationStopId, count,
+        ...(group.citizenId ? { citizenId: group.citizenId } : {}),
         ...(group.transferLineId ? { transferLineId: group.transferLineId, finalStopId: group.finalStopId } : {}) });
       metric.boarded += count; this.ridership += count;
       if (group.count === 0) this.waitingById.delete(group.id);
