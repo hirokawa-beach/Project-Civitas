@@ -1,5 +1,5 @@
 import { captureGeneratedWater } from '../water/generatedWater';
-import { withShoreline } from '../water/geometry';
+import { Hydrography, withShoreline } from '../water/geometry';
 import { createWorldMetadata, type WorldMetadata, type WorldDimensions } from '../world/metadata';
 
 export const GENERATOR_VERSION = 1;
@@ -89,16 +89,17 @@ export function validateGenerationMetadata(value: GenerationMetadata): void {
 const riverPaths = (p: GeneratorParameters, random: () => number, world: WorldDimensions): GeneratedMap['riverPaths'] =>
   Array.from({ length: p.riverCount }, (_, river) => {
     const phase = random() * Math.PI * 2;
-    const offset = (river - (p.riverCount - 1) / 2) * 230 + (random() - .5) * 80;
-    const amplitude = 35 + random() * 45;
+    const scale = Math.min(1, world.worldDepthMeters / 1024);
+    const offset = ((river - (p.riverCount - 1) / 2) * 230 + (random() - .5) * 80) * scale;
+    const amplitude = (35 + random() * 45) * scale;
     const frequency = 1.2 + random() * 1.1;
     return Array.from({ length: 65 }, (_, i) => {
       const t = i / 64;
-      return { x: -world.worldWidthMeters / 2 + world.worldWidthMeters * t, z: offset + amplitude * Math.sin(t * Math.PI * 2 * frequency + phase) + 22 * Math.sin(t * Math.PI * 5 + phase * .7) };
+      return { x: -world.worldWidthMeters / 2 + world.worldWidthMeters * t, z: offset + amplitude * Math.sin(t * Math.PI * 2 * frequency + phase) + 22 * scale * Math.sin(t * Math.PI * 5 + phase * .7) };
     });
   });
 
-export function validateMap(heights: Float32Array, seaLevel: number, world: WorldDimensions = createWorldMetadata()): MapValidation {
+export function validateMap(heights: Float32Array, seaLevel: number, world: WorldDimensions = createWorldMetadata(), isWaterAt?: (x: number, z: number) => boolean): MapValidation {
   if (heights.length !== world.terrainColumns * world.terrainRows || !heights.every(Number.isFinite) || !Number.isFinite(seaLevel))
     throw new Error('Invalid generated heightmap.');
   const side = Math.min(64, world.terrainColumns - 1, world.terrainRows - 1); const strideX = (world.terrainColumns - 1) / side; const strideZ = (world.terrainRows - 1) / side; const buildable = new Uint8Array(side * side);
@@ -108,7 +109,7 @@ export function validateMap(heights: Float32Array, seaLevel: number, world: Worl
     const sx = Math.floor(x * strideX) + 1; const sz = Math.floor(z * strideZ) + 1;
     const h = at(sx, sz);
     const slope = Math.max(Math.abs(at(sx + 2, sz) - at(sx - 1, sz)), Math.abs(at(sx, sz + 2) - at(sx, sz - 1))) / (3 * world.terrainSampleSpacingMeters);
-    if (h <= seaLevel) water++;
+    if (isWaterAt ? isWaterAt(sx * world.terrainSampleSpacingMeters - world.worldWidthMeters / 2, sz * world.terrainSampleSpacingMeters - world.worldDepthMeters / 2) : h <= seaLevel) water++;
     else if (slope < .12) { buildable[z * side + x] = 1; buildableCount++; }
     if (slope > .4) extreme++;
   }
@@ -124,7 +125,7 @@ export function validateMap(heights: Float32Array, seaLevel: number, world: Worl
   }
   const edgeOk = (x: number, z: number) => {
     const h = at(x, z);
-    return h > seaLevel + 1 && Math.abs(h - at(clamp(x + 2, 0, world.terrainColumns - 1), clamp(z + 2, 0, world.terrainRows - 1))) < 2;
+    return (isWaterAt ? !isWaterAt(x * world.terrainSampleSpacingMeters - world.worldWidthMeters / 2, z * world.terrainSampleSpacingMeters - world.worldDepthMeters / 2) : h > seaLevel + 1) && Math.abs(h - at(clamp(x + 2, 0, world.terrainColumns - 1), clamp(z + 2, 0, world.terrainRows - 1))) < 2;
   };
   for (let i = 8; i < Math.min(world.terrainColumns, world.terrainRows) - 8; i += 4) {
     if (edgeOk(i, 2) && edgeOk(i + 4, 2)) outsideRoadCandidates++;
@@ -198,7 +199,8 @@ function generateAttempt(metadata: GenerationMetadata, attempt: number, world: W
   world.waterBodies = paths.map((path, i) => withShoreline({ id: `generated-river-${i + 1}`, type: 'river', surfaceElevation: p.seaLevel, geometry: { kind: 'river', path, widths: path.map(() => p.riverWidth) } }, world));
   if (metadata.preset === 'coastal' || metadata.preset === 'islands') world.waterBodies.push(...captureGeneratedWater(heights, p.seaLevel, world, 'sea'));
   else if (!paths.length && p.waterAmount > 0) world.waterBodies.push(...captureGeneratedWater(heights, p.seaLevel, world, 'lake'));
-  return { world: structuredClone(world), heights, metadata: structuredClone(metadata), validation: validateMap(heights, p.seaLevel, world), riverPaths: paths };
+  const hydro = new Hydrography(world.waterBodies, world);
+  return { world: structuredClone(world), heights, metadata: structuredClone(metadata), validation: validateMap(heights, p.seaLevel, world, (x, z) => hydro.isWaterAt(x, z)), riverPaths: paths };
 }
 
 export function generateMap(metadata: GenerationMetadata, dimensions: Partial<WorldDimensions> = {}): GeneratedMap {

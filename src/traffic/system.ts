@@ -119,9 +119,9 @@ export class TrafficSystem {
     return gameSeconds >= this.nextGenerationAtGameSeconds || gameSeconds >= this.nextTrafficAtGameSeconds;
   }
 
-  updateGraph(graph: RoadGraphSnapshot): void {
+  updateGraph(graph: RoadGraphSnapshot, force = false): void {
     const changed = this.router.updateGraph(graph);
-    if (changed.size === 0) return;
+    if (changed.size === 0 && !force) return;
     this.graph = structuredClone(graph);
     this.segmentById = new Map(this.graph.segments.map((segment) => [segment.id, segment]));
     this.outsideConnections = this.deriveOutsideConnections();

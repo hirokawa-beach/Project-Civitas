@@ -331,7 +331,8 @@ const isSaveFileV13 = (value: unknown): value is SaveFileV13 => !!value && typeo
   && !!(value as SaveFileV13).world.metadata;
 export const migrateSave = (value: unknown): SaveFileV13 => {
   if (isSaveFileV13(value)) {
-    const save = structuredClone(value); validateWorldMetadata(save.world.metadata, save.world.terrain); return save;
+    const save = structuredClone(value); validateWorldMetadata(save.world.metadata, save.world.terrain);
+    if (save.world.width !== save.world.metadata.worldWidthMeters || save.world.depth !== save.world.metadata.worldDepthMeters) throw new Error('World dimensions disagree.'); return save;
   }
   const old = migrateToV12(value);
   const metadata = createWorldMetadata({ worldWidthMeters: old.world.width, worldDepthMeters: old.world.depth,

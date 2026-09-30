@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SimulationState } from '../src/simulation/state';
 import { generateMap, presetParameters } from '../src/terrain/generator';
-import { createChunks, worldToChunk } from '../src/world/types';
+import { createChunks, groupByChunk, worldToChunk } from '../src/world/types';
 import { createWorldMetadata } from '../src/world/metadata';
 import { HeightmapTerrain } from '../src/terrain/heightmap';
 
 describe('variable worlds', () => {
+  it('partitions 5000 camera/world cells once as chunk count grows', () => {
+    const world = createWorldMetadata({ worldWidthMeters: 4096, worldDepthMeters: 4096 });
+    const cells = Array.from({ length: 5000 }, (_, i) => ({ x: -2000 + i % 100 * 40, z: -2000 + Math.floor(i / 100) * 80 }));
+    let reads = 0; const grouped = groupByChunk(cells, cell => { reads++; return cell; }, world);
+    expect(reads).toBe(cells.length); expect(grouped.size).toBeGreaterThan(200);
+    expect([...grouped.values()].reduce((sum, local) => sum + local.length, 0)).toBe(5000);
+  });
   for (const width of [1024, 4096]) it(`generates, constructs at the ${width}m boundary, saves and loads exactly`, () => {
     const map = generateMap({ generatorVersion: 1, seed: 'variable-world', preset: 'flat-plains', parameters: presetParameters('flat-plains') },
       { worldWidthMeters: width, worldDepthMeters: width, terrainSampleSpacingMeters: 8 });

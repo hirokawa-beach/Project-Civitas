@@ -14,7 +14,7 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
-import { CreateDashedLines, CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
+import { CreateLines, CreateDashedLines, CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
 import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder';
 import { CreateRibbon } from '@babylonjs/core/Meshes/Builders/ribbonBuilder';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder';
@@ -28,7 +28,7 @@ import type { RoadNodeId, RoadSegmentId } from '../shared/ids';
 import { buildingDefinition } from '../lots/definitions';
 import type { Building, BuildingId, Lot } from '../lots/types';
 import type { WorldSnapshot } from '../shared/protocol';
-import { createChunks, worldToChunk,  type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
+import { createChunks, groupByChunk, worldToChunk,  type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
 import { HeightmapTerrain } from '../terrain/heightmap';
 import { createWorldMetadata } from '../world/metadata';
 import { distance, normalize, pointAtDistance, subtract } from '../roads/geometry';
@@ -145,6 +145,10 @@ export class GameRenderer {
   private appliedWaterRevision = -1;
   private hydrography?: Hydrography;
   private waterBodyMeshes?: Mesh[];
+  private waterBodyCache?: Map<string, { signature: string; mesh: Mesh }>;
+  private mapGeometryPreview?: LinesMesh;
+  private outsideMarkers?: Mesh[];
+  private outsideSignature?: string;
   private terrain?: HeightmapTerrain;
   private terrainViewKey = '';
   private readonly dirtyTerrainMeshes = new Set<ChunkDescriptor['id']>();
@@ -378,6 +382,7 @@ export class GameRenderer {
     const terrainChanged = snapshot.terrainRevision !== this.appliedTerrainRevision;
     const waterChanged = snapshot.water.revision !== this.appliedWaterRevision;
     const terrainChunks = terrainChanged ? this.syncTerrain(snapshot) : [];
+    this.syncOutsideConnections(snapshot);
     const roadChanged = snapshot.roadRevision !== this.appliedRoadRevision;
     const zoningChanged = snapshot.zoningRevision !== this.appliedZoningRevision;
     const lotChanged = snapshot.lotRevision !== this.appliedLotRevision;
@@ -697,13 +702,13 @@ export class GameRenderer {
   }
 
   private syncZones(cells: readonly ZoningCell[], chunkIds: readonly ChunkDescriptor['id'][]): void {
+    const grouped = groupByChunk(cells.filter(cell => cell.terrainSuitable !== false && cell.zoneType), cell => cell.center, this.world);
     for (const id of chunkIds) {
       for (const type of ZONE_TYPES) {
         const key = `${id}:${type}`;
         this.zoneMeshes.get(key)?.dispose();
         this.zoneMeshes.delete(key);
-        const mesh = this.createZoneMesh(`zoning-${key}`, cells.filter((cell) => cell.terrainSuitable !== false && cell.zoneType === type &&
-          `chunk-${worldToChunk(cell.center, this.world).x}-${worldToChunk(cell.center, this.world).z}` === id), 0.27);
+        const mesh = this.createZoneMesh(`zoning-${key}`, (grouped.get(id) ?? []).filter(cell => cell.zoneType === type), 0.27);
         if (mesh) { mesh.material = this.zoneMaterials[type]; this.zoneMeshes.set(key, mesh); }
       }
     }
@@ -792,10 +797,17 @@ export class GameRenderer {
 
   private syncWater(snapshot: WorldSnapshot): void {
     this.waterMesh?.dispose(); this.waterMesh = undefined;
-    for (const mesh of this.waterBodyMeshes ?? []) mesh.dispose(); this.waterBodyMeshes = [];
+    this.waterBodyCache ??= new Map();
+    const incoming = new Set(snapshot.worldMetadata.waterMode === 'explicit' ? snapshot.worldMetadata.waterBodies.map(body => body.id) : []);
+    for (const [id, entry] of this.waterBodyCache) if (!incoming.has(id)) { entry.mesh.dispose(); this.waterBodyCache.delete(id); }
+    this.waterBodyMeshes = [];
     this.hydrography = snapshot.worldMetadata.waterMode === 'explicit' ? new Hydrography(snapshot.worldMetadata.waterBodies, snapshot.worldMetadata) : undefined;
     if (this.hydrography) {
       for (const body of snapshot.worldMetadata.waterBodies) {
+        const signature = JSON.stringify([body.geometry, body.surfaceElevation, snapshot.worldMetadata.worldWidthMeters, snapshot.worldMetadata.worldDepthMeters]);
+        const previous = this.waterBodyCache.get(body.id);
+        if (previous?.signature === signature) { this.waterBodyMeshes.push(previous.mesh); continue; }
+        previous?.mesh.dispose();
         const positions: number[] = []; const normals: number[] = []; const indices: number[] = [];
         for (const polygon of waterPolygons(body.geometry, snapshot.worldMetadata)) {
           const triangles = triangulateWater(polygon); const offset = positions.length / 3;
@@ -805,7 +817,7 @@ export class GameRenderer {
         const mesh = new Mesh(`water-body-${body.id}`, this.scene); const data = new VertexData();
         data.positions = positions; data.normals = normals; data.indices = indices; data.applyToMesh(mesh);
         mesh.material = this.waterMaterial; mesh.isPickable = false; mesh.metadata = { type: 'water-body', bodyId: body.id };
-        this.waterBodyMeshes.push(mesh);
+        this.waterBodyMeshes.push(mesh); this.waterBodyCache.set(body.id, { signature, mesh });
       }
       this.appliedWaterRevision = snapshot.water.revision; return;
     }
@@ -815,6 +827,30 @@ export class GameRenderer {
     mesh.isPickable = false;
     this.waterMesh = mesh;
     this.appliedWaterRevision = snapshot.water.revision;
+  }
+
+  getTerrainMeshCount(): number { return this.terrainMeshes.size; }
+  focusMapPosition(position: Vec2): void {
+    this.camera.target.set(Math.max(-this.world.worldWidthMeters / 2, Math.min(this.world.worldWidthMeters / 2, position.x)),
+      this.getHeight(position.x, position.z), Math.max(-this.world.worldDepthMeters / 2, Math.min(this.world.worldDepthMeters / 2, position.z)));
+  }
+  setMapGeometryPreview(points?: Vec2[], close = false): void {
+    this.mapGeometryPreview?.dispose(); this.mapGeometryPreview = undefined;
+    if (!points || points.length < 2) return;
+    const vertices = (close && points.length >= 3 ? [...points, points[0]] : points).map(p => this.toVector(p, .8));
+    this.mapGeometryPreview = CreateLines('map-geometry-preview', { points: vertices }, this.scene);
+    this.mapGeometryPreview.color = Color3.FromHexString('#e6cf8a'); this.mapGeometryPreview.isPickable = false;
+  }
+  private syncOutsideConnections(snapshot: WorldSnapshot): void {
+    const signature = JSON.stringify([snapshot.worldMetadata.outsideConnections, snapshot.terrainRevision]);
+    if (this.outsideSignature === signature) return; this.outsideSignature = signature;
+    for (const mesh of this.outsideMarkers ?? []) mesh.dispose(); this.outsideMarkers = [];
+    for (const connection of snapshot.worldMetadata.outsideConnections) {
+      const marker = CreateBox(`map-outside-${connection.id}`, { width: 3, depth: 3, height: 14 }, this.scene);
+      const height = snapshot.terrainHeightmap ? snapshot.terrainHeightmap[Math.round((connection.position.z + snapshot.terrain.depth / 2) / snapshot.terrain.settings.sampleSpacing) * snapshot.worldMetadata.terrainColumns + Math.round((connection.position.x + snapshot.terrain.width / 2) / snapshot.terrain.settings.sampleSpacing)] : this.getHeight(connection.position.x, connection.position.z);
+      marker.position.set(connection.position.x, height + 7, connection.position.z);
+      marker.material = this.waterMaterial; marker.isPickable = false; this.outsideMarkers.push(marker);
+    }
   }
 
   setServicePreview(facility?: ServiceFacility, valid = false): void {
@@ -1256,15 +1292,18 @@ export class GameRenderer {
   dispose(): void {
     this.disposed = true;
     window.removeEventListener('resize', this.resize);
+    window.removeEventListener('keydown', this.cameraKeyDown); window.removeEventListener('keyup', this.cameraKeyUp);
     this.scene.dispose();
     this.engine.dispose();
   }
 
   private readonly resize = (): void => this.engine.resize();
 
+  private readonly cameraKeyDown = (event: KeyboardEvent): void => { if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) this.keys.add(event.code); };
+  private readonly cameraKeyUp = (event: KeyboardEvent): void => { this.keys.delete(event.code); };
   private bindCameraKeys(): void {
-    window.addEventListener('keydown', (event) => this.keys.add(event.code));
-    window.addEventListener('keyup', (event) => this.keys.delete(event.code));
+    window.addEventListener('keydown', this.cameraKeyDown);
+    window.addEventListener('keyup', this.cameraKeyUp);
   }
 
   private updateCamera(): number {
@@ -1275,10 +1314,10 @@ export class GameRenderer {
     const forward = normalize({ x: forward3.x, z: forward3.z });
     const right = { x: -forward.z, z: forward.x };
     let movement = { x: 0, z: 0 };
-    if (this.keys.has('KeyW')) movement = { x: movement.x + forward.x, z: movement.z + forward.z };
-    if (this.keys.has('KeyS')) movement = { x: movement.x - forward.x, z: movement.z - forward.z };
-    if (this.keys.has('KeyD')) movement = { x: movement.x + right.x, z: movement.z + right.z };
-    if (this.keys.has('KeyA')) movement = { x: movement.x - right.x, z: movement.z - right.z };
+    if ((this.keys.has('KeyW') || this.keys.has('ArrowUp'))) movement = { x: movement.x + forward.x, z: movement.z + forward.z };
+    if ((this.keys.has('KeyS') || this.keys.has('ArrowDown'))) movement = { x: movement.x - forward.x, z: movement.z - forward.z };
+    if ((this.keys.has('KeyD') || this.keys.has('ArrowRight'))) movement = { x: movement.x + right.x, z: movement.z + right.z };
+    if ((this.keys.has('KeyA') || this.keys.has('ArrowLeft'))) movement = { x: movement.x - right.x, z: movement.z - right.z };
     const direction = normalize(movement);
     if (Math.abs(direction.x) + Math.abs(direction.z) > 0) {
       this.camera.target.x = Math.max(-this.world.worldWidthMeters / 2, Math.min(this.world.worldWidthMeters / 2, this.camera.target.x + direction.x * speed));
@@ -1547,13 +1586,11 @@ export class GameRenderer {
 
   private rebuildDebugZones(chunkIds: readonly ChunkDescriptor['id'][]): void {
     if (!this.snapshot) return;
+    const grouped = groupByChunk(this.snapshot.zoningCells.filter(cell => cell.terrainSuitable !== false), cell => cell.center, this.world);
     for (const id of chunkIds) {
       this.zoningDebugMeshes.get(id)?.dispose();
       this.zoningDebugMeshes.delete(id);
-      const zoningLines = this.snapshot.zoningCells.filter((cell) => {
-        const chunk = worldToChunk(cell.center, this.world);
-        return cell.terrainSuitable !== false && `chunk-${chunk.x}-${chunk.z}` === id;
-      }).map((cell) => {
+      const zoningLines = (grouped.get(id) ?? []).map((cell) => {
         const corners = cell.corners.map((corner) => this.toVector(corner, 0.3));
         return [...corners, corners[0]];
       });
@@ -1567,28 +1604,26 @@ export class GameRenderer {
   }
 
   private rebuildDebugLots(lots: readonly Lot[]): void {
-    for (const chunk of createChunks(this.world)) {
-      const local = lots.filter((lot) => {
-        const owner = worldToChunk(lot.position, this.world);
-        return owner.x === chunk.x && owner.z === chunk.z;
-      });
+    const grouped = groupByChunk(lots, lot => lot.position, this.world);
+    for (const id of new Set([...grouped.keys(), ...this.lotDebugSignatures.keys()])) {
+      const local = grouped.get(id) ?? [];
       const signature = JSON.stringify(local.map((lot) => [lot.id, lot.corners, lot.roadAccess.frontage, lot.buildable]));
-      if (this.lotDebugSignatures.get(chunk.id) === signature) continue;
-      for (const mesh of this.lotDebugMeshes.get(chunk.id) ?? []) mesh.dispose();
-      this.lotDebugMeshes.delete(chunk.id);
-      this.lotDebugSignatures.set(chunk.id, signature);
+      if (this.lotDebugSignatures.get(id) === signature) continue;
+      for (const mesh of this.lotDebugMeshes.get(id) ?? []) mesh.dispose();
+      this.lotDebugMeshes.delete(id);
+      this.lotDebugSignatures.set(id, signature);
       if (local.length === 0) continue;
-      const outlines = CreateLineSystem(`debug-lots-${chunk.id}`, { lines: local.map((lot) =>
+      const outlines = CreateLineSystem(`debug-lots-${id}`, { lines: local.map((lot) =>
         [...lot.corners, lot.corners[0]].map((point) => this.toVector(point, 0.72))) }, this.scene);
       outlines.color = Color3.FromHexString('#f2e6b5');
       outlines.alpha = 0.82;
       outlines.isPickable = false;
-      const frontages = CreateLineSystem(`debug-frontages-${chunk.id}`, { lines: local.map((lot) =>
+      const frontages = CreateLineSystem(`debug-frontages-${id}`, { lines: local.map((lot) =>
         lot.roadAccess.frontage.map((point) => this.toVector(point, 0.85))) }, this.scene);
       frontages.color = Color3.FromHexString('#f9a45f');
       frontages.alpha = 0.96;
       frontages.isPickable = false;
-      this.lotDebugMeshes.set(chunk.id, [outlines, frontages]);
+      this.lotDebugMeshes.set(id, [outlines, frontages]);
     }
   }
 

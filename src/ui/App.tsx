@@ -336,7 +336,9 @@ export function App({ runtime, simulation }: AppProps) {
             <dt>CHUNK</dt><dd>{metrics.chunk.x}, {metrics.chunk.z}</dd>
             <dt>TERRAIN HEIGHT</dt><dd>{(construction?.terrainHeight ?? runtime.renderer.getHeight(0, 0)).toFixed(1)} m</dd>
             <dt>TERRAIN NORMAL</dt><dd>{(() => { const normal = construction?.terrainNormal ?? runtime.renderer.getNormal(0, 0); return `${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}`; })()}</dd>
-            <dt>WATER LEVEL</dt><dd>{snapshot.water.seaLevel.toFixed(1)} m</dd>
+            <dt>WORLD</dt><dd>{snapshot.worldMetadata.worldWidthMeters} × {snapshot.worldMetadata.worldDepthMeters} m</dd>
+            <dt>WATER</dt><dd>{snapshot.worldMetadata.waterMode === 'explicit' ? `${snapshot.worldMetadata.waterBodies.length} explicit bodies` : `Legacy · ${snapshot.water.seaLevel.toFixed(1)} m`}</dd>
+            {snapshot.worldMetadata.waterMode === 'explicit' && <><dt>WATER SURFACES</dt><dd>{snapshot.worldMetadata.waterBodies.slice(0, 8).map(body => `${body.type} ${body.surfaceElevation}m`).join(' · ')}</dd></>}
             <dt>EDIT / MESH</dt><dd>{snapshot.terrainEditMs.toFixed(2)} / {metrics.terrainMeshMs.toFixed(2)} ms</dd>
             <dt>TERRAIN FRAME</dt><dd>{metrics.terrainFrameMs.toFixed(2)} ms</dd>
             <dt>PATCH / SAVE</dt><dd>{((snapshot.terrainMessageBytes ?? 0) / 1024).toFixed(1)} / {(saveBytes / 1024).toFixed(1)} KiB</dd>
@@ -553,9 +555,9 @@ export function App({ runtime, simulation }: AppProps) {
             onInput={(event) => runtime.setTerrainBrush(construction.terrainSize ?? 48, Number(event.currentTarget.value))} />{construction.terrainStrength ?? 12}</label>
           <button onClick={() => runtime.setTerrainPreset('flat')}>FLAT</button>
           <button onClick={() => runtime.setTerrainPreset('hills')}>HILLS</button>
-          <label>SEA LEVEL <input aria-label="Sea level" type="number" min="-80" max="240" step="1"
-            disabled={snapshot?.worldMetadata.waterMode === 'explicit'} value={snapshot?.water.seaLevel ?? -12}
-            onChange={(event) => { void simulation.execute({ type: 'set-water-level', seaLevel: Number(event.currentTarget.value) }); }} />m</label>
+          {snapshot?.worldMetadata.waterMode === 'explicit' ? <span>{snapshot.worldMetadata.waterBodies.length} WATER BODIES · Initial water is edited in the Map Editor.</span> : <label>SEA LEVEL <input aria-label="Sea level" type="number" min="-80" max="240" step="1"
+            value={snapshot?.water.seaLevel ?? -12}
+            onChange={(event) => { void simulation.execute({ type: 'set-water-level', seaLevel: Number(event.currentTarget.value) }); }} />m</label>}
         </div>
       )}
 

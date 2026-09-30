@@ -25,6 +25,12 @@ describe('explicit hydrography', () => {
     expect(hydro.intersectsSegment({ x: 0, z: 50 }, { x: 0, z: 150 })).toBe(true);
     expect(hydro.distanceToShoreline(-300, -300)).toBeCloseTo(100);
   });
+  it('intersects narrow water exactly without skipping it between sampled endpoints', () => {
+    const hydro = new Hydrography([withShoreline({ id: 'narrow', type: 'river', surfaceElevation: 0,
+      geometry: { kind: 'polygon', vertices: [{ x: .45, z: -1 }, { x: .65, z: -1 }, { x: .65, z: 1 }, { x: .45, z: 1 }] } })], createWorldMetadata());
+    expect(hydro.intersectsSegment({ x: 0, z: 0 }, { x: 1, z: 0 })).toBe(true);
+    expect(hydro.intersectsSegment({ x: 0, z: 2 }, { x: 1, z: 2 })).toBe(false);
+  });
   it('keeps water geometry and revision unchanged across terrain edits and round-trips city saves', () => {
     const state = new SimulationState(); state.setWaterBodies(bodies());
     const water = structuredClone(state.worldMetadata.waterBodies); const revision = state.water.revision;
@@ -57,8 +63,13 @@ describe('explicit hydrography', () => {
       appliedLotRevision: snapshot.lotRevision, appliedTrafficRevision: snapshot.traffic.revision, appliedPopulationRevision: snapshot.population.revision,
       appliedServiceRevision: snapshot.services.revision, appliedTransitRevision: snapshot.transit.revision, visualGameSeconds: 0 }); return snapshot; };
     try {
-      renderer.updateSnapshot(prepare()); const lake = scene.getMeshByName('water-body-lake')!;
+      renderer.updateSnapshot(prepare()); let lake = scene.getMeshByName('water-body-lake')!;
       expect(lake.getVerticesData('position')?.[1]).toBeCloseTo(32.04);
+      const sea = scene.getMeshByName('water-body-sea');
+      state.setWaterBodies(bodies().map(body => body.id === 'lake' ? { ...body, surfaceElevation: 36 } : body));
+      renderer.updateSnapshot(prepare()); expect(lake.isDisposed()).toBe(true);
+      expect(scene.getMeshByName('water-body-sea')).toBe(sea); lake = scene.getMeshByName('water-body-lake')!;
+      expect(lake.getVerticesData('position')?.[1]).toBeCloseTo(36.04);
       state.beginTerrainStroke({ x: 180, z: -180 }, 'raise', 40, 10); state.applyTerrainStroke([{ x: 180, z: -180 }], .5); state.endTerrainStroke();
       renderer.updateSnapshot(prepare()); expect(scene.getMeshByName('water-body-lake')).toBe(lake);
       state.load(new SimulationState().serialize()); renderer.updateSnapshot(prepare());

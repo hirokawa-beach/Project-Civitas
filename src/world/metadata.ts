@@ -68,7 +68,7 @@ export function validateWorldMetadata(world: WorldMetadata, terrain?: TerrainMet
   if (![w, d, s, chunk].every(Number.isFinite) || w < 64 || d < 64 || w > 65536 || d > 65536
     || s < .5 || s > 256 || chunk < 16 || chunk > 4096 || !Number.isInteger(chunk / s)
     || !Number.isInteger(c) || !Number.isInteger(r) || c !== w / s + 1 || r !== d / s + 1
-    || c * r > 16777216) throw new Error('Invalid world dimensions or terrain grid.');
+    || c * r > 16777216 || Math.ceil(w / chunk) * Math.ceil(d / chunk) > 65536) throw new Error('Invalid world dimensions or terrain grid.');
   if (terrain && (terrain.width !== w || terrain.depth !== d || terrain.settings.sampleSpacing !== s || (terrain.chunkSizeMeters ?? 256) !== chunk))
     throw new Error('World and terrain metadata disagree.');
   if (!['legacy-height', 'explicit'].includes(world.waterMode) || !Array.isArray(world.waterBodies)
@@ -78,7 +78,7 @@ export function validateWorldMetadata(world: WorldMetadata, terrain?: TerrainMet
   for (const body of world.waterBodies) {
     if (!body || typeof body.id !== 'string' || !body.id.trim() || waterIds.has(body.id)
       || !['ocean', 'sea', 'river', 'lake', 'reservoir'].includes(body.type) || !Number.isFinite(body.surfaceElevation)
-      || !body.geometry || !Array.isArray(body.boundary)) throw new Error('Invalid or duplicate Water Body.');
+      || !body.geometry || !Array.isArray(body.boundary) || !body.boundary.length) throw new Error('Invalid or duplicate Water Body.');
     waterIds.add(body.id);
     const path = (points: Vec2[], minimum: number) => {
       if (!Array.isArray(points) || points.length < minimum || points.length > 100000

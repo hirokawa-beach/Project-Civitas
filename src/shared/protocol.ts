@@ -14,6 +14,12 @@ import type { WaterState } from '../water/staticWater';
 import type { GeneratedMap } from '../terrain/generator';
 import type { TimingSummary } from '../performance/metrics';
 import type { WorldMetadata } from '../world/metadata';
+import type { MapAsset, MapIdentity } from '../maps/mapAsset';
+import type { WaterBody, MapOutsideConnection } from '../world/metadata';
+export type MapOperation = { kind: 'load'; asset: MapAsset; editor: boolean }
+  | { kind: 'water'; bodies: WaterBody[] }
+  | { kind: 'outside'; connections: MapOutsideConnection[] }
+  | { kind: 'export'; identity: MapIdentity };
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
@@ -47,6 +53,7 @@ export interface WorldSnapshot {
 }
 
 export type UIToWorkerMessage =
+  | { type: 'map-operation'; requestId: string; operation: MapOperation }
   | { type: 'initialize'; generatedMap?: GeneratedMap }
   | { type: 'execute-command'; requestId: string; command: SimulationCommandData }
   | { type: 'undo' }
@@ -63,6 +70,7 @@ export type UIToWorkerMessage =
   | { type: 'set-terrain-preset'; preset: TerrainPreset };
 
 export type WorkerToUIMessage =
+  | { type: 'map-result'; requestId: string; ok: boolean; asset?: MapAsset; error?: string }
   | { type: 'performance-update'; timings: Record<string, TimingSummary>; messageBytes: number; snapshotBytes: number }
   | { type: 'load-result'; requestId: string; ok: boolean; error?: string }
   | { type: 'citizen-details'; requestId: string; details?: AgentDetails }

@@ -1,7 +1,9 @@
 import { RoadGraph } from '../roads/roadGraph';
 import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV13 } from '../save/serializer';
 import { createWorldMetadata, validateWorldMetadata, type WaterBody } from '../world/metadata';
-import { withShoreline } from '../water/geometry';
+import { Hydrography, withShoreline } from '../water/geometry';
+import { assertMapAsset, mapAssetFromTerrain, type MapAsset, type MapIdentity } from '../maps/mapAsset';
+import type { MapOutsideConnection } from '../world/metadata';
 import { validateGenerationMetadata, validateMap, type GeneratedMap, type GenerationMetadata } from '../terrain/generator';
 import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
@@ -47,7 +49,7 @@ export class SimulationState {
 
   private zoningCells: ZoningCell[] = [];
   private readonly zoneAssignments = new Map<ZoningCellId, ZoneType>();
-  private readonly zoningSystem = new ZoningSystem();
+  private zoningSystem = new ZoningSystem();
   private revision = 0;
   private roadRevision = 0;
   private zoningRevision = 0;
@@ -71,7 +73,8 @@ export class SimulationState {
     validateGenerationMetadata(map.metadata);
     const metadata = structuredClone(map.world ?? createWorldMetadata());
     validateWorldMetadata(metadata);
-    if (!validateMap(map.heights, map.metadata.parameters.seaLevel, metadata).valid) throw new Error('Generated map is not buildable.');
+    const hydro = metadata.waterMode === 'explicit' ? new Hydrography(metadata.waterBodies, metadata) : undefined;
+    if (!validateMap(map.heights, map.metadata.parameters.seaLevel, metadata, hydro ? (x, z) => hydro.isWaterAt(x, z) : undefined).valid) throw new Error('Generated map is not buildable.');
     const terrain = HeightmapTerrain.fromBuffer({ width: metadata.worldWidthMeters, depth: metadata.worldDepthMeters, baseHeight: 0,
       chunkSizeMeters: metadata.chunkSizeMeters, terrainVersion: 1, settings: { ...DEFAULT_TERRAIN_SETTINGS, sampleSpacing: metadata.terrainSampleSpacingMeters } }, map.heights);
     const water = new StaticWater({ version: 1, seaLevel: map.metadata.parameters.seaLevel });
@@ -96,6 +99,23 @@ export class SimulationState {
     this.worldMetadata = next;
     this.water.configure(next);
     this.revision++;
+  }
+
+  startMapAsset(asset: MapAsset, editor = false): void {
+    if (editor) { validateWorldMetadata(asset.world, asset.terrain); new HeightmapTerrain(asset.terrain); }
+    else assertMapAsset(asset);
+    this.load(serializeWorld({ terrain: structuredClone(asset.terrain), worldMetadata: structuredClone(asset.world),
+      roadGraph: { nodes: [], segments: [], lanes: [] }, zoningAssignments: [], gameClock: { gameSeconds: 0, speed: editor ? 0 : 1 },
+      generation: structuredClone(asset.world.generatorMetadata), water: asset.legacyWater ?? { version: 1, seaLevel: -12 } }));
+  }
+
+  exportMapAsset(identity: MapIdentity): MapAsset { return mapAssetFromTerrain(identity, this.terrain.state(), this.worldMetadata); }
+
+  setOutsideConnections(connections: MapOutsideConnection[]): void {
+    const next = structuredClone(this.worldMetadata); next.outsideConnections = structuredClone(connections);
+    validateWorldMetadata(next, this.terrain.metadata());
+    this.worldMetadata = next; this.traffic.mapConnections = next.outsideConnections;
+    this.traffic.updateGraph(this.graph.snapshot(), true); this.revision++;
   }
 
   tick(realSeconds: number): boolean {
@@ -327,14 +347,17 @@ export class SimulationState {
     const validatedWater = new StaticWater(world.water);
     const validatedClock = new GameClock();
     validatedClock.restore(world.gameClock);
-    const validCells = new Set(new ZoningSystem(world.worldMetadata).update(validatedGraph.snapshot()).map((cell) => cell.id));
+    const validatedZoning = new ZoningSystem(world.worldMetadata);
+    const geometryCells = validatedZoning.update(validatedGraph.snapshot());
+    const validCells = new Set(geometryCells.map(cell => cell.id));
     const loadedAssignments = new Map<ZoningCellId, ZoneType>();
     for (const assignment of world.zoningAssignments) {
       if (!assignment || !validCells.has(assignment.cellId) || !isZoneType(assignment.zoneType)
         || loadedAssignments.has(assignment.cellId)) throw new Error('Save contains invalid zoning assignments.');
       loadedAssignments.set(assignment.cellId, assignment.zoneType);
     }
-    const validatedCells = new ZoningSystem(world.worldMetadata).update(validatedGraph.snapshot()).map((cell) => ({ ...cell,
+    const validatedCells = geometryCells.map((cell) => ({ ...cell,
+      terrainHeight: validatedTerrain.getHeight(cell.center.x, cell.center.z),
       zoneType: loadedAssignments.get(cell.id),
       terrainSuitable: isTerrainSuitableForZone(cell, (x, z) => validatedTerrain.getHeight(x, z)) }));
     const validatedLots = new LotSystem(world.worldMetadata);
@@ -350,8 +373,6 @@ export class SimulationState {
     const validatedEconomy = new EconomySystem(undefined, validatedClock.gameSeconds);
     if (world.hasEconomyData) validatedEconomy.restore(world.economy, validatedClock.gameSeconds);
     const validatedTraffic = new TrafficSystem(validatedGraph.snapshot(), undefined, validatedClock.gameSeconds, world.worldMetadata, world.worldMetadata!.outsideConnections);
-    validatedTraffic.world = world.worldMetadata!; validatedTraffic.mapConnections = world.worldMetadata!.outsideConnections;
-    validatedTraffic.updateGraph(validatedGraph.snapshot());
     if (world.hasTrafficData) validatedTraffic.restore(world.traffic, validatedClock.gameSeconds);
     validatedTraffic.reconcileLots(validatedLots.lots);
     const validatedServices = new ServiceSystem();
@@ -365,7 +386,7 @@ export class SimulationState {
     validatedTraffic.setTransitSystem(validatedTransit);
     validatedTraffic.syncCitizens(validatedPopulation.households, validatedPopulation.snapshot(), validatedLots.lots, validatedClock.gameSeconds);
     this.graph.world = world.worldMetadata!;
-    this.zoningSystem.setWorld(world.worldMetadata!);
+    this.zoningSystem = validatedZoning;
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
@@ -374,11 +395,15 @@ export class SimulationState {
     this.water.configure(this.worldMetadata);
     this.generation = world.generation;
     this.activeTerrainStroke = undefined;
-    this.terrainChanged(createChunks(this.worldMetadata).map((chunk) => chunk.id));
+    // The detached systems were validated against this exact terrain. Publish once,
+    // without reconciling the previous city against all chunks of the new world.
+    this.terrainUpdatedChunkIds = new Set(createChunks(this.worldMetadata).map(chunk => chunk.id));
+    this.terrainRevision++; this.roadRevision++; this.zoningRevision++; this.revision++;
+    this.terrainEditMs = 0; this.zoningCells = validatedCells;
+    this.zoningUpdatedChunkIds = validatedZoning.getUpdatedChunkIds();
     this.zoneAssignments.clear();
     for (const [id, zone] of loadedAssignments) this.zoneAssignments.set(id, zone);
     this.history.clear();
-    this.roadChanged();
     this.lots = validatedLots;
     this.population = validatedPopulation;
     this.economy = validatedEconomy;

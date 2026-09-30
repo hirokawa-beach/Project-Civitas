@@ -1,3 +1,6 @@
+import { Hydrography } from '../water/geometry';
+import { MapLibrary } from './MapLibrary';
+import { blankMapAsset, mapAssetFromGenerated, type MapAsset } from '../maps/mapAsset';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { generateMap, MAP_PRESETS, presetParameters, type GeneratedMap, type GeneratorParameters, type MapPreset } from '../terrain/generator';
 import { createWorldMetadata } from '../world/metadata';
@@ -18,13 +21,15 @@ function MapPreview({ map }: { map: GeneratedMap }) {
     const world = map.world ?? createWorldMetadata();
     const side = 257; const image = context.createImageData(side, side);
     const heights = map.heights; const water = map.metadata.parameters.seaLevel;
+    const hydro = world.waterMode === 'explicit' ? new Hydrography(world.waterBodies, world) : undefined;
     for (let z = 0; z < side; z++) for (let x = 0; x < side; x++) {
       const sx = Math.round(x * (world.terrainColumns - 1) / (side - 1)); const sz = Math.round(z * (world.terrainRows - 1) / (side - 1));
       const index = sz * world.terrainColumns + sx; const h = heights[index];
       const east = heights[sz * world.terrainColumns + Math.min(world.terrainColumns - 1, sx + 1)];
       const south = heights[Math.min(world.terrainRows - 1, sz + 1) * world.terrainColumns + sx];
       const buildable = h > water && Math.max(Math.abs(east - h), Math.abs(south - h)) < .48;
-      const [r, g, b] = mapColor(h, water, buildable);
+      const wet = hydro ? hydro.isWaterAt(sx * world.terrainSampleSpacingMeters - world.worldWidthMeters / 2, sz * world.terrainSampleSpacingMeters - world.worldDepthMeters / 2) : h <= water;
+      const [r, g, b] = wet ? [29, 91, 119] : mapColor(h, Number.NEGATIVE_INFINITY, buildable);
       image.data.set([r, g, b, 255], (z * side + x) * 4);
     }
     context.putImageData(image, 0, 0);
@@ -34,7 +39,9 @@ function MapPreview({ map }: { map: GeneratedMap }) {
   </div>;
 }
 
-export function NewGame({ onStart, onLoad }: { onStart: (map: GeneratedMap) => void; onLoad: () => Promise<void> }) {
+export function NewGame({ onStart, onLoad, onAssetStart, onEdit, initialTab = 'generator' }: { onStart: (map: GeneratedMap) => void; onLoad: () => Promise<void>; onAssetStart: (asset: MapAsset) => void; onEdit: (asset: MapAsset) => void; initialTab?: 'generator' | 'library' }) {
+  const [tab, setTab] = useState<'generator' | 'library'>(initialTab);
+  const identity = () => ({ id: crypto.randomUUID(), name: 'Untitled Map', description: '', author: 'Local creator' });
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const load = async () => {
@@ -67,7 +74,8 @@ export function NewGame({ onStart, onLoad }: { onStart: (map: GeneratedMap) => v
     <div class="startup-actions"><span aria-current="page">NEW CITY</span>
       <button disabled={loading} onClick={load}>{loading ? 'LOADING CITY…' : 'LOAD EXISTING CITY'}</button></div>
     {loadError && <p class="startup-load-error" role="alert">{loadError}</p>}
-    <div class="new-game-layout">
+    <nav class="map-source-tabs"><button aria-pressed={tab === 'generator'} onClick={() => setTab('generator')}>CREATE MAP / GENERATOR</button><button aria-pressed={tab === 'library'} onClick={() => setTab('library')}>MAP LIBRARY</button></nav>
+    {tab === 'library' ? <MapLibrary onSelect={onAssetStart} onEdit={onEdit} /> : <div class="new-game-layout">
       <section class="new-game-controls">
         <p class="new-game-eyebrow">CREATE A WORLD</p>
         <h1>Choose your terrain.</h1>
@@ -102,6 +110,7 @@ export function NewGame({ onStart, onLoad }: { onStart: (map: GeneratedMap) => v
               onInput={(event) => setParameter(key, Number(event.currentTarget.value))} /></label>)}
         </details>
         <button class="new-game-generate" onClick={generate}>GENERATE PREVIEW</button>
+        <button onClick={() => { try { onEdit(blankMapAsset(identity(), { worldWidthMeters: width, worldDepthMeters: depth, terrainSampleSpacingMeters: spacing })); } catch (e) { setError(String(e)); } }}>CREATE BLANK / FLAT MAP</button>
       </section>
       <section class="new-game-preview" aria-label="Map preview">
         {map ? <MapPreview map={map} /> : <div class="new-game-placeholder"><span>{width} × {depth} M</span><strong>YOUR MAP AWAITS</strong><p>Generate a preview to inspect land, water and buildable areas.</p></div>}
@@ -110,8 +119,9 @@ export function NewGame({ onStart, onLoad }: { onStart: (map: GeneratedMap) => v
           <div><strong>{map.validation.outsideRoadCandidates}</strong><span>EDGE CONNECTIONS</span></div>
           <div><strong>{Math.round(map.validation.largestBuildableAreaRatio * 100)}%</strong><span>CONNECTED AREA</span></div></div>}
         {error && <p class="new-game-error" role="alert">{error}</p>}
+        <button disabled={!map} onClick={() => { try { if (map) onEdit(mapAssetFromGenerated(map, { ...identity(), name: `${MAP_PRESETS[map.metadata.preset].label} Map` })); } catch (e) { setError(String(e)); } }}>EDIT & SAVE AS MAP ASSET</button>
         <button class="new-game-start" disabled={loading || !map?.validation.valid} onClick={() => map && onStart(map)}>START CITY →</button>
       </section>
-    </div>
+    </div>}
   </div>;
 }

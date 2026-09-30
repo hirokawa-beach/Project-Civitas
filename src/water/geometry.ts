@@ -19,6 +19,12 @@ export function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz || 1)));
   return Math.hypot(p.x - a.x - dx * t, p.z - a.z - dz * t);
 }
+const segmentsIntersect = (a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean => {
+  const cross = (p: Vec2, q: Vec2, r: Vec2) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x);
+  const abC = cross(a, b, c); const abD = cross(a, b, d); const cdA = cross(c, d, a); const cdB = cross(c, d, b);
+  if (abC * abD < 0 && cdA * cdB < 0) return true;
+  return distanceToSegment(a, c, d) < 1e-7 || distanceToSegment(b, c, d) < 1e-7 || distanceToSegment(c, a, b) < 1e-7 || distanceToSegment(d, a, b) < 1e-7;
+};
 export function triangulateWater(p: WaterPolygon) {
   const rings = [p.vertices, ...(p.holes ?? [])]; const points = rings.flat();
   let offset = p.vertices.length;
@@ -88,9 +94,14 @@ export class Hydrography {
     for (const body of bodies) for (const ring of body.boundary) for (let i = 1; i < ring.length; i++) closest = Math.min(closest, distanceToSegment({ x, z }, ring[i - 1], ring[i]));
     return closest <= radius ? closest : Infinity;
   }
-  intersectsSegment(a: Vec2, b: Vec2, spacing = 2): boolean {
-    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / spacing));
-    for (let i = 0; i <= steps; i++) if (this.isWaterAt(a.x + (b.x - a.x) * i / steps, a.z + (b.z - a.z) * i / steps)) return true;
+  intersectsSegment(a: Vec2, b: Vec2): boolean {
+    if (this.isWaterAt(a.x, a.z) || this.isWaterAt(b.x, b.z)) return true;
+    const candidates = new Set<WaterPolygon>(); const size = this.world.chunkSizeMeters;
+    for (let z = Math.floor(Math.min(a.z, b.z) / size); z <= Math.floor(Math.max(a.z, b.z) / size); z++)
+      for (let x = Math.floor(Math.min(a.x, b.x) / size); x <= Math.floor(Math.max(a.x, b.x) / size); x++)
+        for (const entry of this.buckets.get(`${x}:${z}`) ?? []) candidates.add(entry.polygon);
+    for (const polygon of candidates) for (const ring of [polygon.vertices, ...(polygon.holes ?? [])])
+      for (let i = 0; i < ring.length; i++) if (segmentsIntersect(a, b, ring[i], ring[(i + 1) % ring.length])) return true;
     return false;
   }
 }

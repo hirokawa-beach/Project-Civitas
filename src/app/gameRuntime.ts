@@ -17,26 +17,34 @@ export class GameRuntime {
   private readonly agentListeners = new Set<(enabled: boolean, details?: AgentDetails) => void>();
   private lastAgentView = '';
   private lastInspectionAt = 0;
+  private unsubscribeSnapshot: () => void;
+  private unsubscribeConstruction: () => void;
+  private readonly inspectionPointer = (event: PointerEvent): void => {
+    if (this.construction.isEditorMode || !this.inspecting || event.button !== 0) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    const rect = this.canvas.getBoundingClientRect();
+    this.selectAgent(this.renderer.pickAgent(event.clientX - rect.left, event.clientY - rect.top));
+  };
   private constructor(
     readonly renderer: GameRenderer,
     private readonly simulation: SimulationClient,
-    canvas: HTMLCanvasElement,
+    private readonly canvas: HTMLCanvasElement,
   ) {
     this.construction = new ConstructionController(canvas, renderer, simulation);
-    this.construction.subscribe((status) => {
+    this.unsubscribeConstruction = this.construction.subscribe((status) => {
       const inspecting = status.tool === 'inspect';
       if (this.inspecting !== inspecting) { this.inspecting = inspecting; this.emitAgentSelection(); }
     });
-    canvas.addEventListener('pointerdown', (event) => {
-      if (!this.inspecting || event.button !== 0) return;
-      event.preventDefault(); event.stopImmediatePropagation();
-      const rect = canvas.getBoundingClientRect();
-      this.selectAgent(renderer.pickAgent(event.clientX - rect.left, event.clientY - rect.top));
-    }, true);
-    simulation.subscribe((snapshot) => {
+    canvas.addEventListener('pointerdown', this.inspectionPointer, true);
+    this.unsubscribeSnapshot = simulation.subscribe((snapshot) => {
       renderer.updateSnapshot(snapshot);
       this.construction.updateSnapshot(snapshot);
     });
+  }
+
+  dispose(): void {
+    this.unsubscribeSnapshot(); this.unsubscribeConstruction(); this.canvas.removeEventListener('pointerdown', this.inspectionPointer, true);
+    this.agentListeners.clear(); this.construction.dispose(); this.renderer.dispose();
   }
 
   static async create(canvas: HTMLCanvasElement, simulation: SimulationClient): Promise<GameRuntime> {

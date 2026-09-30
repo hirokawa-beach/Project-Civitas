@@ -73,3 +73,13 @@ export const createChunks = (world: ChunkWorld = LEGACY_CHUNK_WORLD): ChunkDescr
       depth: Math.min(world.chunkSizeMeters, world.worldDepthMeters - z * world.chunkSizeMeters) };
   });
 };
+
+/** Partition once; consumers must not filter the full cell/lot list for every chunk. */
+export function groupByChunk<T>(items: readonly T[], position: (item: T) => Vec2, world: ChunkWorld): Map<ChunkDescriptor['id'], T[]> {
+  const result = new Map<ChunkDescriptor['id'], T[]>();
+  for (const item of items) {
+    const chunk = worldToChunk(position(item), world); const id: ChunkDescriptor['id'] = `chunk-${chunk.x}-${chunk.z}`;
+    const local = result.get(id) ?? []; local.push(item); result.set(id, local);
+  }
+  return result;
+}

@@ -86,6 +86,9 @@ const DEFAULT_STATUS: ConstructionStatus = {
 };
 
 export class ConstructionController {
+  private editorMode = false;
+  get isEditorMode(): boolean { return this.editorMode; }
+  setEditorMode(enabled: boolean): void { this.editorMode = enabled; if (enabled) this.setTool('terrain'); }
   private tool: ActiveTool = 'road';
   private roadMode: RoadMode = 'straight';
   private structureType: RoadStructureType = 'ground';
@@ -168,6 +171,7 @@ export class ConstructionController {
   }
 
   setTool(tool: ActiveTool): void {
+    if (this.editorMode && tool !== 'terrain' && tool !== 'inspect') return;
     this.cancel();
     this.tool = tool;
     this.emit({
@@ -461,6 +465,7 @@ export class ConstructionController {
 
   private readonly onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
+    if (this.editorMode) { this.cancel(); return; }
     if (this.tool === 'terrain' || this.tool === 'service' || this.tool === 'bus-stop') {
       this.setTool('road');
       return;
@@ -475,6 +480,8 @@ export class ConstructionController {
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return;
+    if (this.editorMode && !event.ctrlKey) return;
     if (event.code === 'Escape') {
       if (this.tool === 'terrain' || this.tool === 'service') this.setTool('road');
       else this.cancel();
