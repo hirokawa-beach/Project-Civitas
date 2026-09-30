@@ -68,7 +68,7 @@ export function validateWorldMetadata(world: WorldMetadata, terrain?: TerrainMet
     || s < .5 || s > 256 || chunk < 16 || chunk > 4096 || !Number.isInteger(chunk / s)
     || !Number.isInteger(c) || !Number.isInteger(r) || c !== w / s + 1 || r !== d / s + 1
     || c * r > 16777216) throw new Error('Invalid world dimensions or terrain grid.');
-  if (terrain && (terrain.width !== w || terrain.depth !== d || terrain.settings.sampleSpacing !== s))
+  if (terrain && (terrain.width !== w || terrain.depth !== d || terrain.settings.sampleSpacing !== s || (terrain.chunkSizeMeters ?? 256) !== chunk))
     throw new Error('World and terrain metadata disagree.');
   if (!['legacy-height', 'explicit'].includes(world.waterMode) || !Array.isArray(world.waterBodies)
     || !Array.isArray(world.outsideConnections) || !world.source || !['legacy', 'procedural', 'flat', 'heightmap', 'dem'].includes(world.source.kind))

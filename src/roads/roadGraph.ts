@@ -1,5 +1,5 @@
 import { numericId, type RoadLineageId, type RoadNodeId, type RoadSegmentId } from '../shared/ids';
-import type { Vec2 } from '../world/types';
+import { LEGACY_CHUNK_WORLD, type ChunkWorld, type Vec2 } from '../world/types';
 import {
   EPSILON,
   closestPointOnPolyline,
@@ -48,7 +48,7 @@ export class RoadGraph {
   private nextLaneId = 1;
   private nextLineageId = 1;
 
-  constructor(snapshot?: RoadGraphSnapshot) {
+  constructor(snapshot?: RoadGraphSnapshot, public world: ChunkWorld = LEGACY_CHUNK_WORLD) {
     if (snapshot) this.restore(snapshot);
   }
 
@@ -138,6 +138,8 @@ export class RoadGraph {
     // First pass validates intrinsic geometry only. Endpoint snap intents are
     // resolved before testing against existing road surfaces.
     const validationOptions = {
+      bounds: { minX: -this.world.worldWidthMeters / 2, maxX: this.world.worldWidthMeters / 2,
+        minZ: -this.world.worldDepthMeters / 2, maxZ: this.world.worldDepthMeters / 2 },
       candidateWidth: roadType.width,
       minimumCurveRadius: geometry.kind === 'curve' ? roadType.minimumCurveRadius : 0,
     };

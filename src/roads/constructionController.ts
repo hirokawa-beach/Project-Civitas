@@ -1,3 +1,4 @@
+import { worldBounds, createWorldMetadata } from '../world/metadata';
 import type { SimulationClient } from '../app/simulationClient';
 import type { GameRenderer, RoadPreviewVisual } from '../renderer/gameRenderer';
 import type { RoadSegmentId, ZoningCellId } from '../shared/ids';
@@ -405,6 +406,7 @@ export class ConstructionController {
     const profile = profileRoadElevation(points, this.structureType, this.structureType === 'ground' ? 0 : this.targetElevation,
       (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.water.seaLevel);
     const validation = validateRoadCandidate(this.nearbyGraph(points, 24), points, {
+      bounds: worldBounds(this.snapshot?.worldMetadata ?? createWorldMetadata()),
       candidateWidth: roadType.width,
       minimumCurveRadius: curve ? roadType.minimumCurveRadius : 0,
       analyticalCurveRadius: curve?.minimumRadius ?? Number.POSITIVE_INFINITY,
@@ -494,7 +496,7 @@ export class ConstructionController {
     if (this.tool === 'service') {
       const plan = this.snapshot ? planServicePlacement(this.serviceType, rawPoint, this.snapshot.roadGraph,
         this.snapshot.lots, this.snapshot.zoningCells, this.snapshot.services.facilities,
-        (x, z) => this.renderer.getHeight(x, z)) : { facility: undefined, valid: false, reason: 'World is loading.' };
+        (x, z) => this.renderer.getHeight(x, z), 'service-preview', this.snapshot.worldMetadata) : { facility: undefined, valid: false, reason: 'World is loading.' };
       this.renderer.setHoveredSegment(undefined);
       this.renderer.setServicePreview(plan.facility, plan.valid);
       this.emit({ ...DEFAULT_STATUS, tool: 'service', roadMode: this.roadMode, serviceType: this.serviceType,
@@ -503,7 +505,7 @@ export class ConstructionController {
       return;
     }
     if (this.tool === 'bus-stop') {
-      const plan = this.snapshot ? planBusStopPlacement(rawPoint, this.snapshot.roadGraph, this.snapshot.transit.stops)
+      const plan = this.snapshot ? planBusStopPlacement(rawPoint, this.snapshot.roadGraph, this.snapshot.transit.stops, 'stop-preview', undefined, this.snapshot.worldMetadata)
         : { stop: undefined, valid: false, reason: 'World is loading.' };
       this.renderer.setHoveredSegment(undefined);
       this.renderer.setTransitStopPreview(plan.stop?.position ?? rawPoint, plan.valid);
@@ -642,6 +644,7 @@ export class ConstructionController {
     const fundsAfterConstruction = (this.snapshot?.economy.funds ?? 0) - estimatedCost;
     const affordable = !this.snapshot || fundsAfterConstruction >= 0;
     const validation = validateRoadCandidate(nearbyGraph, points, {
+      bounds: worldBounds(this.snapshot?.worldMetadata ?? createWorldMetadata()),
       candidateWidth: roadType.width,
       minimumCurveRadius: curve ? roadType.minimumCurveRadius : 0,
       analyticalCurveRadius: curve?.minimumRadius ?? Number.POSITIVE_INFINITY,

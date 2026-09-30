@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, HALF_WORLD_SIZE, type ChunkDescriptor } from '../world/types';
+import { LEGACY_CHUNK_WORLD, type ChunkWorld, type ChunkDescriptor } from '../world/types';
 import type { ZoningCell } from '../zoning/types';
 import type { ZoningCellId } from '../shared/ids';
 import type { RoadSegment } from '../roads/types';
@@ -18,6 +18,7 @@ const nextState: Record<Exclude<BuildingGrowthState, 'Occupied'>, BuildingGrowth
 };
 
 export class LotSystem {
+  constructor(public world: ChunkWorld = LEGACY_CHUNK_WORLD) {}
   private readonly lotsById = new Map<LotId, Lot>();
   private readonly buildingsById = new Map<Building['id'], Building>();
   private readonly archivedBuildings = new Map<string, Building>();
@@ -49,10 +50,10 @@ export class LotSystem {
         const match = /^chunk-(\d+)-(\d+)$/.exec(id);
         if (!match) continue;
         const x = Number(match[1]); const z = Number(match[2]);
-        bounds.push({ minX: -HALF_WORLD_SIZE + x * CHUNK_SIZE - LOCAL_HALO,
-          maxX: -HALF_WORLD_SIZE + (x + 1) * CHUNK_SIZE + LOCAL_HALO,
-          minZ: -HALF_WORLD_SIZE + z * CHUNK_SIZE - LOCAL_HALO,
-          maxZ: -HALF_WORLD_SIZE + (z + 1) * CHUNK_SIZE + LOCAL_HALO });
+        bounds.push({ minX: -this.world.worldWidthMeters / 2 + x * this.world.chunkSizeMeters - LOCAL_HALO,
+          maxX: -this.world.worldWidthMeters / 2 + (x + 1) * this.world.chunkSizeMeters + LOCAL_HALO,
+          minZ: -this.world.worldDepthMeters / 2 + z * this.world.chunkSizeMeters - LOCAL_HALO,
+          maxZ: -this.world.worldDepthMeters / 2 + (z + 1) * this.world.chunkSizeMeters + LOCAL_HALO });
       }
       if (bounds.length === 0) return;
     }

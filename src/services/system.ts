@@ -4,7 +4,7 @@ import type { Lot } from '../lots/types';
 import type { ZoningCell } from '../zoning/types';
 import type { PopulationSnapshot, BuildingOccupancy } from '../population/types';
 import type { Vec2 } from '../world/types';
-import { HALF_WORLD_SIZE } from '../world/types';
+import { LEGACY_CHUNK_WORLD, type ChunkWorld } from '../world/types';
 import { SERVICE_TYPES, type ServiceCoverage, type ServiceDefinition, type ServiceFacility, type ServiceSaveState, type ServiceSnapshot, type ServiceType } from './types';
 
 export const SERVICE_DEFINITIONS: Record<ServiceType, ServiceDefinition> = {
@@ -50,7 +50,7 @@ const roadFootprint = (start: Vec2, end: Vec2, width: number): [Vec2, Vec2, Vec2
 };
 
 const makeServiceBuilding = (id: string, type: ServiceType, click: Vec2, graph: RoadGraphSnapshot,
-  getHeight: (x: number, z: number) => number): ServiceFacility => {
+  getHeight: (x: number, z: number) => number, world: ChunkWorld = LEGACY_CHUNK_WORLD): ServiceFacility => {
   const anchor = nearestRoad(click, graph.segments);
   const definition = SERVICE_DEFINITIONS[type];
   const access = anchor ? pointAtDistance(anchor.segment.geometry.points, anchor.along)
@@ -66,7 +66,7 @@ const makeServiceBuilding = (id: string, type: ServiceType, click: Vec2, graph: 
     z: position.z + tangent.z * along + normal.z * out });
   const corners: ServiceFacility['lot']['corners'] = [corner(-halfWidth, -halfDepth), corner(halfWidth, -halfDepth),
     corner(halfWidth, halfDepth), corner(-halfWidth, halfDepth)];
-  if (corners.some((point) => Math.abs(point.x) > HALF_WORLD_SIZE || Math.abs(point.z) > HALF_WORLD_SIZE)) {
+  if (corners.some((point) => Math.abs(point.x) > world.worldWidthMeters / 2 || Math.abs(point.z) > world.worldDepthMeters / 2)) {
     throw new Error('Service building would extend outside the map.');
   }
   const heights = [...corners, position].map((point) => getHeight(point.x, point.z));
@@ -84,11 +84,11 @@ export interface ServicePlacementPlan { facility?: ServiceFacility; valid: boole
 /** A dedicated service lot is centered at the chosen ground point; the road only supplies access. */
 export const planServicePlacement = (type: ServiceType, position: Vec2, graph: RoadGraphSnapshot,
   lots: readonly Lot[] = [], cells: readonly ZoningCell[] = [], existing: readonly ServiceFacility[] = [],
-  getHeight: (x: number, z: number) => number = () => 0, id = 'service-preview'): ServicePlacementPlan => {
+  getHeight: (x: number, z: number) => number = () => 0, id = 'service-preview', world: ChunkWorld = LEGACY_CHUNK_WORLD): ServicePlacementPlan => {
   if (!SERVICE_TYPES.includes(type) || !Number.isFinite(position.x) || !Number.isFinite(position.z))
     return { valid: false, reason: 'Invalid service placement.' };
   let facility: ServiceFacility;
-  try { facility = makeServiceBuilding(id, type, position, graph, getHeight); }
+  try { facility = makeServiceBuilding(id, type, position, graph, getHeight, world); }
   catch (error) { return { valid: false, reason: error instanceof Error ? error.message : 'Invalid service placement.' }; }
   const invalid = (reason: string): ServicePlacementPlan => ({ facility, valid: false, reason });
   const anchor = nearestRoad(position, graph.segments);
@@ -161,6 +161,7 @@ const emptyCoverage = (): ServiceCoverage => ({ demand: 0, supplied: 0, percent:
 
 /** Worker-authoritative service buildings and aggregate road-network supply. */
 export class ServiceSystem {
+  world: ChunkWorld = LEGACY_CHUNK_WORLD;
   private facilitiesById = new Map<string, ServiceFacility>();
   private nextFacilitySerial = 1;
   private current: ServiceSnapshot = { revision: 0, facilities: [], coverage: Object.fromEntries(SERVICE_TYPES.map((type) => [type, emptyCoverage()])) as Record<ServiceType, ServiceCoverage>, buildingCoverage: {}, maintenancePerCycle: 0 };
@@ -173,7 +174,7 @@ export class ServiceSystem {
   place(type: ServiceType, position: Vec2, graph: RoadGraphSnapshot,
     lots: readonly Lot[] = [], cells: readonly ZoningCell[] = [], getHeight: (x: number, z: number) => number = () => 0): ServiceFacility {
     while (this.facilitiesById.has(`service-${this.nextFacilitySerial}`)) this.nextFacilitySerial += 1;
-    const plan = planServicePlacement(type, position, graph, lots, cells, this.facilities, getHeight, `service-${this.nextFacilitySerial}`);
+    const plan = planServicePlacement(type, position, graph, lots, cells, this.facilities, getHeight, `service-${this.nextFacilitySerial}`, this.world);
     if (!plan.valid || !plan.facility) throw new Error(plan.reason ?? 'Invalid service placement.');
     const facility = plan.facility;
     this.nextFacilitySerial += 1;
@@ -222,7 +223,7 @@ export class ServiceSystem {
           const side = cross < 0 ? -1 : 1;
           const setback = anchor.segment.width / 2 + SERVICE_DEFINITIONS[raw.type].depth / 2 + 2;
           return makeServiceBuilding(raw.id, raw.type, { x: access.point.x - access.tangent.z * side * setback,
-            z: access.point.z + access.tangent.x * side * setback }, graph, getHeight);
+            z: access.point.z + access.tangent.x * side * setback }, graph, getHeight, this.world);
         })()
           : undefined;
       if (!facility || facility.building.definitionId !== facility.type || facility.building.state !== 'Operating'

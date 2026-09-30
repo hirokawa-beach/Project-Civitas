@@ -1,5 +1,4 @@
-import { HALF_WORLD_SIZE, WORLD_SIZE } from '../world/types';
-import { TERRAIN_COLUMNS, TERRAIN_SAMPLE_SPACING } from './heightmap';
+import { createWorldMetadata, type WorldMetadata, type WorldDimensions } from '../world/metadata';
 
 export const GENERATOR_VERSION = 1;
 export type MapPreset = 'flat-plains' | 'rolling-hills' | 'river-valley' | 'coastal' | 'mountain-basin' | 'plateau' | 'islands' | 'mountainous';
@@ -32,7 +31,7 @@ export interface MapValidation {
   largestBuildableAreaRatio: number;
   outsideRoadCandidates: number;
 }
-export interface GeneratedMap { heights: Float32Array; metadata: GenerationMetadata; validation: MapValidation; riverPaths: Array<Array<{ x: number; z: number }>> }
+export interface GeneratedMap { world?: WorldMetadata; heights: Float32Array; metadata: GenerationMetadata; validation: MapValidation; riverPaths: Array<Array<{ x: number; z: number }>> }
 
 // These defaults are part of generator version 1. Bump GENERATOR_VERSION when changing them.
 export const MAP_PRESETS: Record<MapPreset, { label: string; parameters: GeneratorParameters }> = {
@@ -85,7 +84,7 @@ export function validateGenerationMetadata(value: GenerationMetadata): void {
     || !(['north', 'east', 'south', 'west'] as CoastDirection[]).includes(p.coastDirection)) throw new Error('Invalid map generator parameters.');
 }
 
-const riverPaths = (p: GeneratorParameters, random: () => number): GeneratedMap['riverPaths'] =>
+const riverPaths = (p: GeneratorParameters, random: () => number, world: WorldDimensions): GeneratedMap['riverPaths'] =>
   Array.from({ length: p.riverCount }, (_, river) => {
     const phase = random() * Math.PI * 2;
     const offset = (river - (p.riverCount - 1) / 2) * 230 + (random() - .5) * 80;
@@ -93,20 +92,20 @@ const riverPaths = (p: GeneratorParameters, random: () => number): GeneratedMap[
     const frequency = 1.2 + random() * 1.1;
     return Array.from({ length: 65 }, (_, i) => {
       const t = i / 64;
-      return { x: -HALF_WORLD_SIZE + WORLD_SIZE * t, z: offset + amplitude * Math.sin(t * Math.PI * 2 * frequency + phase) + 22 * Math.sin(t * Math.PI * 5 + phase * .7) };
+      return { x: -world.worldWidthMeters / 2 + world.worldWidthMeters * t, z: offset + amplitude * Math.sin(t * Math.PI * 2 * frequency + phase) + 22 * Math.sin(t * Math.PI * 5 + phase * .7) };
     });
   });
 
-export function validateMap(heights: Float32Array, seaLevel: number): MapValidation {
-  if (heights.length !== TERRAIN_COLUMNS ** 2 || !heights.every(Number.isFinite) || !Number.isFinite(seaLevel))
+export function validateMap(heights: Float32Array, seaLevel: number, world: WorldDimensions = createWorldMetadata()): MapValidation {
+  if (heights.length !== world.terrainColumns * world.terrainRows || !heights.every(Number.isFinite) || !Number.isFinite(seaLevel))
     throw new Error('Invalid generated heightmap.');
-  const stride = 4; const side = 64; const buildable = new Uint8Array(side * side);
+  const side = Math.min(64, world.terrainColumns - 1, world.terrainRows - 1); const strideX = (world.terrainColumns - 1) / side; const strideZ = (world.terrainRows - 1) / side; const buildable = new Uint8Array(side * side);
   let buildableCount = 0; let extreme = 0; let water = 0; let outsideRoadCandidates = 0;
-  const at = (x: number, z: number) => heights[z * TERRAIN_COLUMNS + x];
+  const at = (x: number, z: number) => heights[Math.round(z) * world.terrainColumns + Math.round(x)];
   for (let z = 0; z < side; z++) for (let x = 0; x < side; x++) {
-    const sx = x * stride + 1; const sz = z * stride + 1;
+    const sx = Math.floor(x * strideX) + 1; const sz = Math.floor(z * strideZ) + 1;
     const h = at(sx, sz);
-    const slope = Math.max(Math.abs(at(sx + 2, sz) - at(sx - 1, sz)), Math.abs(at(sx, sz + 2) - at(sx, sz - 1))) / 12;
+    const slope = Math.max(Math.abs(at(sx + 2, sz) - at(sx - 1, sz)), Math.abs(at(sx, sz + 2) - at(sx, sz - 1))) / (3 * world.terrainSampleSpacingMeters);
     if (h <= seaLevel) water++;
     else if (slope < .12) { buildable[z * side + x] = 1; buildableCount++; }
     if (slope > .4) extreme++;
@@ -123,13 +122,13 @@ export function validateMap(heights: Float32Array, seaLevel: number): MapValidat
   }
   const edgeOk = (x: number, z: number) => {
     const h = at(x, z);
-    return h > seaLevel + 1 && Math.abs(h - at(clamp(x + 2, 0, 256), clamp(z + 2, 0, 256))) < 2;
+    return h > seaLevel + 1 && Math.abs(h - at(clamp(x + 2, 0, world.terrainColumns - 1), clamp(z + 2, 0, world.terrainRows - 1))) < 2;
   };
-  for (let i = 8; i < 249; i += 4) {
+  for (let i = 8; i < Math.min(world.terrainColumns, world.terrainRows) - 8; i += 4) {
     if (edgeOk(i, 2) && edgeOk(i + 4, 2)) outsideRoadCandidates++;
-    if (edgeOk(i, 254) && edgeOk(i + 4, 254)) outsideRoadCandidates++;
+    if (edgeOk(i, world.terrainRows - 3) && edgeOk(i + 4, world.terrainRows - 3)) outsideRoadCandidates++;
     if (edgeOk(2, i) && edgeOk(2, i + 4)) outsideRoadCandidates++;
-    if (edgeOk(254, i) && edgeOk(254, i + 4)) outsideRoadCandidates++;
+    if (edgeOk(world.terrainColumns - 3, i) && edgeOk(world.terrainColumns - 3, i + 4)) outsideRoadCandidates++;
   }
   const total = side * side;
   const result = { buildableLandRatio: buildableCount / total, extremeSlopeRatio: extreme / total,
@@ -138,18 +137,18 @@ export function validateMap(heights: Float32Array, seaLevel: number): MapValidat
     && result.waterRatio < .8 && result.largestBuildableAreaRatio >= .12 && outsideRoadCandidates > 0 };
 }
 
-function generateAttempt(metadata: GenerationMetadata, attempt: number): GeneratedMap {
+function generateAttempt(metadata: GenerationMetadata, attempt: number, world: WorldMetadata): GeneratedMap {
   const p = metadata.parameters; const seed = hashSeed(metadata.seed) ^ Math.imul(attempt + 1, 0x9e3779b9);
   const roughness = p.roughness * (1 - attempt * .12);
   const mountainAmount = p.mountainAmount * (1 - attempt * .16);
   const flatness = Math.min(1, p.flatness + attempt * .15);
   const random = rng(seed); const offsets = Array.from({ length: 4 }, () => (random() - .5) * 2000);
-  const paths = riverPaths(p, random);
-  const heights = new Float32Array(TERRAIN_COLUMNS ** 2);
+  const paths = riverPaths(p, random, world);
+  const heights = new Float32Array(world.terrainColumns * world.terrainRows);
   const smoothFactor = 1 - p.smoothing * .65;
-  for (let z = 0; z < TERRAIN_COLUMNS; z++) for (let x = 0; x < TERRAIN_COLUMNS; x++) {
-    const wx = x * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
-    const wz = z * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
+  for (let z = 0; z < world.terrainRows; z++) for (let x = 0; x < world.terrainColumns; x++) {
+    const wx = x * world.terrainSampleSpacingMeters - world.worldWidthMeters / 2;
+    const wz = z * world.terrainSampleSpacingMeters - world.worldDepthMeters / 2;
     const low = noise(wx + offsets[0], wz + offsets[1], p.hillScale * 2.2, seed);
     const mid = noise(wx + offsets[2], wz + offsets[1], p.hillScale, seed + 31);
     const fine = noise(wx + offsets[0], wz + offsets[3], Math.max(32, p.hillScale / 3), seed + 79);
@@ -157,7 +156,7 @@ function generateAttempt(metadata: GenerationMetadata, attempt: number): Generat
     let h = 18 + low * 11 * roughness + mid * 13 * roughness * smoothFactor
       + fine * 5 * roughness * smoothFactor + Math.pow(ridge, 3) * 55 * mountainAmount * (1 - flatness * .55);
     h -= p.waterAmount * 26 * smooth(clamp((-low - .05) / .7, 0, 1));
-    const radial = Math.hypot(wx / HALF_WORLD_SIZE, wz / HALF_WORLD_SIZE);
+    const radial = Math.hypot(wx / (world.worldWidthMeters / 2), wz / (world.worldDepthMeters / 2));
     if (metadata.preset === 'mountain-basin') h += Math.pow(clamp(radial, 0, 1.5), 2) * 55 * mountainAmount - 12;
     if (metadata.preset === 'plateau') h += 27 * smooth(clamp((radial - .38) / .14, 0, 1));
     if (metadata.preset === 'islands') {
@@ -178,7 +177,7 @@ function generateAttempt(metadata: GenerationMetadata, attempt: number): Generat
     for (const path of paths) {
       let closest = Infinity;
       // Paths run west to east, so nearby points occupy at most two short segments.
-      const segment = clamp(Math.floor((wx + HALF_WORLD_SIZE) / 16), 0, 63);
+      const segment = clamp(Math.floor((wx + world.worldWidthMeters / 2) / (world.worldWidthMeters / 64)), 0, 63);
       for (let k = Math.max(0, segment - 1); k <= Math.min(63, segment + 1); k++) {
         const a = path[k]; const b = path[k + 1];
         const t = clamp(((wx - a.x) * (b.x - a.x) + (wz - a.z) * (b.z - a.z)) / ((b.x - a.x) ** 2 + (b.z - a.z) ** 2), 0, 1);
@@ -190,15 +189,17 @@ function generateAttempt(metadata: GenerationMetadata, attempt: number): Generat
       h = h * (1 - channel) + Math.min(h, p.seaLevel - 2) * channel;
     }
     h += attempt * 2;
-    heights[z * TERRAIN_COLUMNS + x] = clamp(h, -80, 240);
+    heights[Math.round(z) * world.terrainColumns + Math.round(x)] = clamp(h, -80, 240);
   }
-  return { heights, metadata: structuredClone(metadata), validation: validateMap(heights, p.seaLevel), riverPaths: paths };
+  world.generatorMetadata = structuredClone(metadata); world.source.kind = 'procedural';
+  return { world: structuredClone(world), heights, metadata: structuredClone(metadata), validation: validateMap(heights, p.seaLevel, world), riverPaths: paths };
 }
 
-export function generateMap(metadata: GenerationMetadata): GeneratedMap {
+export function generateMap(metadata: GenerationMetadata, dimensions: Partial<WorldDimensions> = {}): GeneratedMap {
+  const world = createWorldMetadata(dimensions);
   validateGenerationMetadata(metadata);
   if (metadata.generatorVersion !== GENERATOR_VERSION) throw new Error('Unsupported map generator version.');
-  let result = generateAttempt(metadata, 0);
-  for (let attempt = 1; attempt < 4 && !result.validation.valid; attempt++) result = generateAttempt(metadata, attempt);
+  let result = generateAttempt(metadata, 0, world);
+  for (let attempt = 1; attempt < 4 && !result.validation.valid; attempt++) result = generateAttempt(metadata, attempt, world);
   return result;
 }

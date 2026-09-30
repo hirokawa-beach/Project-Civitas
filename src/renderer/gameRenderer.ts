@@ -27,8 +27,9 @@ import type { RoadNodeId, RoadSegmentId } from '../shared/ids';
 import { buildingDefinition } from '../lots/definitions';
 import type { Building, BuildingId, Lot } from '../lots/types';
 import type { WorldSnapshot } from '../shared/protocol';
-import { createChunks, worldToChunk, CHUNK_SIZE, HALF_WORLD_SIZE, WORLD_SIZE, type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
-import { HeightmapTerrain, TERRAIN_SAMPLE_SPACING } from '../terrain/heightmap';
+import { createChunks, worldToChunk,  type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
+import { HeightmapTerrain } from '../terrain/heightmap';
+import { createWorldMetadata } from '../world/metadata';
 import { distance, normalize, pointAtDistance, subtract } from '../roads/geometry';
 import type { RoadGeometry, RoadSegment } from '../roads/types';
 import { roadHeightAt } from '../roads/elevation';
@@ -142,6 +143,9 @@ export class GameRenderer {
   private waterMesh?: Mesh;
   private appliedWaterRevision = -1;
   private terrain?: HeightmapTerrain;
+  private terrainViewKey = '';
+  private readonly dirtyTerrainMeshes = new Set<ChunkDescriptor['id']>();
+  private get world() { return this.snapshot?.worldMetadata ?? createWorldMetadata(); }
   private readonly terrainMeshes = new Map<ChunkDescriptor['id'], Mesh>();
   private appliedTerrainRevision = -1;
   private terrainMeshUpdateMs = 0;
@@ -318,6 +322,7 @@ export class GameRenderer {
     this.scene.onBeforeRenderObservable.add(() => {
       const agentStarted = performance.now();
       const delta = this.updateCamera();
+      this.syncTerrainView();
       this.animateVisibleVehicles(delta);
       this.animateVisibleCitizens(delta);
       this.visualAgentUpdateMs = performance.now() - agentStarted;
@@ -395,7 +400,7 @@ export class GameRenderer {
     }
     if (zoningChanged || terrainChanged) {
       this.appliedZoningRevision = snapshot.zoningRevision;
-      this.syncZones(snapshot.zoningCells, zoningChanged ? createChunks().map((chunk) => chunk.id) : terrainChunks);
+      this.syncZones(snapshot.zoningCells, zoningChanged ? createChunks(this.world).map((chunk) => chunk.id) : terrainChunks);
     }
     if (lotChanged || terrainChanged) {
       this.syncBuildings(snapshot.lots, snapshot.buildings);
@@ -618,33 +623,59 @@ export class GameRenderer {
       this.terrain.settings.preset = snapshot.terrain.settings.preset;
       changed = snapshot.terrainUpdatedChunkIds;
     } else if (snapshot.terrainHeightmap) {
+      for (const mesh of this.terrainMeshes.values()) mesh.dispose(); this.terrainMeshes.clear();
+      this.dirtyTerrainMeshes.clear(); this.terrainViewKey = '';
       this.terrain = HeightmapTerrain.fromBuffer(snapshot.terrain, snapshot.terrainHeightmap);
-      changed = createChunks().map((chunk) => chunk.id);
+      changed = createChunks(this.world).map((chunk) => chunk.id);
     }
-    for (const id of changed) this.rebuildTerrainChunk(id);
+    for (const id of changed) this.dirtyTerrainMeshes.add(id);
+    this.syncTerrainView(true);
     if (changed.length > 0) this.createChunkGrid();
     this.appliedTerrainRevision = snapshot.terrainRevision;
     this.terrainMeshUpdateMs = performance.now() - started;
     return changed;
   }
 
+  /** Only visit the camera's chunk rectangle, never the entire world per frame. */
+  private syncTerrainView(force = false): void {
+    if (!this.terrain) return;
+    const local = worldToChunk({ x: this.camera.target.x, z: this.camera.target.z }, this.world);
+    const reach = Math.ceil((this.camera.radius * 1.8 + this.world.chunkSizeMeters) / this.world.chunkSizeMeters);
+    const key = `${local.x}:${local.z}:${reach}`;
+    if (!force && key === this.terrainViewKey) return;
+    this.terrainViewKey = key;
+    const active = new Set<ChunkDescriptor['id']>();
+    const maxX = Math.ceil(this.world.worldWidthMeters / this.world.chunkSizeMeters) - 1;
+    const maxZ = Math.ceil(this.world.worldDepthMeters / this.world.chunkSizeMeters) - 1;
+    for (let z = Math.max(0, local.z - reach); z <= Math.min(maxZ, local.z + reach); z++)
+      for (let x = Math.max(0, local.x - reach); x <= Math.min(maxX, local.x + reach); x++) {
+        const id: ChunkDescriptor['id'] = `chunk-${x}-${z}`; active.add(id);
+        if (!this.terrainMeshes.has(id) || this.dirtyTerrainMeshes.has(id)) {
+          this.rebuildTerrainChunk(id); this.dirtyTerrainMeshes.delete(id);
+        }
+      }
+    for (const [id, mesh] of this.terrainMeshes) if (!active.has(id)) { mesh.dispose(); this.terrainMeshes.delete(id); }
+  }
+
   private rebuildTerrainChunk(id: ChunkDescriptor['id']): void {
     this.terrainMeshes.get(id)?.dispose();
     const terrain = this.terrain;
     if (!terrain) return;
-    const chunk = createChunks().find((item) => item.id === id)!;
-    const steps = CHUNK_SIZE / TERRAIN_SAMPLE_SPACING;
+    const [, cx, cz] = /^chunk-(\d+)-(\d+)$/.exec(id)!;
+    const chunk = { x: Number(cx), z: Number(cz) };
+    const patch = terrain.patchForChunk(id);
+    const steps = patch.columns - 1; const rowSteps = patch.rows - 1;
     const positions: number[] = [];
     const normals: number[] = [];
     const indices: number[] = [];
-    for (let row = 0; row <= steps; row += 1) {
+    for (let row = 0; row <= rowSteps; row += 1) {
       for (let column = 0; column <= steps; column += 1) {
-        const x = -HALF_WORLD_SIZE + chunk.x * CHUNK_SIZE + column * TERRAIN_SAMPLE_SPACING;
-        const z = -HALF_WORLD_SIZE + chunk.z * CHUNK_SIZE + row * TERRAIN_SAMPLE_SPACING;
+        const x = -terrain.width / 2 + chunk.x * terrain.chunkSizeMeters + column * terrain.settings.sampleSpacing;
+        const z = -terrain.depth / 2 + chunk.z * terrain.chunkSizeMeters + row * terrain.settings.sampleSpacing;
         const normal = terrain.getNormal(x, z);
         positions.push(x, terrain.getHeight(x, z), z);
         normals.push(normal.x, normal.y, normal.z);
-        if (row < steps && column < steps) {
+        if (row < rowSteps && column < steps) {
           const index = row * (steps + 1) + column;
           indices.push(index, index + steps + 1, index + 1, index + 1, index + steps + 1, index + steps + 2);
         }
@@ -669,7 +700,7 @@ export class GameRenderer {
         this.zoneMeshes.get(key)?.dispose();
         this.zoneMeshes.delete(key);
         const mesh = this.createZoneMesh(`zoning-${key}`, cells.filter((cell) => cell.terrainSuitable !== false && cell.zoneType === type &&
-          `chunk-${worldToChunk(cell.center).x}-${worldToChunk(cell.center).z}` === id), 0.27);
+          `chunk-${worldToChunk(cell.center, this.world).x}-${worldToChunk(cell.center, this.world).z}` === id), 0.27);
         if (mesh) { mesh.material = this.zoneMaterials[type]; this.zoneMeshes.set(key, mesh); }
       }
     }
@@ -729,8 +760,8 @@ export class GameRenderer {
       const maxX = Math.max(...points.map((point) => point.x)) + segment.width;
       const minZ = Math.min(...points.map((point) => point.z)) - segment.width;
       const maxZ = Math.max(...points.map((point) => point.z)) + segment.width;
-      const a = worldToChunk({ x: minX, z: minZ });
-      const b = worldToChunk({ x: maxX, z: maxZ });
+      const a = worldToChunk({ x: minX, z: minZ }, this.world);
+      const b = worldToChunk({ x: maxX, z: maxZ }, this.world);
       for (let z = a.z; z <= b.z; z += 1) for (let x = a.x; x <= b.x; x += 1) {
         if (changed.has(`chunk-${x}-${z}`)) {
           this.roadSignatures.delete(segment.id);
@@ -739,7 +770,7 @@ export class GameRenderer {
       }
     }
     for (const node of this.snapshot.roadGraph.nodes) {
-      const chunk = worldToChunk(node.position);
+      const chunk = worldToChunk(node.position, this.world);
       if (changed.has(`chunk-${chunk.x}-${chunk.z}`)) this.intersectionSignatures.delete(node.id);
     }
     return [...affected];
@@ -753,7 +784,7 @@ export class GameRenderer {
 
   private syncWater(snapshot: WorldSnapshot): void {
     this.waterMesh?.dispose();
-    const mesh = CreateGround('static-water-surface', { width: WORLD_SIZE, height: WORLD_SIZE, subdivisions: 1 }, this.scene);
+    const mesh = CreateGround('static-water-surface', { width: this.world.worldWidthMeters, height: this.world.worldDepthMeters, subdivisions: 1 }, this.scene);
     mesh.position.y = snapshot.water.seaLevel + 0.04;
     mesh.material = this.waterMaterial;
     mesh.isPickable = false;
@@ -1195,7 +1226,7 @@ export class GameRenderer {
       candidateVehicles: this.cameraVehicleMetrics.candidates,
       terrainMeshMs: this.terrainMeshUpdateMs, chunkUpdateMs: this.terrainUpdateFrameMs };
   }
-  getCurrentChunk(): ChunkCoordinate { return worldToChunk({ x: this.camera.target.x, z: this.camera.target.z }); }
+  getCurrentChunk(): ChunkCoordinate { return worldToChunk({ x: this.camera.target.x, z: this.camera.target.z }, this.world); }
 
   dispose(): void {
     this.disposed = true;
@@ -1225,8 +1256,8 @@ export class GameRenderer {
     if (this.keys.has('KeyA')) movement = { x: movement.x - right.x, z: movement.z - right.z };
     const direction = normalize(movement);
     if (Math.abs(direction.x) + Math.abs(direction.z) > 0) {
-      this.camera.target.x = Math.max(-HALF_WORLD_SIZE, Math.min(HALF_WORLD_SIZE, this.camera.target.x + direction.x * speed));
-      this.camera.target.z = Math.max(-HALF_WORLD_SIZE, Math.min(HALF_WORLD_SIZE, this.camera.target.z + direction.z * speed));
+      this.camera.target.x = Math.max(-this.world.worldWidthMeters / 2, Math.min(this.world.worldWidthMeters / 2, this.camera.target.x + direction.x * speed));
+      this.camera.target.z = Math.max(-this.world.worldDepthMeters / 2, Math.min(this.world.worldDepthMeters / 2, this.camera.target.z + direction.z * speed));
     }
     if (this.snapshot && (distance({ x: this.lastVehicleCameraX, z: this.lastVehicleCameraZ },
       { x: this.camera.target.x, z: this.camera.target.z }) > 12
@@ -1294,7 +1325,7 @@ export class GameRenderer {
 
   private createRoadRibbon(name: string, points: Vec2[], width: number, y: number, geometry?: RoadGeometry): Mesh {
     const [left, right] = this.roadSidePaths(points, width, y, geometry);
-    const crossSteps = Math.max(1, Math.ceil(width / TERRAIN_SAMPLE_SPACING));
+    const crossSteps = Math.max(1, Math.ceil(width / (this.terrain?.settings.sampleSpacing ?? 4)));
     const paths = Array.from({ length: crossSteps + 1 }, (_, cross) => {
       const t = cross / crossSteps;
       return left.map((start, index) => {
@@ -1396,7 +1427,7 @@ export class GameRenderer {
     for (let index = 0; index < points.length - 1; index += 1) {
       const start = points[index];
       const end = points[index + 1];
-      const steps = Math.max(1, Math.ceil(distance(start, end) / TERRAIN_SAMPLE_SPACING));
+      const steps = Math.max(1, Math.ceil(distance(start, end) / (this.terrain?.settings.sampleSpacing ?? 4)));
       for (let step = 0; step < steps; step += 1) {
         const t = step / steps;
         sampled.push({ x: start.x + (end.x - start.x) * t, z: start.z + (end.z - start.z) * t });
@@ -1445,10 +1476,9 @@ export class GameRenderer {
   private createChunkGrid(): void {
     this.chunkGrid?.dispose();
     const lines: Vector3[][] = [];
-    for (let coordinate = -HALF_WORLD_SIZE; coordinate <= HALF_WORLD_SIZE; coordinate += 256) {
-      lines.push(Array.from({ length: 65 }, (_, index) => this.toVector({ x: coordinate, z: -HALF_WORLD_SIZE + index * 16 }, 0.035)));
-      lines.push(Array.from({ length: 65 }, (_, index) => this.toVector({ x: -HALF_WORLD_SIZE + index * 16, z: coordinate }, 0.035)));
-    }
+    const w = this.world.worldWidthMeters; const d = this.world.worldDepthMeters; const size = this.world.chunkSizeMeters;
+    for (let x = -w / 2; x <= w / 2; x += size) lines.push(Array.from({ length: 65 }, (_, i) => this.toVector({ x, z: -d / 2 + i * d / 64 }, .035)));
+    for (let z = -d / 2; z <= d / 2; z += size) lines.push(Array.from({ length: 65 }, (_, i) => this.toVector({ x: -w / 2 + i * w / 64, z }, .035)));
     const grid = CreateLineSystem('chunk-grid', { lines }, this.scene);
     this.chunkGrid = grid;
     grid.color = Color3.FromHexString('#8ca285');
@@ -1471,7 +1501,7 @@ export class GameRenderer {
       marker.isPickable = false;
       this.graphDebugMeshes.push(marker);
     }
-    this.rebuildDebugZones(createChunks().map((chunk) => chunk.id));
+    this.rebuildDebugZones(createChunks(this.world).map((chunk) => chunk.id));
     this.rebuildDebugLots(this.snapshot.lots);
   }
 
@@ -1496,7 +1526,7 @@ export class GameRenderer {
       this.zoningDebugMeshes.get(id)?.dispose();
       this.zoningDebugMeshes.delete(id);
       const zoningLines = this.snapshot.zoningCells.filter((cell) => {
-        const chunk = worldToChunk(cell.center);
+        const chunk = worldToChunk(cell.center, this.world);
         return cell.terrainSuitable !== false && `chunk-${chunk.x}-${chunk.z}` === id;
       }).map((cell) => {
         const corners = cell.corners.map((corner) => this.toVector(corner, 0.3));
@@ -1512,9 +1542,9 @@ export class GameRenderer {
   }
 
   private rebuildDebugLots(lots: readonly Lot[]): void {
-    for (const chunk of createChunks()) {
+    for (const chunk of createChunks(this.world)) {
       const local = lots.filter((lot) => {
-        const owner = worldToChunk(lot.position);
+        const owner = worldToChunk(lot.position, this.world);
         return owner.x === chunk.x && owner.z === chunk.z;
       });
       const signature = JSON.stringify(local.map((lot) => [lot.id, lot.corners, lot.roadAccess.frontage, lot.buildable]));

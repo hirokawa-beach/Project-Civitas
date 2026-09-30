@@ -8,7 +8,8 @@ import { buildingLabel, citizenName, stableHash } from '../citizens/identity';
 import { pedestrianPose } from '../citizens/routing';
 import type { AgentDetails, Citizen, CitizenPlace } from '../citizens/types';
 import type { Vec2 } from '../world/types';
-import { HALF_WORLD_SIZE } from '../world/types';
+import { LEGACY_CHUNK_WORLD, type ChunkWorld } from '../world/types';
+import type { MapOutsideConnection } from '../world/metadata';
 import { RoadRouter } from './routing';
 import type { TransitSystem } from '../transit/system';
 import type { LaneTraffic, LogicalTrip, OutsideConnection, RouteLeg, SegmentTraffic, TrafficConfig,
@@ -37,6 +38,8 @@ const integer = (value: number): boolean => Number.isSafeInteger(value);
 
 /** Worker-authoritative traffic. Resident journeys own one named driver and vehicle each. */
 export class TrafficSystem {
+  world: ChunkWorld = LEGACY_CHUNK_WORLD;
+  mapConnections: MapOutsideConnection[] = [];
   get performanceMetrics() { return { ...this.router.performance.report(), ...this.citizens.pathfindingPerformance,
     ...this.citizens.performance.report() }; }
   readonly citizens = new CitizenSystem();
@@ -59,7 +62,8 @@ export class TrafficSystem {
   private transit?: TransitSystem;
   revision = 0;
 
-  constructor(graph: RoadGraphSnapshot, readonly config: TrafficConfig = DEFAULT_TRAFFIC_CONFIG, startGameSeconds = 0) {
+  constructor(graph: RoadGraphSnapshot, readonly config: TrafficConfig = DEFAULT_TRAFFIC_CONFIG, startGameSeconds = 0, world: ChunkWorld = LEGACY_CHUNK_WORLD, connections: MapOutsideConnection[] = []) {
+    this.world = world; this.mapConnections = connections;
     this.graph = structuredClone(graph);
     this.segmentById = new Map(this.graph.segments.map((segment) => [segment.id, segment]));
     this.router = new RoadRouter(config);
@@ -318,8 +322,9 @@ export class TrafficSystem {
   private deriveOutsideConnections(): OutsideConnection[] {
     const connected = new Set(this.graph.segments.flatMap((segment) => [segment.startNodeId, segment.endNodeId]));
     return this.graph.nodes.filter((node) => connected.has(node.id)
-      && (Math.abs(Math.abs(node.position.x) - HALF_WORLD_SIZE) <= 2
-        || Math.abs(Math.abs(node.position.z) - HALF_WORLD_SIZE) <= 2))
+      && (!this.mapConnections.length || this.mapConnections.some(connection => connection.type === 'road' && Math.hypot(connection.position.x - node.position.x, connection.position.z - node.position.z) <= 16))
+      && (Math.abs(Math.abs(node.position.x) - this.world.worldWidthMeters / 2) <= 2
+        || Math.abs(Math.abs(node.position.z) - this.world.worldDepthMeters / 2) <= 2))
       .map((node) => ({ id: `outside-${node.id}`, nodeId: node.id, position: { ...node.position } }))
       .sort((a, b) => a.id.localeCompare(b.id));
   }
