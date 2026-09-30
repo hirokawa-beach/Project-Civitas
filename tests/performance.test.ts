@@ -18,7 +18,7 @@ describe('performance regression foundation', () => {
     expect(a.roads).toEqual(b.roads);
     expect(a.traffic.citizens.save()).toEqual(b.traffic.citizens.save());
     expect(new BenchmarkScenario('camera-6000', 'other').traffic.citizens.save()).not.toEqual(a.traffic.citizens.save());
-  });
+  }, 30000); // Full 6000-person save equality is a correctness check, not a timing gate.
   it.each(SCENARIOS)('creates expected size and measures %s using real individual citizens', (id) => {
     const scenario = new BenchmarkScenario(id);
     const expected = id === 'population-10k' ? 10000 : id === 'population-50k' ? 50000 : id === 'population-100k' ? 100000

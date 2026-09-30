@@ -30,6 +30,8 @@ export interface Citizen {
 }
 export interface CitizenSaveState { version: 1; residents: Citizen[] }
 export interface CitizenCandidate {
+  state?: 'walking' | 'transit-access' | 'waiting' | 'alighting' | 'visiting';
+  stationaryPosition?: Vec2;
   id: string;
   name: string;
   homeBuildingId: BuildingId;

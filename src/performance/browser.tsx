@@ -6,6 +6,7 @@ import type { GameSpeed } from '../simulation/gameClock';
 import { SCENARIOS, BENCHMARK_SEED, type ScenarioId } from './scenarios';
 import { downloadReport } from './download';
 import type { TimingSummary } from './metrics';
+import { pedestrianPose } from '../citizens/routing';
 
 const worker = new Worker(new URL('./benchmark.worker.ts', import.meta.url), { type: 'module' });
 function Benchmark() {
@@ -32,7 +33,12 @@ function Benchmark() {
       if (!view || !snapshot) return;
       worker.postMessage({ type: 'camera', ...view.getAgentView() });
       const metrics = view.getPerformanceMetrics(); const agents = view.getVisualAgentMetrics();
+      const citizen = snapshot.traffic.citizenCandidates?.[0];
       setReport({ scenario: scenarioRef.current, seed: BENCHMARK_SEED, renderer: view.rendererName,
+        gameSeconds: snapshot.gameClock.gameSeconds, gameSpeed: snapshot.gameClock.speed,
+        sampleCitizen: citizen && { id: citizen.id, name: citizen.name, state: citizen.state,
+          position: citizen.stationaryPosition ?? pedestrianPose(citizen.route, citizen.length, citizen.speed,
+            citizen.departedAt, snapshot.gameClock.gameSeconds).position },
         environment: { userAgent: navigator.userAgent, viewport: [innerWidth, innerHeight], devicePixelRatio },
         fps: view.getFps(), frameMs: view.getFrameTime(), individualCitizens: snapshot.traffic.individualCitizens,
         activeJourneys: snapshot.traffic.activeCitizenJourneys, cameraCitizens: snapshot.traffic.cameraCitizenCount,
@@ -55,7 +61,8 @@ function Benchmark() {
       // Read the report from the current DOM-visible UI through the same sampler callback.
       const view = renderer.current!; const data = latest.current!;
       const agents = view.getVisualAgentMetrics();
-      collected.push({ id, seed: BENCHMARK_SEED, fps: view.getFps(), frameMs: view.getFrameTime(),
+      collected.push({ id, seed: BENCHMARK_SEED, environment: { userAgent: navigator.userAgent, viewport: [innerWidth, innerHeight], devicePixelRatio },
+        fps: view.getFps(), frameMs: view.getFrameTime(),
         renderedCitizens: agents.visibleCitizens, cameraCitizens: data.snapshot.traffic.cameraCitizenCount,
         individualCitizens: data.snapshot.traffic.individualCitizens, activeJourneys: data.snapshot.traffic.activeCitizenJourneys,
         lod: { near: agents.near, mid: agents.mid, far: agents.far }, renderer: view.rendererName,

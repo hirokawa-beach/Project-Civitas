@@ -1,6 +1,6 @@
 import type { Vec2 } from '../world/types';
 import type { PedestrianGraph } from '../visual/pedestrianGraph';
-import { pointAtDistance, polylineLength } from '../roads/geometry';
+import { polylineLength } from '../roads/geometry';
 import { PerformanceLedger } from '../performance/metrics';
 
 export class PedestrianRouter {
@@ -46,9 +46,21 @@ export class PedestrianRouter {
   }
 }
 
+const routeDistances = new WeakMap<readonly Vec2[], Float64Array>();
 export function pedestrianPose(route: readonly Vec2[], length: number, speed: number, departedAt: number, now: number) {
   const along = Math.max(0, Math.min(length, (now - departedAt) * speed));
-  const { point, tangent } = pointAtDistance(route, along);
-  return { position: point, yaw: Math.atan2(tangent.x, tangent.z), arrived: along >= length };
+  let cumulative = routeDistances.get(route);
+  if (!cumulative) {
+    cumulative = new Float64Array(route.length);
+    for (let i = 1; i < route.length; i++) cumulative[i] = cumulative[i - 1] + Math.hypot(route[i].x - route[i - 1].x, route[i].z - route[i - 1].z);
+    routeDistances.set(route, cumulative);
+  }
+  let low = 1; let high = route.length - 1;
+  while (low < high) { const middle = (low + high) >> 1; if (cumulative[middle] < along) low = middle + 1; else high = middle; }
+  const a = route[Math.max(0, low - 1)]; const b = route[low] ?? a;
+  const distance = cumulative[low] - cumulative[Math.max(0, low - 1)];
+  const t = distance > 0 ? Math.max(0, Math.min(1, (along - cumulative[low - 1]) / distance)) : 0;
+  return { position: { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t },
+    yaw: Math.atan2(b.x - a.x, b.z - a.z), arrived: along >= length };
 }
 export { polylineLength };

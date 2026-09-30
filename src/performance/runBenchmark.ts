@@ -28,7 +28,7 @@ export function runSimulationBenchmarks(samples = 32) {
         }
         const snapshot = ledger.measure('snapshotMs', () => scenario.snapshot());
         const raw = scenario.traffic.citizens.nearby({ x: 0, z: 0 }, 410, Number.MAX_SAFE_INTEGER, scenario.gameSeconds);
-        candidates = raw.length;
+        candidates = snapshot.traffic.cameraCitizenCount ?? raw.length;
         sampler.sync(snapshot.traffic.citizenCandidates ?? []);
         const selected = ledger.measure('citizenSelectionMs', () => sampler.select({ x: 0, z: 0 }, VISUAL_AGENT_PROFILES.balanced,
           VISUAL_AGENT_PROFILES.balanced.maxCitizens, [], scenario.gameSeconds, scenario.traffic.citizens.count));

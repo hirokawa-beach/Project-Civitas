@@ -60,6 +60,41 @@ export const planBusStopPlacement = (click: Vec2, graph: RoadGraphSnapshot,
 
 /** Worker-authoritative, aggregate bus operation. Rendering never owns stops, buses or passengers. */
 export class TransitSystem {
+  private waitingIndexRevision = -1;
+  private waitingByStop = new Map<string, TransitWaitingGroup[]>();
+  private waitingByCitizen = new Map<string, TransitWaitingGroup>();
+  private alightedCitizens: NonNullable<TransitSaveState['alightedCitizens']> = [];
+  private indexWaiting(): void {
+    if (this.waitingIndexRevision === this.revision) return;
+    this.waitingByStop.clear(); this.waitingByCitizen.clear();
+    for (const group of this.waitingById.values()) if (group.citizenId) {
+      const groups = this.waitingByStop.get(group.originStopId) ?? []; groups.push(group);
+      this.waitingByStop.set(group.originStopId, groups); this.waitingByCitizen.set(group.citizenId, group);
+    }
+    this.waitingIndexRevision = this.revision;
+  }
+  waitingCitizen(id: string): TransitWaitingGroup | undefined {
+    const group = this.waitingByCitizen.get(id); return group && this.waitingById.has(group.id) ? group : undefined;
+  }
+  getStop(id: string): TransitStop | undefined { return this.stopsById.get(id); }
+  setCitizenReadyAt(id: string, at: number): void {
+    const group = this.waitingCitizen(id); if (group) { group.readyAtGameSeconds = at; this.revision++; }
+  }
+  nearbyWaitingCitizens(camera: Vec2, radius: number): Array<{ group: TransitWaitingGroup; stop: TransitStop }> {
+    this.indexWaiting(); const result: Array<{ group: TransitWaitingGroup; stop: TransitStop }> = [];
+    for (const [id, groups] of this.waitingByStop) {
+      const stop = this.stopsById.get(id);
+      if (!stop || distance(camera, stop.position) > radius + this.config.stopAccessDistanceMeters) continue;
+      for (const group of groups) result.push({ group, stop });
+    }
+    return result;
+  }
+  takeAlightedCitizens(): Array<{ citizenId: string; stop: TransitStop; gameSeconds: number }> {
+    const result = this.alightedCitizens.flatMap((person) => {
+      const stop = this.stopsById.get(person.stopId); return stop ? [{ citizenId: person.citizenId, stop, gameSeconds: person.gameSeconds }] : [];
+    });
+    this.alightedCitizens = []; return result;
+  }
   private graph: RoadGraphSnapshot;
   private readonly router = new RoadRouter(DEFAULT_TRAFFIC_CONFIG);
   private stopsById = new Map<string, TransitStop>();
@@ -261,6 +296,7 @@ export class TransitSystem {
       transferLineId: best.transferLineId,
       finalStopId: best.transferStopId ? best.destinationStopId : undefined,
       count: Math.max(1, Math.floor(count)), requestedAtGameSeconds: gameSeconds, ...(citizenId ? { citizenId } : {}) });
+    if (citizenId) this.waitingByCitizen.set(citizenId, this.waitingById.get(id)!);
     this.revision += 1;
     return true;
   }
@@ -339,7 +375,8 @@ export class TransitSystem {
 
   save(): TransitSaveState {
     return { config: structuredClone(this.config), stops: this.stops, lines: this.lines, vehicles: this.vehicles,
-      waitingGroups: this.waitingGroups, stopMetrics: this.snapshot().stopMetrics, nextStopSerial: this.nextStopSerial,
+      waitingGroups: this.waitingGroups, ...(this.alightedCitizens.length ? { alightedCitizens: structuredClone(this.alightedCitizens) } : {}),
+      stopMetrics: this.snapshot().stopMetrics, nextStopSerial: this.nextStopSerial,
       nextLineSerial: this.nextLineSerial, nextVehicleSerial: this.nextVehicleSerial, nextGroupSerial: this.nextGroupSerial,
       nextDepartures: [...this.nextDepartures].map(([lineId, gameSeconds]) => ({ lineId, gameSeconds })),
       nextOperationAtGameSeconds: this.nextOperationAtGameSeconds,
@@ -389,6 +426,7 @@ export class TransitSystem {
       if (!group || typeof group.id !== 'string' || waiting.has(group.id) || !lines.has(group.lineId)
         || !stops.has(group.originStopId) || !stops.has(group.destinationStopId)
         || !safePositive(group.count) || !finite(group.requestedAtGameSeconds)
+        || (group.readyAtGameSeconds !== undefined && (!finite(group.readyAtGameSeconds) || group.readyAtGameSeconds < group.requestedAtGameSeconds))
         || (group.transferLineId && (!lines.has(group.transferLineId) || !group.finalStopId || !stops.has(group.finalStopId))))
         throw new Error('Save contains invalid transit passenger group.');
       waiting.set(group.id, structuredClone(group));
@@ -406,6 +444,11 @@ export class TransitSystem {
       departures.set(item.lineId, item.gameSeconds);
     }
     this.vehiclesById = vehicles; this.waitingById = waiting; this.metricsByStop = metrics;
+    const alighted = saved.alightedCitizens ?? [];
+    if (!Array.isArray(alighted) || alighted.some((person) => typeof person.citizenId !== 'string' || !stops.has(person.stopId)
+      || !finite(person.gameSeconds) || person.gameSeconds > gameSeconds)) throw new Error('Save contains invalid alighted citizens.');
+    this.alightedCitizens = structuredClone(alighted); this.waitingIndexRevision = -1;
+    this.waitingByCitizen = new Map([...waiting.values()].filter((group) => group.citizenId).map((group) => [group.citizenId!, group]));
     this.nextDepartures = departures;
     this.nextStopSerial = saved.nextStopSerial; this.nextLineSerial = saved.nextLineSerial;
     this.nextVehicleSerial = saved.nextVehicleSerial; this.nextGroupSerial = saved.nextGroupSerial;
@@ -463,7 +506,9 @@ export class TransitSystem {
         this.waitingById.set(id, { id, lineId: passenger.transferLineId, originStopId: stopId,
           destinationStopId: passenger.finalStopId, count: passenger.count,
           requestedAtGameSeconds: this.lastOperationAtGameSeconds, ...(passenger.citizenId ? { citizenId: passenger.citizenId } : {}) });
-      }
+        if (passenger.citizenId) this.waitingByCitizen.set(passenger.citizenId, this.waitingById.get(id)!);
+      } else if (passenger.citizenId) this.alightedCitizens.push({ citizenId: passenger.citizenId, stopId,
+        gameSeconds: this.lastOperationAtGameSeconds });
     }
     vehicle.onboard = vehicle.onboard.filter((passenger) => passenger.destinationStopId !== stopId);
     const line = this.linesById.get(vehicle.lineId)!;
@@ -474,7 +519,8 @@ export class TransitSystem {
     for (const group of this.waitingById.values()) {
       if (available <= 0) break;
       if (group.lineId !== vehicle.lineId || group.originStopId !== stopId
-        || line.stopIds.indexOf(group.destinationStopId) <= stopIndex) continue;
+        || line.stopIds.indexOf(group.destinationStopId) <= stopIndex
+        || (group.readyAtGameSeconds ?? group.requestedAtGameSeconds) > this.lastOperationAtGameSeconds) continue;
       const count = Math.min(group.count, available);
       group.count -= count; available -= count;
       const onboard = vehicle.onboard.find((item) => item.destinationStopId === group.destinationStopId

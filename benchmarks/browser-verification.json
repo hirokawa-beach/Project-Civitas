@@ -1,0 +1,1156 @@
+{
+  "commercialPaused": {
+    "scenario": "commercial-crowd",
+    "seed": "civitas-performance-v1",
+    "renderer": "WebGPU",
+    "gameSeconds": 28800,
+    "gameSpeed": 0,
+    "sampleCitizen": {
+      "id": "citizen-1-0",
+      "name": "小林 悠真",
+      "state": "walking",
+      "position": {
+        "x": -239.94261228635543,
+        "z": -31.6
+      }
+    },
+    "environment": {
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "devicePixelRatio": 1.0000000447034836
+    },
+    "fps": 58.13953488372062,
+    "frameMs": 16.874583333233993,
+    "individualCitizens": 6000,
+    "activeJourneys": 6000,
+    "cameraCitizens": 6000,
+    "renderedCitizens": 6000,
+    "logicalVehicles": 0,
+    "renderedVehicles": 0,
+    "lod": {
+      "near": 0,
+      "mid": 0,
+      "far": 6000
+    },
+    "workerTimings": {
+      "simulationTickMs": {
+        "samples": 99,
+        "mean": 0.003030302548649335,
+        "p95": 0,
+        "max": 0.10000002384185791
+      },
+      "citizenQueryMs": {
+        "samples": 99,
+        "mean": 4.0444444466118865,
+        "p95": 7.600000023841858,
+        "max": 19.100000023841858
+      }
+    },
+    "messageBytes": 5624653,
+    "rendererMetrics": {
+      "timings": {
+        "frameIntervalMs": {
+          "samples": 240,
+          "mean": 16.874583333233993,
+          "p95": 23.399999976158142,
+          "max": 53.39999997615814
+        },
+        "renderCpuMs": {
+          "samples": 240,
+          "mean": 1.4525000010927518,
+          "p95": 2.399999976158142,
+          "max": 7.800000071525574
+        },
+        "citizenPoseMs": {
+          "samples": 77,
+          "mean": 3.849350641300152,
+          "p95": 8.599999904632568,
+          "max": 20.699999928474426
+        },
+        "citizenInstanceMs": {
+          "samples": 77,
+          "mean": 0.13246752999045633,
+          "p95": 0.30000007152557373,
+          "max": 0.40000009536743164
+        },
+        "citizenSelectionMs": {
+          "samples": 47,
+          "mean": 11.987234034436815,
+          "p95": 17.5,
+          "max": 19.399999976158142
+        }
+      },
+      "citizenSelectionMs": 9.100000023841858,
+      "citizenPoseMs": 9.600000023841858,
+      "citizenInstanceMs": 0.20000004768371582,
+      "drawCalls": 128,
+      "crowdBufferBytes": 524288,
+      "candidateCitizens": 6000,
+      "candidateVehicles": 0,
+      "terrainMeshMs": 38.299999952316284,
+      "chunkUpdateMs": 68.39999997615814
+    },
+    "heapBytes": 129220361
+  },
+  "speeds": [
+    {
+      "scenario": "commercial-crowd",
+      "seed": "civitas-performance-v1",
+      "renderer": "WebGPU",
+      "gameSeconds": 29140.93999999992,
+      "gameSpeed": 1,
+      "sampleCitizen": {
+        "id": "citizen-1-1",
+        "name": "小林 悠真",
+        "state": "walking",
+        "position": {
+          "x": 142.8506003042952,
+          "z": -31.6
+        }
+      },
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.98800239665973,
+      "frameMs": 16.66624999990066,
+      "individualCitizens": 6000,
+      "activeJourneys": 1081,
+      "cameraCitizens": 1043,
+      "renderedCitizens": 1002,
+      "logicalVehicles": 38,
+      "renderedVehicles": 13,
+      "lod": {
+        "near": 0,
+        "mid": 13,
+        "far": 1002
+      },
+      "workerTimings": {
+        "simulationTickMs": {
+          "samples": 240,
+          "mean": 0.43374999711910883,
+          "p95": 1.9000000953674316,
+          "max": 4.299999952316284
+        },
+        "populationMs": {
+          "samples": 240,
+          "mean": 0.005000000198682149,
+          "p95": 0,
+          "max": 0.2999999523162842
+        },
+        "economyMs": {
+          "samples": 240,
+          "mean": 0.09958333373069764,
+          "p95": 0.20000004768371582,
+          "max": 0.5999999046325684
+        },
+        "trafficMs": {
+          "samples": 240,
+          "mean": 0.24833333243926367,
+          "p95": 1.8000000715255737,
+          "max": 4
+        },
+        "transitMs": {
+          "samples": 240,
+          "mean": 0.06999999831120172,
+          "p95": 0.20000004768371582,
+          "max": 0.2999999523162842
+        },
+        "roadPathMs": {
+          "samples": 38,
+          "mean": 0.013157897873928672,
+          "p95": 0.10000002384185791,
+          "max": 0.10000002384185791
+        },
+        "pedestrianPathMs": {
+          "samples": 72,
+          "mean": 0.004166667660077413,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "citizenQueryMs": {
+          "samples": 166,
+          "mean": 3.45722891336464,
+          "p95": 6.100000023841858,
+          "max": 19.100000023841858
+        },
+        "citizenEventsMs": {
+          "samples": 66,
+          "mean": 0.7712121190446796,
+          "p95": 2.600000023841858,
+          "max": 3.799999952316284
+        }
+      },
+      "messageBytes": 1052836,
+      "rendererMetrics": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.66624999990066,
+            "p95": 18.299999952316284,
+            "max": 27.100000023841858
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 1.9279166688521703,
+            "p95": 3.200000047683716,
+            "max": 4.399999976158142
+          },
+          "citizenPoseMs": {
+            "samples": 240,
+            "mean": 0.6041666666666666,
+            "p95": 2.700000047683716,
+            "max": 4.799999952316284
+          },
+          "citizenInstanceMs": {
+            "samples": 240,
+            "mean": 0.03000000168879827,
+            "p95": 0.10000002384185791,
+            "max": 0.2999999523162842
+          },
+          "citizenSelectionMs": {
+            "samples": 110,
+            "mean": 9.740909091992812,
+            "p95": 17.5,
+            "max": 19.399999976158142
+          }
+        },
+        "citizenSelectionMs": 1.3000000715255737,
+        "citizenPoseMs": 0,
+        "citizenInstanceMs": 0,
+        "drawCalls": 129,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 1043,
+        "candidateVehicles": 38,
+        "terrainMeshMs": 38.299999952316284,
+        "chunkUpdateMs": 68.39999997615814
+      },
+      "heapBytes": 58127855
+    },
+    {
+      "scenario": "commercial-crowd",
+      "seed": "civitas-performance-v1",
+      "renderer": "WebGPU",
+      "gameSeconds": 29365.03200000158,
+      "gameSpeed": 2,
+      "sampleCitizen": {
+        "id": "citizen-132-1",
+        "name": "山口 葵",
+        "state": "walking",
+        "position": {
+          "x": -46.73776873097535,
+          "z": -31.6
+        }
+      },
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.96402157847451,
+      "frameMs": 16.667083333432675,
+      "individualCitizens": 6000,
+      "activeJourneys": 5553,
+      "cameraCitizens": 3553,
+      "renderedCitizens": 3553,
+      "logicalVehicles": 2000,
+      "renderedVehicles": 33,
+      "lod": {
+        "near": 5,
+        "mid": 28,
+        "far": 3553
+      },
+      "workerTimings": {
+        "simulationTickMs": {
+          "samples": 240,
+          "mean": 1.6429166654745737,
+          "p95": 9.299999952316284,
+          "max": 17.199999928474426
+        },
+        "populationMs": {
+          "samples": 240,
+          "mean": 0.005833333730697632,
+          "p95": 0,
+          "max": 0.20000004768371582
+        },
+        "economyMs": {
+          "samples": 240,
+          "mean": 0.09833333045244216,
+          "p95": 0.20000004768371582,
+          "max": 0.3999999761581421
+        },
+        "trafficMs": {
+          "samples": 240,
+          "mean": 1.4612500016887984,
+          "p95": 8.800000071525574,
+          "max": 17
+        },
+        "transitMs": {
+          "samples": 240,
+          "mean": 0.06750000019868214,
+          "p95": 0.19999992847442627,
+          "max": 0.2999999523162842
+        },
+        "roadPathMs": {
+          "samples": 240,
+          "mean": 0.0012499998013178507,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "pedestrianPathMs": {
+          "samples": 240,
+          "mean": 0.0008333335320154826,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "citizenQueryMs": {
+          "samples": 196,
+          "mean": 3.15051020164879,
+          "p95": 6,
+          "max": 19.100000023841858
+        },
+        "citizenEventsMs": {
+          "samples": 107,
+          "mean": 2.9551401840192137,
+          "p95": 9.800000071525574,
+          "max": 14.200000047683716
+        }
+      },
+      "messageBytes": 3835769,
+      "rendererMetrics": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.667083333432675,
+            "p95": 21.399999976158142,
+            "max": 45.90000009536743
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 2.1554166629910467,
+            "p95": 3.5,
+            "max": 6
+          },
+          "citizenPoseMs": {
+            "samples": 240,
+            "mean": 0.4162499989072482,
+            "p95": 2,
+            "max": 3.5
+          },
+          "citizenInstanceMs": {
+            "samples": 240,
+            "mean": 0.022500001390775046,
+            "p95": 0.10000002384185791,
+            "max": 0.30000007152557373
+          },
+          "citizenSelectionMs": {
+            "samples": 138,
+            "mean": 8.233333332815032,
+            "p95": 17.299999952316284,
+            "max": 19.399999976158142
+          }
+        },
+        "citizenSelectionMs": 7.100000023841858,
+        "citizenPoseMs": 0.2999999523162842,
+        "citizenInstanceMs": 0,
+        "drawCalls": 134,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 3553,
+        "candidateVehicles": 2000,
+        "terrainMeshMs": 38.299999952316284,
+        "chunkUpdateMs": 68.39999997615814
+      },
+      "heapBytes": 91713287
+    },
+    {
+      "scenario": "commercial-crowd",
+      "seed": "civitas-performance-v1",
+      "renderer": "WebGPU",
+      "gameSeconds": 30040.696000000153,
+      "gameSpeed": 4,
+      "sampleCitizen": {
+        "id": "citizen-76-2",
+        "name": "長谷川 直樹",
+        "state": "walking",
+        "position": {
+          "x": -6.47753277432065,
+          "z": -31.6
+        }
+      },
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 60.01200240334157,
+      "frameMs": 16.669999999801316,
+      "individualCitizens": 6000,
+      "activeJourneys": 2276,
+      "cameraCitizens": 276,
+      "renderedCitizens": 268,
+      "logicalVehicles": 2000,
+      "renderedVehicles": 33,
+      "lod": {
+        "near": 10,
+        "mid": 23,
+        "far": 268
+      },
+      "workerTimings": {
+        "simulationTickMs": {
+          "samples": 240,
+          "mean": 3.5658333336313563,
+          "p95": 11.600000023841858,
+          "max": 26.700000047683716
+        },
+        "populationMs": {
+          "samples": 240,
+          "mean": 0.017499999701976778,
+          "p95": 0.10000002384185791,
+          "max": 0.5
+        },
+        "economyMs": {
+          "samples": 240,
+          "mean": 0.10041666030883789,
+          "p95": 0.20000004768371582,
+          "max": 0.7000000476837158
+        },
+        "trafficMs": {
+          "samples": 240,
+          "mean": 3.3575000057617825,
+          "p95": 11.399999976158142,
+          "max": 26
+        },
+        "transitMs": {
+          "samples": 240,
+          "mean": 0.07208333412806193,
+          "p95": 0.20000004768371582,
+          "max": 0.6000000238418579
+        },
+        "roadPathMs": {
+          "samples": 240,
+          "mean": 0.00541666696468989,
+          "p95": 0.09999990463256836,
+          "max": 0.10000002384185791
+        },
+        "pedestrianPathMs": {
+          "samples": 240,
+          "mean": 0.0012499998013178507,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "citizenQueryMs": {
+          "samples": 227,
+          "mean": 2.894713652816638,
+          "p95": 6,
+          "max": 19.100000023841858
+        },
+        "citizenEventsMs": {
+          "samples": 197,
+          "mean": 3.9258883259623185,
+          "p95": 10.200000047683716,
+          "max": 14.200000047683716
+        }
+      },
+      "messageBytes": 765719,
+      "rendererMetrics": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.669999999801316,
+            "p95": 17.5,
+            "max": 33.300000071525574
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 1.8841666688521703,
+            "p95": 2.5,
+            "max": 3.3000000715255737
+          },
+          "citizenPoseMs": {
+            "samples": 240,
+            "mean": 0.040833333134651185,
+            "p95": 0.20000004768371582,
+            "max": 0.3999999761581421
+          },
+          "citizenInstanceMs": {
+            "samples": 240,
+            "mean": 0.00708333303531011,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenSelectionMs": {
+            "samples": 168,
+            "mean": 7.256547619189535,
+            "p95": 16.600000023841858,
+            "max": 19.399999976158142
+          }
+        },
+        "citizenSelectionMs": 0.40000009536743164,
+        "citizenPoseMs": 0,
+        "citizenInstanceMs": 0,
+        "drawCalls": 139,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 276,
+        "candidateVehicles": 2000,
+        "terrainMeshMs": 38.299999952316284,
+        "chunkUpdateMs": 68.39999997615814
+      },
+      "heapBytes": 61558499
+    },
+    {
+      "scenario": "commercial-crowd",
+      "seed": "civitas-performance-v1",
+      "renderer": "WebGPU",
+      "gameSeconds": 31460.32400000206,
+      "gameSpeed": 8,
+      "sampleCitizen": {
+        "id": "citizen-16-1",
+        "name": "近藤 明日香",
+        "state": "walking",
+        "position": {
+          "x": 138.9995623078047,
+          "z": -31.6
+        }
+      },
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.9520383721602,
+      "frameMs": 16.668333333233992,
+      "individualCitizens": 6000,
+      "activeJourneys": 250,
+      "cameraCitizens": 11,
+      "renderedCitizens": 11,
+      "logicalVehicles": 239,
+      "renderedVehicles": 101,
+      "lod": {
+        "near": 41,
+        "mid": 60,
+        "far": 11
+      },
+      "workerTimings": {
+        "simulationTickMs": {
+          "samples": 240,
+          "mean": 9.182916663090388,
+          "p95": 14.200000047683716,
+          "max": 27.300000071525574
+        },
+        "populationMs": {
+          "samples": 240,
+          "mean": 0.020000000298023225,
+          "p95": 0.10000002384185791,
+          "max": 0.5
+        },
+        "economyMs": {
+          "samples": 240,
+          "mean": 0.15749999433755874,
+          "p95": 0.2999999523162842,
+          "max": 5.599999904632568
+        },
+        "trafficMs": {
+          "samples": 240,
+          "mean": 8.935416670143605,
+          "p95": 13.899999976158142,
+          "max": 27.100000023841858
+        },
+        "transitMs": {
+          "samples": 240,
+          "mean": 0.05416666567325592,
+          "p95": 0.10000002384185791,
+          "max": 0.2999999523162842
+        },
+        "roadPathMs": {
+          "samples": 240,
+          "mean": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "pedestrianPathMs": {
+          "samples": 240,
+          "mean": 0.0004166667660077413,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "citizenQueryMs": {
+          "samples": 240,
+          "mean": 2.3470833291610083,
+          "p95": 5.299999952316284,
+          "max": 19.100000023841858
+        },
+        "citizenEventsMs": {
+          "samples": 240,
+          "mean": 8.842500000198681,
+          "p95": 13,
+          "max": 25.299999952316284
+        }
+      },
+      "messageBytes": 125028,
+      "rendererMetrics": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.668333333233992,
+            "p95": 16.899999976158142,
+            "max": 17.800000071525574
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 2.5316666697462398,
+            "p95": 3.399999976158142,
+            "max": 4
+          },
+          "citizenPoseMs": {
+            "samples": 240,
+            "mean": 0.008750000099341074,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenInstanceMs": {
+            "samples": 240,
+            "mean": 0.007499999801317851,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenSelectionMs": {
+            "samples": 205,
+            "mean": 5.9809756087093815,
+            "p95": 16.199999928474426,
+            "max": 19.399999976158142
+          }
+        },
+        "citizenSelectionMs": 0,
+        "citizenPoseMs": 0,
+        "citizenInstanceMs": 0,
+        "drawCalls": 170,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 11,
+        "candidateVehicles": 239,
+        "terrainMeshMs": 38.299999952316284,
+        "chunkUpdateMs": 68.39999997615814
+      },
+      "heapBytes": 60795459
+    }
+  ],
+  "camera": [
+    {
+      "scenario": "transit-hotspot",
+      "seed": "civitas-performance-v1",
+      "renderer": "WebGPU",
+      "gameSeconds": 28800,
+      "gameSpeed": 0,
+      "sampleCitizen": {
+        "id": "citizen-33-0",
+        "name": "山田 優斗",
+        "state": "walking",
+        "position": {
+          "x": -245.66411631106448,
+          "z": 48.4
+        }
+      },
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.999999999999154,
+      "frameMs": 16.735833333432673,
+      "individualCitizens": 6000,
+      "activeJourneys": 6000,
+      "cameraCitizens": 6000,
+      "renderedCitizens": 6000,
+      "logicalVehicles": 0,
+      "renderedVehicles": 0,
+      "lod": {
+        "near": 0,
+        "mid": 1497,
+        "far": 4503
+      },
+      "workerTimings": {
+        "simulationTickMs": {
+          "samples": 240,
+          "mean": 0.0029166663686434426,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "citizenQueryMs": {
+          "samples": 240,
+          "mean": 2.217499998708566,
+          "p95": 4.300000071525574,
+          "max": 6.200000047683716
+        }
+      },
+      "messageBytes": 4908392,
+      "rendererMetrics": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.735833333432673,
+            "p95": 23.600000023841858,
+            "max": 49.800000071525574
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 1.31166666696469,
+            "p95": 2.100000023841858,
+            "max": 3.0999999046325684
+          },
+          "citizenPoseMs": {
+            "samples": 140,
+            "mean": 3.180000000340598,
+            "p95": 8.700000047683716,
+            "max": 11.399999976158142
+          },
+          "citizenInstanceMs": {
+            "samples": 140,
+            "mean": 0.1157142835003989,
+            "p95": 0.2999999523162842,
+            "max": 0.5
+          },
+          "citizenSelectionMs": {
+            "samples": 110,
+            "mean": 8.685454540902919,
+            "p95": 14.5,
+            "max": 16.200000047683716
+          }
+        },
+        "citizenSelectionMs": 7.300000071525574,
+        "citizenPoseMs": 2.799999952316284,
+        "citizenInstanceMs": 0.10000002384185791,
+        "drawCalls": 119,
+        "crowdBufferBytes": 655360,
+        "candidateCitizens": 6000,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 28,
+        "chunkUpdateMs": 43.89999997615814
+      },
+      "heapBytes": 139992286
+    },
+    {
+      "scenario": "transit-hotspot",
+      "seed": "civitas-performance-v1",
+      "renderer": "WebGPU",
+      "gameSeconds": 28800,
+      "gameSpeed": 0,
+      "sampleCitizen": {
+        "id": "citizen-33-0",
+        "name": "山田 優斗",
+        "state": "walking",
+        "position": {
+          "x": -245.66411631106448,
+          "z": 48.4
+        }
+      },
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 60.07208649233188,
+      "frameMs": 16.667083333432675,
+      "individualCitizens": 6000,
+      "activeJourneys": 6000,
+      "cameraCitizens": 6000,
+      "renderedCitizens": 111,
+      "logicalVehicles": 0,
+      "renderedVehicles": 0,
+      "lod": {
+        "near": 6,
+        "mid": 105,
+        "far": 0
+      },
+      "workerTimings": {
+        "simulationTickMs": {
+          "samples": 240,
+          "mean": 0.0033333331346511843,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "citizenQueryMs": {
+          "samples": 240,
+          "mean": 2.1833333313465118,
+          "p95": 4.200000047683716,
+          "max": 6.200000047683716
+        }
+      },
+      "messageBytes": 4908392,
+      "rendererMetrics": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.667083333432675,
+            "p95": 24.300000071525574,
+            "max": 37.10000002384186
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 0.8091666703422864,
+            "p95": 1.3000000715255737,
+            "max": 1.7999999523162842
+          },
+          "citizenPoseMs": {
+            "samples": 165,
+            "mean": 2.817575756708781,
+            "p95": 8.600000023841858,
+            "max": 11.399999976158142
+          },
+          "citizenInstanceMs": {
+            "samples": 165,
+            "mean": 0.11454545151103626,
+            "p95": 0.2999999523162842,
+            "max": 1.399999976158142
+          },
+          "citizenSelectionMs": {
+            "samples": 136,
+            "mean": 7.642647054265527,
+            "p95": 13.399999976158142,
+            "max": 16.200000047683716
+          }
+        },
+        "citizenSelectionMs": 2.399999976158142,
+        "citizenPoseMs": 0.10000002384185791,
+        "citizenInstanceMs": 0,
+        "drawCalls": 29,
+        "crowdBufferBytes": 851968,
+        "candidateCitizens": 6000,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 28,
+        "chunkUpdateMs": 43.89999997615814
+      },
+      "heapBytes": 66087002
+    }
+  ],
+  "console": [],
+  "finalNear": {
+    "scenario": "transit-hotspot",
+    "seed": "civitas-performance-v1",
+    "renderer": "WebGL2",
+    "gameSeconds": 28800,
+    "gameSpeed": 0,
+    "sampleCitizen": {
+      "id": "citizen-33-0",
+      "name": "山田 優斗",
+      "state": "walking",
+      "position": {
+        "x": -245.66411631106448,
+        "z": 48.4
+      }
+    },
+    "environment": {
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "devicePixelRatio": 1.0000000447034836
+    },
+    "fps": 59.394179367618655,
+    "frameMs": 16.67583333303531,
+    "individualCitizens": 6000,
+    "activeJourneys": 6000,
+    "cameraCitizens": 6000,
+    "renderedCitizens": 1486,
+    "logicalVehicles": 0,
+    "renderedVehicles": 0,
+    "lod": {
+      "near": 1468,
+      "mid": 18,
+      "far": 0
+    },
+    "workerTimings": {
+      "simulationTickMs": {
+        "samples": 191,
+        "mean": 0.007329843431243098,
+        "p95": 0.10000002384185791,
+        "max": 0.19999992847442627
+      },
+      "citizenQueryMs": {
+        "samples": 191,
+        "mean": 2.419371719135664,
+        "p95": 4.799999952316284,
+        "max": 6.400000095367432
+      }
+    },
+    "messageBytes": 4908392,
+    "rendererMetrics": {
+      "timings": {
+        "frameIntervalMs": {
+          "samples": 240,
+          "mean": 16.67583333303531,
+          "p95": 23.800000071525574,
+          "max": 39.89999997615814
+        },
+        "renderCpuMs": {
+          "samples": 240,
+          "mean": 0.7454166665673256,
+          "p95": 1.100000023841858,
+          "max": 1.6999999284744263
+        },
+        "citizenPoseMs": {
+          "samples": 119,
+          "mean": 1.8117647140967745,
+          "p95": 5.299999952316284,
+          "max": 9.5
+        },
+        "citizenInstanceMs": {
+          "samples": 119,
+          "mean": 0.09999999779613078,
+          "p95": 0.20000004768371582,
+          "max": 1.5999999046325684
+        },
+        "citizenSelectionMs": {
+          "samples": 86,
+          "mean": 6.619767444078312,
+          "p95": 13.200000047683716,
+          "max": 16.5
+        }
+      },
+      "citizenSelectionMs": 3.1999999284744263,
+      "citizenPoseMs": 0.6999999284744263,
+      "citizenInstanceMs": 0,
+      "drawCalls": 34,
+      "crowdBufferBytes": 851968,
+      "candidateCitizens": 6000,
+      "candidateVehicles": 0,
+      "terrainMeshMs": 31.5,
+      "chunkUpdateMs": 50.5
+    },
+    "heapBytes": 82848356
+  },
+  "finalOrbit": {
+    "scenario": "transit-hotspot",
+    "seed": "civitas-performance-v1",
+    "renderer": "WebGL2",
+    "gameSeconds": 28800,
+    "gameSpeed": 0,
+    "sampleCitizen": {
+      "id": "citizen-33-0",
+      "name": "山田 優斗",
+      "state": "walking",
+      "position": {
+        "x": -245.66411631106448,
+        "z": 48.4
+      }
+    },
+    "environment": {
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "devicePixelRatio": 1.0000000447034836
+    },
+    "fps": 60.096153840413805,
+    "frameMs": 16.666666666666668,
+    "individualCitizens": 6000,
+    "activeJourneys": 6000,
+    "cameraCitizens": 6000,
+    "renderedCitizens": 1609,
+    "logicalVehicles": 0,
+    "renderedVehicles": 0,
+    "lod": {
+      "near": 1468,
+      "mid": 32,
+      "far": 109
+    },
+    "workerTimings": {
+      "simulationTickMs": {
+        "samples": 240,
+        "mean": 0.00625,
+        "p95": 0.09999990463256836,
+        "max": 0.19999992847442627
+      },
+      "citizenQueryMs": {
+        "samples": 240,
+        "mean": 2.609999994933605,
+        "p95": 4.799999952316284,
+        "max": 31.59999990463257
+      }
+    },
+    "messageBytes": 4908392,
+    "rendererMetrics": {
+      "timings": {
+        "frameIntervalMs": {
+          "samples": 240,
+          "mean": 16.666666666666668,
+          "p95": 25.299999952316284,
+          "max": 37
+        },
+        "renderCpuMs": {
+          "samples": 240,
+          "mean": 0.8749999995032947,
+          "p95": 1.2999999523162842,
+          "max": 1.9000000953674316
+        },
+        "citizenPoseMs": {
+          "samples": 184,
+          "mean": 1.454347827512285,
+          "p95": 5.200000047683716,
+          "max": 9.5
+        },
+        "citizenInstanceMs": {
+          "samples": 184,
+          "mean": 0.10597826022168864,
+          "p95": 0.20000004768371582,
+          "max": 1.5999999046325684
+        },
+        "citizenSelectionMs": {
+          "samples": 151,
+          "mean": 5.683443706556662,
+          "p95": 12.5,
+          "max": 16.5
+        }
+      },
+      "citizenSelectionMs": 5.899999976158142,
+      "citizenPoseMs": 0.7999999523162842,
+      "citizenInstanceMs": 0.10000002384185791,
+      "drawCalls": 34,
+      "crowdBufferBytes": 851968,
+      "candidateCitizens": 6000,
+      "candidateVehicles": 0,
+      "terrainMeshMs": 31.5,
+      "chunkUpdateMs": 50.5
+    },
+    "heapBytes": 56485391
+  },
+  "finalReturnWide": {
+    "scenario": "transit-hotspot",
+    "seed": "civitas-performance-v1",
+    "renderer": "WebGL2",
+    "gameSeconds": 28800,
+    "gameSpeed": 0,
+    "sampleCitizen": {
+      "id": "citizen-33-0",
+      "name": "山田 優斗",
+      "state": "walking",
+      "position": {
+        "x": -245.66411631106448,
+        "z": 48.4
+      }
+    },
+    "environment": {
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "devicePixelRatio": 1.0000000447034836
+    },
+    "fps": 60.98800569517026,
+    "frameMs": 16.737916666766008,
+    "individualCitizens": 6000,
+    "activeJourneys": 6000,
+    "cameraCitizens": 6000,
+    "renderedCitizens": 6000,
+    "logicalVehicles": 0,
+    "renderedVehicles": 0,
+    "lod": {
+      "near": 0,
+      "mid": 0,
+      "far": 6000
+    },
+    "workerTimings": {
+      "simulationTickMs": {
+        "samples": 240,
+        "mean": 0.0066666667660077415,
+        "p95": 0,
+        "max": 0.2999999523162842
+      },
+      "citizenQueryMs": {
+        "samples": 240,
+        "mean": 2.5070833335320155,
+        "p95": 4.799999952316284,
+        "max": 6.899999976158142
+      }
+    },
+    "messageBytes": 4908392,
+    "rendererMetrics": {
+      "timings": {
+        "frameIntervalMs": {
+          "samples": 240,
+          "mean": 16.737916666766008,
+          "p95": 22.600000023841858,
+          "max": 57.40000009536743
+        },
+        "renderCpuMs": {
+          "samples": 240,
+          "mean": 1.4883333399891854,
+          "p95": 2.1999999284744263,
+          "max": 3.1999999284744263
+        },
+        "citizenPoseMs": {
+          "samples": 240,
+          "mean": 2.381666666766008,
+          "p95": 5.5,
+          "max": 8.5
+        },
+        "citizenInstanceMs": {
+          "samples": 240,
+          "mean": 0.1020833338300387,
+          "p95": 0.20000004768371582,
+          "max": 0.3999999761581421
+        },
+        "citizenSelectionMs": {
+          "samples": 240,
+          "mean": 7.486666666467984,
+          "p95": 14.400000095367432,
+          "max": 19.899999976158142
+        }
+      },
+      "citizenSelectionMs": 13.200000047683716,
+      "citizenPoseMs": 2.799999952316284,
+      "citizenInstanceMs": 0.10000002384185791,
+      "drawCalls": 135,
+      "crowdBufferBytes": 851968,
+      "candidateCitizens": 6000,
+      "candidateVehicles": 0,
+      "terrainMeshMs": 31.5,
+      "chunkUpdateMs": 50.5
+    },
+    "heapBytes": 78678127
+  },
+  "finalConsole": [],
+  "notes": [
+    "Commercial Pause/x1/x2/x4/x8 readings were taken with the same commercial rendering code before the stop-position hash correction; final stop/camera checks use the final build.",
+    "Pause: finalNear, finalOrbit, finalReturnWide retain the same gameSeconds and sample position.",
+    "Panned with WASD, zoomed Near/Mid/Far, rotated the camera, returned to wide view; no crowd-wide flicker or arbitrary density loss was observed. Frustum boundaries intentionally change visible counts.",
+    "Outside-camera simulation continuation and exact returning position are covered by regression tests."
+  ],
+  "normalApp": {
+    "coastalPreview": {
+      "buildableLandPercent": 38,
+      "waterPercent": 46,
+      "edgeConnections": 127
+    },
+    "existingSave": {
+      "population": 108,
+      "households": 36,
+      "renderedCitizens": 23,
+      "logicalVehicles": 6
+    },
+    "console": []
+  }
+}

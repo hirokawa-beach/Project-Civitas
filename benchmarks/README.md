@@ -22,8 +22,16 @@ These are isolated stress layouts, not generated playable city saves. Building c
 - CPU runs use ten warmup ticks and 32 fixed 50ms ticks, reporting mean/p95/max. Setup cost is separate.
 - Camera query count precedes visibility limits. Rendered/selected counts distinguish worker filtering from renderer cost.
 - Pathfinding probes exercise real road routing (including cache hits), not a constant stand-in.
-- Payload bytes estimate structured-clone data: UTF-8 strings, numbers, raw typed arrays. They are not exact browser heap or wire bytes. Heap readings are optional and affected by GC; Node heap before/after includes fixture construction and must not be read as retained city memory.
+- Payload bytes estimate expanded logical data: UTF-8 strings, numbers, raw typed arrays. Repeated route references are counted repeatedly, whereas structured clone can preserve shared references. These are not exact browser heap or wire bytes. Heap readings are optional and affected by GC; Node heap before/after includes fixture construction and must not be read as retained city memory.
 - No terrain vertices or population records are scanned by the renderer's per-frame update. Terrain mesh/chunk updates occur on changed terrain revisions/patches. Terrain chunk edit is measured separately in CPU runs.
 - Targets from #14 (50k/60 FPS, 100k/30+ FPS) are goals, not proof across hardware. Reports include the measured environment.
 
 Saved baseline and After reports are the evidence for the PR comparison. Scenario definitions and inputs remain identical between phases; timing variation and visible count changes are reported rather than hidden.
+
+## Crowd pass
+
+Citizen profile limits (500/1500/3000) now control detail. Actual nearby identities beyond that allowance use Far thin instances. Distance/frustum visibility still applies. Near/Mid/Far use 30/15/8 Hz pose updates, falling to 15/8/3 Hz under sustained pressure. Spatial route-cell and stop indexes query worker-owned people; shared detached routes and cumulative-distance lookup avoid repeated route copying/scanning. Mesh count stays constant as crowd size grows.
+
+Actual transit passengers walk to stops, wait until their access route is complete before boarding, and walk from the alighting stop to their existing destination. Legacy transit saves omit the optional access/egress fields and remain valid. Only outdoor stroll dwellers are shown while visiting; occupants inside homes/shops are not placed outside.
+
+Before draw-call readings were cumulative because Babylon's counter was not reset. The final pass corrects this to per-frame readings. Do not compare the old draw-call field as a per-frame baseline. FPS, frame time, query/pose and payload metrics retain their definitions. See `comparison.md` for results and browser checks.

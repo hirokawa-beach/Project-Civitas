@@ -1,0 +1,830 @@
+{
+  "schemaVersion": 1,
+  "seed": "civitas-performance-v1",
+  "samples": 32,
+  "camera": {
+    "x": 0,
+    "z": 0,
+    "radius": 410
+  },
+  "profile": "balanced",
+  "scenarios": [
+    {
+      "id": "empty",
+      "setupMs": 5.277899999999931,
+      "totalIndividualCitizens": 0,
+      "activeJourneys": 0,
+      "cameraCitizens": 0,
+      "selectedCitizens": 0,
+      "logicalVehicles": 0,
+      "roadSegments": 0,
+      "snapshotBytes": 268601,
+      "trafficMessageBytes": 338,
+      "citizenStateBytes": 24,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.00028124999997913847,
+          "p95": 0.0004000000000132786,
+          "max": 0.0012000000000398359
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.012849999999993145,
+          "p95": 0.017200000000002547,
+          "max": 0.02879999999993288
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.01106874999998908,
+          "p95": 0.015899999999987813,
+          "max": 0.016499999999950887
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.0006281250000057526,
+          "p95": 0.002000000000066393,
+          "max": 0.002299999999991087
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.02653750000001054,
+          "p95": 0.03570000000001983,
+          "max": 0.04579999999998563
+        },
+        "citizenQueryMs": {
+          "samples": 32,
+          "mean": 0.025281249999999034,
+          "p95": 0.036200000000008004,
+          "max": 0.061299999999960164
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 1.183300000000031,
+          "p95": 1.183300000000031,
+          "max": 1.183300000000031
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 0.05189687499999707,
+          "p95": 0.14760000000001128,
+          "max": 0.21429999999998017
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 0.0070531249999952195,
+          "p95": 0.05000000000006821,
+          "max": 0.12369999999998527
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 0.0010750000000001592,
+          "p95": 0.001099999999951251,
+          "max": 0.025300000000015643
+        }
+      }
+    },
+    {
+      "id": "roads-100",
+      "setupMs": 3.8337999999999965,
+      "totalIndividualCitizens": 0,
+      "activeJourneys": 0,
+      "cameraCitizens": 0,
+      "selectedCitizens": 0,
+      "logicalVehicles": 0,
+      "roadSegments": 100,
+      "snapshotBytes": 342049,
+      "trafficMessageBytes": 32722,
+      "citizenStateBytes": 24,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.0004750000000051102,
+          "p95": 0.0009000000000014552,
+          "max": 0.0009999999999763531
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.015440625000010755,
+          "p95": 0.028099999999994907,
+          "max": 0.03300000000001546
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.05043750000000102,
+          "p95": 0.1573999999999387,
+          "max": 1.0208000000000084
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.40828124999999105,
+          "p95": 0.7012000000000853,
+          "max": 0.8625999999999294
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.4771124999999934,
+          "p95": 0.8820999999999231,
+          "max": 1.901899999999955
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.05656250000000895,
+          "p95": 0.21289999999999054,
+          "max": 0.5907999999999447
+        },
+        "citizenQueryMs": {
+          "samples": 32,
+          "mean": 0.019615625000014347,
+          "p95": 0.03550000000007003,
+          "max": 0.08349999999995816
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.2522000000000162,
+          "p95": 0.2522000000000162,
+          "max": 0.2522000000000162
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 0.4669562500000133,
+          "p95": 0.6563999999999623,
+          "max": 1.0897999999999683
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 0.4553437499999937,
+          "p95": 0.6331000000000131,
+          "max": 0.6784999999999854
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 0.0016437499999888416,
+          "p95": 0.0028000000000929504,
+          "max": 0.003399999999942338
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 0.000284375000003223,
+          "p95": 0.0004000000000132786,
+          "max": 0.0004999999999881766
+        }
+      }
+    },
+    {
+      "id": "roads-1000",
+      "setupMs": 24.274800000000027,
+      "totalIndividualCitizens": 0,
+      "activeJourneys": 0,
+      "cameraCitizens": 0,
+      "selectedCitizens": 0,
+      "logicalVehicles": 0,
+      "roadSegments": 1000,
+      "snapshotBytes": 994158,
+      "trafficMessageBytes": 327124,
+      "citizenStateBytes": 24,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.0009968749999913484,
+          "p95": 0.0014999999998508429,
+          "max": 0.0014999999998508429
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.02508750000000859,
+          "p95": 0.05330000000003565,
+          "max": 0.055000000000063665
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.08477499999996851,
+          "p95": 0.8045999999999367,
+          "max": 0.8286000000000513
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 4.1021156249999855,
+          "p95": 5.693700000000035,
+          "max": 5.720700000000079
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 4.218524999999968,
+          "p95": 5.761399999999867,
+          "max": 6.0646999999999025
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.056165625000001995,
+          "p95": 0.0726999999999407,
+          "max": 0.07600000000002183
+        },
+        "citizenQueryMs": {
+          "samples": 32,
+          "mean": 0.01259687499998563,
+          "p95": 0.017299999999977445,
+          "max": 0.020800000000008367
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.33400000000006,
+          "p95": 0.33400000000006,
+          "max": 0.33400000000006
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 4.237659374999943,
+          "p95": 6.19159999999988,
+          "max": 6.645499999999856
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 4.224106250000023,
+          "p95": 5.617100000000164,
+          "max": 7.492099999999937
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 0.0038093750000030013,
+          "p95": 0.005300000000033833,
+          "max": 0.005300000000033833
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 0.0004281249999849024,
+          "p95": 0.0008000000000265572,
+          "max": 0.0009000000000014552
+        }
+      }
+    },
+    {
+      "id": "population-10k",
+      "setupMs": 253.78909999999996,
+      "totalIndividualCitizens": 10000,
+      "activeJourneys": 1000,
+      "cameraCitizens": 986,
+      "selectedCitizens": 762,
+      "logicalVehicles": 0,
+      "roadSegments": 10,
+      "snapshotBytes": 1232661,
+      "trafficMessageBytes": 884362,
+      "citizenStateBytes": 4157741,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.0005062499999795023,
+          "p95": 0.0008000000000265572,
+          "max": 0.0008000000000265572
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.034134374999972295,
+          "p95": 0.04670000000010077,
+          "max": 0.04719999999997526
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.02002500000001106,
+          "p95": 0.05289999999990869,
+          "max": 0.06630000000018299
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.04352812499998038,
+          "p95": 0.061700000000200816,
+          "max": 0.06850000000008549
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.10023437500003496,
+          "p95": 0.16000000000008185,
+          "max": 0.16799999999989268
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.012990624999993372,
+          "p95": 0.03940000000011423,
+          "max": 0.044000000000096406
+        },
+        "citizenQueryMs": {
+          "samples": 65,
+          "mean": 0.5612123076923126,
+          "p95": 1.031500000000051,
+          "max": 2.1789000000001124
+        },
+        "citizenEventsMs": {
+          "samples": 3,
+          "mean": 0.0048333333332569355,
+          "p95": 0.005599999999958527,
+          "max": 0.005599999999958527
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.2497000000000753,
+          "p95": 0.2497000000000753,
+          "max": 0.2497000000000753
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 0.058206249999997794,
+          "p95": 0.08480000000008658,
+          "max": 0.1406000000001768
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 0.7826999999999913,
+          "p95": 1.5149999999998727,
+          "max": 2.3398999999999432
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 0.6242875000000083,
+          "p95": 1.741899999999987,
+          "max": 1.78650000000016
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 0.1368187499999891,
+          "p95": 0.2575000000001637,
+          "max": 0.5408999999999651
+        }
+      }
+    },
+    {
+      "id": "population-50k",
+      "setupMs": 1023.3137000000002,
+      "totalIndividualCitizens": 50000,
+      "activeJourneys": 4961,
+      "cameraCitizens": 4893,
+      "selectedCitizens": 3690,
+      "logicalVehicles": 0,
+      "roadSegments": 10,
+      "snapshotBytes": 4550419,
+      "trafficMessageBytes": 3941623,
+      "citizenStateBytes": 20531704,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.0011656249999845159,
+          "p95": 0.0014999999998508429,
+          "max": 0.0014999999998508429
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.12819062499994516,
+          "p95": 0.18229999999994106,
+          "max": 1.6833000000001448
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.055478125000036016,
+          "p95": 0.452900000000227,
+          "max": 0.5017000000002554
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.05144687500005318,
+          "p95": 0.08820000000014261,
+          "max": 0.09540000000015425
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.2398874999999805,
+          "p95": 0.6514999999999418,
+          "max": 1.778400000000147
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.016993749999997476,
+          "p95": 0.040499999999610736,
+          "max": 0.044100000000071304
+        },
+        "citizenQueryMs": {
+          "samples": 65,
+          "mean": 4.021541538461532,
+          "p95": 5.046800000000076,
+          "max": 5.555599999999686
+        },
+        "citizenEventsMs": {
+          "samples": 3,
+          "mean": 0.27100000000003394,
+          "p95": 0.4216000000001259,
+          "max": 0.4216000000001259
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.27890000000024884,
+          "p95": 0.27890000000024884,
+          "max": 0.27890000000024884
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 0.0588968750000447,
+          "p95": 0.08350000000018554,
+          "max": 0.08560000000034051
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 4.407184375000028,
+          "p95": 5.496999999999844,
+          "max": 5.865699999999833
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 3.3542500000000786,
+          "p95": 5.440799999999854,
+          "max": 5.573899999999867
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 1.634656249999992,
+          "p95": 2.451799999999821,
+          "max": 2.9331999999999425
+        }
+      }
+    },
+    {
+      "id": "population-100k",
+      "setupMs": 2055.7902,
+      "totalIndividualCitizens": 100000,
+      "activeJourneys": 9926,
+      "cameraCitizens": 9792,
+      "selectedCitizens": 7426,
+      "logicalVehicles": 0,
+      "roadSegments": 10,
+      "snapshotBytes": 8804582,
+      "trafficMessageBytes": 7869262,
+      "citizenStateBytes": 41188450,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.0012906249999673491,
+          "p95": 0.0014000000001033186,
+          "max": 0.0018999999992956873
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.1587687499999504,
+          "p95": 0.15419999999994616,
+          "max": 1.95509999999922
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.06774687500001164,
+          "p95": 0.1835000000000946,
+          "max": 0.7496000000001004
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.05148437500005798,
+          "p95": 0.0713000000005195,
+          "max": 0.09730000000035943
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.28386875000012424,
+          "p95": 0.9347000000007029,
+          "max": 2.199300000000221
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.022109374999928377,
+          "p95": 0.05760000000009313,
+          "max": 0.09490000000005239
+        },
+        "citizenQueryMs": {
+          "samples": 65,
+          "mean": 9.74964769230768,
+          "p95": 11.499199999999291,
+          "max": 13.299299999999675
+        },
+        "citizenEventsMs": {
+          "samples": 3,
+          "mean": 0.2603333333333164,
+          "p95": 0.6736999999993714,
+          "max": 0.6736999999993714
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.39350000000013097,
+          "p95": 0.39350000000013097,
+          "max": 0.39350000000013097
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 0.0746312500000954,
+          "p95": 0.14429999999993015,
+          "max": 0.16629999999986467
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 10.061771875000062,
+          "p95": 11.585000000000036,
+          "max": 11.780700000000252
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 6.6226687500000025,
+          "p95": 7.815700000000106,
+          "max": 8.391300000000228
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 4.537568749999792,
+          "p95": 6.145199999999932,
+          "max": 7.151100000000042
+        }
+      }
+    },
+    {
+      "id": "commercial-crowd",
+      "setupMs": 453.4337000000014,
+      "totalIndividualCitizens": 6000,
+      "activeJourneys": 6000,
+      "cameraCitizens": 6000,
+      "selectedCitizens": 6000,
+      "logicalVehicles": 0,
+      "roadSegments": 10,
+      "snapshotBytes": 5891330,
+      "trafficMessageBytes": 5569598,
+      "citizenStateBytes": 7057804,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.0013875000004190952,
+          "p95": 0.0018000000000029104,
+          "max": 0.002300000000104774
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.0930906249998884,
+          "p95": 0.12439999999878637,
+          "max": 0.2603999999992084
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.021121874999948886,
+          "p95": 0.055899999999383,
+          "max": 0.058100000000194996
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.05611874999988231,
+          "p95": 0.0808999999990192,
+          "max": 0.16569999999956053
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.1758718750001549,
+          "p95": 0.22919999999976426,
+          "max": 0.4681000000000495
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.02081874999998945,
+          "p95": 0.0441000000009808,
+          "max": 0.06510000000162108
+        },
+        "citizenQueryMs": {
+          "samples": 65,
+          "mean": 3.308984615384655,
+          "p95": 5.034900000000562,
+          "max": 5.908800000001065
+        },
+        "citizenEventsMs": {
+          "samples": 3,
+          "mean": 0.0036666666668073353,
+          "p95": 0.004000000000814907,
+          "max": 0.004000000000814907
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.3091999999996915,
+          "p95": 0.3091999999996915,
+          "max": 0.3091999999996915
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 0.06902812500015898,
+          "p95": 0.13509999999951106,
+          "max": 0.1407999999992171
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 3.6417624999998566,
+          "p95": 5.443400000000111,
+          "max": 5.91189999999915
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 3.924246875000108,
+          "p95": 6.352600000000166,
+          "max": 6.369400000001406
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 2.964925000000221,
+          "p95": 4.314099999999598,
+          "max": 4.588800000001356
+        }
+      }
+    },
+    {
+      "id": "transit-hotspot",
+      "setupMs": 875.4454000000005,
+      "totalIndividualCitizens": 6000,
+      "activeJourneys": 6000,
+      "cameraCitizens": 5960,
+      "selectedCitizens": 5960,
+      "logicalVehicles": 0,
+      "roadSegments": 10,
+      "snapshotBytes": 5158757,
+      "trafficMessageBytes": 4833844,
+      "citizenStateBytes": 7102512,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.001334375000055843,
+          "p95": 0.0019000000011146767,
+          "max": 0.0020999999997002305
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.07926562499994816,
+          "p95": 0.10009999999965657,
+          "max": 0.10339999999996508
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.11455000000000837,
+          "p95": 1.1201000000000931,
+          "max": 1.2137000000002445
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.0612656249999759,
+          "p95": 0.12039999999979045,
+          "max": 0.19769999999880383
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.26062499999989086,
+          "p95": 1.290899999999965,
+          "max": 1.5015999999995984
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.0609250000000543,
+          "p95": 0.04860000000007858,
+          "max": 1.314300000000003
+        },
+        "citizenQueryMs": {
+          "samples": 65,
+          "mean": 2.0432369230769556,
+          "p95": 2.5059999999994034,
+          "max": 3.0658000000003085
+        },
+        "citizenEventsMs": {
+          "samples": 3,
+          "mean": 0.890099999999317,
+          "p95": 1.019399999999223,
+          "max": 1.019399999999223
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.254399999999805,
+          "p95": 0.254399999999805,
+          "max": 0.254399999999805
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 0.10824062500000764,
+          "p95": 0.0967000000000553,
+          "max": 1.3553000000010798
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 4.2025718750000465,
+          "p95": 6.272000000000844,
+          "max": 11.685500000001412
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 6.46040937500004,
+          "p95": 7.909399999998641,
+          "max": 8.390799999999217
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 2.2132812500000227,
+          "p95": 3.1356999999989057,
+          "max": 3.7351999999991676
+        }
+      }
+    },
+    {
+      "id": "camera-6000",
+      "setupMs": 448.1157000000003,
+      "totalIndividualCitizens": 6000,
+      "activeJourneys": 6000,
+      "cameraCitizens": 6000,
+      "selectedCitizens": 6000,
+      "logicalVehicles": 0,
+      "roadSegments": 10,
+      "snapshotBytes": 5891330,
+      "trafficMessageBytes": 5569598,
+      "citizenStateBytes": 7057804,
+      "timings": {
+        "populationMs": {
+          "samples": 32,
+          "mean": 0.0016218749998984094,
+          "p95": 0.0021999999989930075,
+          "max": 0.0030000000006111804
+        },
+        "economyMs": {
+          "samples": 32,
+          "mean": 0.09769062499981374,
+          "p95": 0.14219999999841093,
+          "max": 0.16789999999855354
+        },
+        "trafficMs": {
+          "samples": 32,
+          "mean": 0.023953125000105047,
+          "p95": 0.06000000000130967,
+          "max": 0.0783000000010361
+        },
+        "transitMs": {
+          "samples": 32,
+          "mean": 0.06016250000027412,
+          "p95": 0.08129999999982829,
+          "max": 0.09770000000025902
+        },
+        "simulationTickMs": {
+          "samples": 32,
+          "mean": 0.1885874999999828,
+          "p95": 0.27330000000074506,
+          "max": 0.27889999999933934
+        },
+        "roadPathMs": {
+          "samples": 32,
+          "mean": 0.023731250000139426,
+          "p95": 0.05340000000069267,
+          "max": 0.07179999999971187
+        },
+        "citizenQueryMs": {
+          "samples": 65,
+          "mean": 3.36662769230766,
+          "p95": 4.915500000000975,
+          "max": 5.980199999999968
+        },
+        "citizenEventsMs": {
+          "samples": 3,
+          "mean": 0.004033333333912499,
+          "p95": 0.004600000000209548,
+          "max": 0.004600000000209548
+        },
+        "terrainChunkEditMs": {
+          "samples": 1,
+          "mean": 0.3125999999992928,
+          "p95": 0.3125999999992928,
+          "max": 0.3125999999992928
+        },
+        "pathfindingProbeMs": {
+          "samples": 32,
+          "mean": 0.07732812500023556,
+          "p95": 0.11640000000079453,
+          "max": 0.14060000000063155
+        },
+        "snapshotMs": {
+          "samples": 32,
+          "mean": 3.8349843749999764,
+          "p95": 5.539899999999761,
+          "max": 5.65309999999954
+        },
+        "citizenSelectionMs": {
+          "samples": 32,
+          "mean": 5.741262500000005,
+          "p95": 7.093600000000151,
+          "max": 7.654599999999846
+        },
+        "citizenPoseMs": {
+          "samples": 32,
+          "mean": 3.326106250000123,
+          "p95": 5.331100000001243,
+          "max": 7.764499999999316
+        }
+      }
+    }
+  ],
+  "environment": {
+    "runtime": "v22.23.2",
+    "platform": "win32",
+    "cpu": "Intel(R) Core(TM) Ultra 5 125H",
+    "logicalCpus": 18,
+    "ramBytes": 16641941504,
+    "renderer": "none (CPU only)",
+    "heapBeforeBytes": 59224904,
+    "heapAfterBytes": 281751104
+  }
+}

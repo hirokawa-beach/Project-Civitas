@@ -1,0 +1,994 @@
+{
+  "schemaVersion": 1,
+  "environment": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "devicePixelRatio": 1.0000000447034836
+  },
+  "results": [
+    {
+      "id": "empty",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 60.10819476203651,
+      "frameMs": 16.66624999990066,
+      "renderedCitizens": 0,
+      "cameraCitizens": 0,
+      "individualCitizens": 0,
+      "activeJourneys": 0,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 0
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.66624999990066,
+            "p95": 16.800000071525574,
+            "max": 17.700000047683716
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 0.44916666448116305,
+            "p95": 0.6000000238418579,
+            "max": 1.1999999284744263
+          },
+          "citizenSelectionMs": {
+            "samples": 7,
+            "mean": 0.014285717691693987,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenPoseMs": {
+            "samples": 7,
+            "mean": 0.014285717691693987,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenInstanceMs": {
+            "samples": 7,
+            "mean": 0.014285717691693987,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          }
+        },
+        "citizenSelectionMs": 0,
+        "citizenPoseMs": 0.10000002384185791,
+        "citizenInstanceMs": 0,
+        "drawCalls": 15,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 0,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 55.200000047683716,
+        "chunkUpdateMs": 57
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 74,
+          "mean": 0.006756758367693102,
+          "p95": 0.10000002384185791,
+          "max": 0.20000004768371582
+        },
+        "economyMs": {
+          "samples": 74,
+          "mean": 0.09864864639333777,
+          "p95": 0.20000004768371582,
+          "max": 0.20000004768371582
+        },
+        "trafficMs": {
+          "samples": 74,
+          "mean": 0.03243242566649978,
+          "p95": 0.10000002384185791,
+          "max": 0.20000004768371582
+        },
+        "transitMs": {
+          "samples": 74,
+          "mean": 0.0013513516735386205,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "simulationTickMs": {
+          "samples": 74,
+          "mean": 0.15270269722551913,
+          "p95": 0.30000007152557373,
+          "max": 0.5
+        }
+      },
+      "messageBytes": 4405,
+      "heapBytes": 84152921
+    },
+    {
+      "id": "roads-100",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 60.0000000000001,
+      "frameMs": 16.666666666666668,
+      "renderedCitizens": 0,
+      "cameraCitizens": 0,
+      "individualCitizens": 0,
+      "activeJourneys": 0,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 0
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.666666666666668,
+            "p95": 16.799999952316284,
+            "max": 16.899999976158142
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 0.5199999953309695,
+            "p95": 0.6999999284744263,
+            "max": 0.8000000715255737
+          },
+          "citizenSelectionMs": {
+            "samples": 9,
+            "mean": 0.02222221427493625,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenPoseMs": {
+            "samples": 9,
+            "mean": 0.011111113760206435,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenInstanceMs": {
+            "samples": 9,
+            "mean": 0.0333333412806193,
+            "p95": 0.20000004768371582,
+            "max": 0.20000004768371582
+          }
+        },
+        "citizenSelectionMs": 0.10000002384185791,
+        "citizenPoseMs": 0,
+        "citizenInstanceMs": 0,
+        "drawCalls": 15,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 0,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 25.899999976158142,
+        "chunkUpdateMs": 38.59999990463257
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 75,
+          "mean": 0.003999999364217122,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "economyMs": {
+          "samples": 75,
+          "mean": 0.1,
+          "p95": 0.20000004768371582,
+          "max": 0.3999999761581421
+        },
+        "trafficMs": {
+          "samples": 75,
+          "mean": 0.045333334604899085,
+          "p95": 0.20000004768371582,
+          "max": 0.20000004768371582
+        },
+        "transitMs": {
+          "samples": 75,
+          "mean": 0.4200000015894572,
+          "p95": 0.7000000476837158,
+          "max": 0.8000000715255737
+        },
+        "simulationTickMs": {
+          "samples": 75,
+          "mean": 0.5733333365122477,
+          "p95": 0.8999999761581421,
+          "max": 1
+        }
+      },
+      "messageBytes": 77853,
+      "heapBytes": 39772398
+    },
+    {
+      "id": "roads-1000",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.988002396660264,
+      "frameMs": 16.666666666666668,
+      "renderedCitizens": 0,
+      "cameraCitizens": 0,
+      "individualCitizens": 0,
+      "activeJourneys": 0,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 0
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.666666666666668,
+            "p95": 18,
+            "max": 22.600000023841858
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 5.546250001589457,
+            "p95": 6.5,
+            "max": 7.299999952316284
+          },
+          "citizenSelectionMs": {
+            "samples": 7,
+            "mean": 0.014285717691693987,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenPoseMs": {
+            "samples": 7,
+            "mean": 0.028571435383387973,
+            "p95": 0.10000002384185791,
+            "max": 0.10000002384185791
+          },
+          "citizenInstanceMs": {
+            "samples": 7,
+            "mean": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "citizenSelectionMs": 0,
+        "citizenPoseMs": 0,
+        "citizenInstanceMs": 0,
+        "drawCalls": 505,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 0,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 25.200000047683716,
+        "chunkUpdateMs": 78.90000009536743
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 66,
+          "mean": 0.004545453822974003,
+          "p95": 0,
+          "max": 0.10000002384185791
+        },
+        "economyMs": {
+          "samples": 66,
+          "mean": 0.15151514609654745,
+          "p95": 0.3999999761581421,
+          "max": 1.600000023841858
+        },
+        "trafficMs": {
+          "samples": 66,
+          "mean": 0.12424242677110614,
+          "p95": 0.5,
+          "max": 1.0999999046325684
+        },
+        "transitMs": {
+          "samples": 66,
+          "mean": 3.962121210315011,
+          "p95": 6.399999976158142,
+          "max": 9.100000023841858
+        },
+        "simulationTickMs": {
+          "samples": 66,
+          "mean": 4.251515144651586,
+          "p95": 6.600000023841858,
+          "max": 9.300000071525574
+        }
+      },
+      "messageBytes": 729962,
+      "heapBytes": 61848030
+    },
+    {
+      "id": "population-10k",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.94005994005995,
+      "frameMs": 16.669166666766007,
+      "renderedCitizens": 695,
+      "cameraCitizens": 1000,
+      "individualCitizens": 10000,
+      "activeJourneys": 1000,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 695
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 240,
+            "mean": 16.669166666766007,
+            "p95": 18.600000023841858,
+            "max": 22.799999952316284
+          },
+          "renderCpuMs": {
+            "samples": 240,
+            "mean": 2.41666666418314,
+            "p95": 3.399999976158142,
+            "max": 7.800000071525574
+          },
+          "citizenSelectionMs": {
+            "samples": 8,
+            "mean": 1.5000000149011612,
+            "p95": 2.5,
+            "max": 2.5
+          },
+          "citizenPoseMs": {
+            "samples": 142,
+            "mean": 0.1845070459473301,
+            "p95": 0.7999999523162842,
+            "max": 1.2000000476837158
+          },
+          "citizenInstanceMs": {
+            "samples": 142,
+            "mean": 0.028873237086014008,
+            "p95": 0.10000002384185791,
+            "max": 0.20000004768371582
+          }
+        },
+        "citizenSelectionMs": 1.7000000476837158,
+        "citizenPoseMs": 0.10000002384185791,
+        "citizenInstanceMs": 0,
+        "drawCalls": 160,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 1000,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 34,
+        "chunkUpdateMs": 60.10000002384186
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 69,
+          "mean": 0.024637680122817772,
+          "p95": 0,
+          "max": 1.5
+        },
+        "economyMs": {
+          "samples": 69,
+          "mean": 0.09855072394661281,
+          "p95": 0.20000004768371582,
+          "max": 0.6000000238418579
+        },
+        "trafficMs": {
+          "samples": 69,
+          "mean": 0.050724641136501145,
+          "p95": 0.10000002384185791,
+          "max": 0.20000004768371582
+        },
+        "transitMs": {
+          "samples": 69,
+          "mean": 0.09420290718907895,
+          "p95": 0.20000004768371582,
+          "max": 0.3999999761581421
+        },
+        "simulationTickMs": {
+          "samples": 69,
+          "mean": 0.29130435508230457,
+          "p95": 0.5,
+          "max": 1.899999976158142
+        },
+        "citizenQueryMs": {
+          "samples": 15,
+          "mean": 0.7599999904632568,
+          "p95": 1.2000000476837158,
+          "max": 1.2000000476837158
+        },
+        "citizenEventsMs": {
+          "samples": 14,
+          "mean": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "messageBytes": 981825,
+      "heapBytes": 50258858
+    },
+    {
+      "id": "population-50k",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.99999999999993,
+      "frameMs": 16.731380752938563,
+      "renderedCitizens": 2569,
+      "cameraCitizens": 4201,
+      "individualCitizens": 50000,
+      "activeJourneys": 4238,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 2569
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 239,
+            "mean": 16.731380752938563,
+            "p95": 16.899999976158142,
+            "max": 42.200000047683716
+          },
+          "renderCpuMs": {
+            "samples": 239,
+            "mean": 6.753556483460271,
+            "p95": 8.700000047683716,
+            "max": 10
+          },
+          "citizenPoseMs": {
+            "samples": 130,
+            "mean": 0.7223076921242934,
+            "p95": 3.3000000715255737,
+            "max": 4
+          },
+          "citizenInstanceMs": {
+            "samples": 130,
+            "mean": 0.038461539378533,
+            "p95": 0.19999992847442627,
+            "max": 0.20000004768371582
+          },
+          "citizenSelectionMs": {
+            "samples": 8,
+            "mean": 4.912500008940697,
+            "p95": 7.599999904632568,
+            "max": 7.599999904632568
+          }
+        },
+        "citizenSelectionMs": 3.1999999284744263,
+        "citizenPoseMs": 0.10000002384185791,
+        "citizenInstanceMs": 0,
+        "drawCalls": 654,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 4201,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 33.799999952316284,
+        "chunkUpdateMs": 90.59999990463257
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 57,
+          "mean": 0.03508771929824561,
+          "p95": 0,
+          "max": 1.899999976158142
+        },
+        "economyMs": {
+          "samples": 57,
+          "mean": 0.1070175380037542,
+          "p95": 0.20000004768371582,
+          "max": 0.40000009536743164
+        },
+        "trafficMs": {
+          "samples": 57,
+          "mean": 0.1982456131985313,
+          "p95": 1.4000000953674316,
+          "max": 1.899999976158142
+        },
+        "transitMs": {
+          "samples": 57,
+          "mean": 0.0701754323223181,
+          "p95": 0.20000004768371582,
+          "max": 0.20000004768371582
+        },
+        "simulationTickMs": {
+          "samples": 57,
+          "mean": 0.42280700750518263,
+          "p95": 1.6999999284744263,
+          "max": 2.5
+        },
+        "citizenQueryMs": {
+          "samples": 13,
+          "mean": 3.338461536627549,
+          "p95": 6.899999976158142,
+          "max": 6.899999976158142
+        },
+        "citizenEventsMs": {
+          "samples": 11,
+          "mean": 0.7909091169183905,
+          "p95": 1.7999999523162842,
+          "max": 1.7999999523162842
+        }
+      },
+      "messageBytes": 3854400,
+      "heapBytes": 110302822
+    },
+    {
+      "id": "population-100k",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 60.00000000000005,
+      "frameMs": 17.24137931034483,
+      "renderedCitizens": 5617,
+      "cameraCitizens": 9151,
+      "individualCitizens": 100000,
+      "activeJourneys": 9263,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 5617
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 232,
+            "mean": 17.24137931034483,
+            "p95": 18.200000047683716,
+            "max": 74.89999997615814
+          },
+          "citizenPoseMs": {
+            "samples": 124,
+            "mean": 1.6806451610980495,
+            "p95": 7,
+            "max": 8.5
+          },
+          "citizenInstanceMs": {
+            "samples": 124,
+            "mean": 0.05161290014943769,
+            "p95": 0.20000004768371582,
+            "max": 0.30000007152557373
+          },
+          "renderCpuMs": {
+            "samples": 232,
+            "mean": 12.450431032427426,
+            "p95": 15.899999976158142,
+            "max": 19.399999976158142
+          },
+          "citizenSelectionMs": {
+            "samples": 6,
+            "mean": 8.49999996026357,
+            "p95": 13.899999976158142,
+            "max": 13.899999976158142
+          }
+        },
+        "citizenSelectionMs": 6.299999952316284,
+        "citizenPoseMs": 4.5,
+        "citizenInstanceMs": 0.10000002384185791,
+        "drawCalls": 1274,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 9151,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 34.39999997615814,
+        "chunkUpdateMs": 92.69999992847443
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 29,
+          "mean": 0.01379310262614283,
+          "p95": 0,
+          "max": 0.3999999761581421
+        },
+        "economyMs": {
+          "samples": 29,
+          "mean": 0.12068966339374411,
+          "p95": 0.40000009536743164,
+          "max": 0.40000009536743164
+        },
+        "trafficMs": {
+          "samples": 29,
+          "mean": 0.3551724121488374,
+          "p95": 1.899999976158142,
+          "max": 2.799999952316284
+        },
+        "transitMs": {
+          "samples": 29,
+          "mean": 0.06551722822518184,
+          "p95": 0.19999992847442627,
+          "max": 0.20000004768371582
+        },
+        "simulationTickMs": {
+          "samples": 29,
+          "mean": 0.562068955651645,
+          "p95": 2.1999999284744263,
+          "max": 3
+        },
+        "citizenQueryMs": {
+          "samples": 9,
+          "mean": 7.888888888888889,
+          "p95": 14.300000071525574,
+          "max": 14.300000071525574
+        },
+        "citizenEventsMs": {
+          "samples": 8,
+          "mean": 0.9500000178813934,
+          "p95": 2.600000023841858,
+          "max": 2.600000023841858
+        }
+      },
+      "messageBytes": 8149721,
+      "heapBytes": 177604038
+    },
+    {
+      "id": "commercial-crowd",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 58.742901893868975,
+      "frameMs": 16.738493723849373,
+      "renderedCitizens": 6000,
+      "cameraCitizens": 6000,
+      "individualCitizens": 6000,
+      "activeJourneys": 6000,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 6000
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 239,
+            "mean": 16.738493723849373,
+            "p95": 16.899999976158142,
+            "max": 60.59999990463257
+          },
+          "renderCpuMs": {
+            "samples": 239,
+            "mean": 2.20209205250361,
+            "p95": 7.599999904632568,
+            "max": 11.800000071525574
+          },
+          "citizenPoseMs": {
+            "samples": 138,
+            "mean": 1.60724637646606,
+            "p95": 6.899999976158142,
+            "max": 10.100000023841858
+          },
+          "citizenInstanceMs": {
+            "samples": 138,
+            "mean": 0.03985507419143898,
+            "p95": 0.20000004768371582,
+            "max": 0.30000007152557373
+          },
+          "citizenSelectionMs": {
+            "samples": 8,
+            "mean": 9.137500032782555,
+            "p95": 14.5,
+            "max": 14.5
+          }
+        },
+        "citizenSelectionMs": 8.300000071525574,
+        "citizenPoseMs": 3.799999952316284,
+        "citizenInstanceMs": 0.10000002384185791,
+        "drawCalls": 128,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 6000,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 26.5,
+        "chunkUpdateMs": 52.199999928474426
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 64,
+          "mean": 0.00781250186264515,
+          "p95": 0.10000002384185791,
+          "max": 0.10000002384185791
+        },
+        "economyMs": {
+          "samples": 64,
+          "mean": 0.07968749478459358,
+          "p95": 0.20000004768371582,
+          "max": 0.2999999523162842
+        },
+        "trafficMs": {
+          "samples": 64,
+          "mean": 0.02500000037252903,
+          "p95": 0.10000002384185791,
+          "max": 0.20000004768371582
+        },
+        "transitMs": {
+          "samples": 64,
+          "mean": 0.05468750186264515,
+          "p95": 0.19999992847442627,
+          "max": 0.20000004768371582
+        },
+        "simulationTickMs": {
+          "samples": 64,
+          "mean": 0.171875,
+          "p95": 0.30000007152557373,
+          "max": 0.3999999761581421
+        },
+        "citizenQueryMs": {
+          "samples": 15,
+          "mean": 2.4400000174840293,
+          "p95": 7.299999952316284,
+          "max": 7.299999952316284
+        },
+        "citizenEventsMs": {
+          "samples": 14,
+          "mean": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "messageBytes": 5627134,
+      "heapBytes": 134123522
+    },
+    {
+      "id": "transit-hotspot",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.832469089402544,
+      "frameMs": 16.810504201580496,
+      "renderedCitizens": 5960,
+      "cameraCitizens": 5960,
+      "individualCitizens": 6000,
+      "activeJourneys": 6000,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 5960
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 238,
+            "mean": 16.810504201580496,
+            "p95": 17.40000009536743,
+            "max": 59.09999990463257
+          },
+          "citizenPoseMs": {
+            "samples": 131,
+            "mean": 1.4503816721093563,
+            "p95": 6.299999952316284,
+            "max": 7.899999976158142
+          },
+          "citizenInstanceMs": {
+            "samples": 131,
+            "mean": 0.058778628138185456,
+            "p95": 0.2999999523162842,
+            "max": 0.3999999761581421
+          },
+          "renderCpuMs": {
+            "samples": 238,
+            "mean": 2.4995798308308386,
+            "p95": 6.899999976158142,
+            "max": 9.799999952316284
+          },
+          "citizenSelectionMs": {
+            "samples": 5,
+            "mean": 14.680000019073486,
+            "p95": 24.299999952316284,
+            "max": 24.299999952316284
+          }
+        },
+        "citizenSelectionMs": 13.800000071525574,
+        "citizenPoseMs": 0.6999999284744263,
+        "citizenInstanceMs": 0,
+        "drawCalls": 131,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 5960,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 26.299999952316284,
+        "chunkUpdateMs": 42.89999997615814
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 58,
+          "mean": 0.015517240968243829,
+          "p95": 0.19999992847442627,
+          "max": 0.2999999523162842
+        },
+        "economyMs": {
+          "samples": 58,
+          "mean": 0.8448275862068966,
+          "p95": 0.2999999523162842,
+          "max": 42.799999952316284
+        },
+        "trafficMs": {
+          "samples": 58,
+          "mean": 0.6137931079700075,
+          "p95": 1.7999999523162842,
+          "max": 16.800000071525574
+        },
+        "transitMs": {
+          "samples": 58,
+          "mean": 0.0810344856360863,
+          "p95": 0.20000004768371582,
+          "max": 0.6000000238418579
+        },
+        "simulationTickMs": {
+          "samples": 58,
+          "mean": 1.5672413871206086,
+          "p95": 2.100000023841858,
+          "max": 42.89999997615814
+        },
+        "citizenQueryMs": {
+          "samples": 8,
+          "mean": 1.9124999940395355,
+          "p95": 5,
+          "max": 5
+        },
+        "citizenEventsMs": {
+          "samples": 13,
+          "mean": 1.2384615311255822,
+          "p95": 1.7999999523162842,
+          "max": 1.7999999523162842
+        }
+      },
+      "messageBytes": 4894561,
+      "heapBytes": 93520438
+    },
+    {
+      "id": "camera-6000",
+      "seed": "civitas-performance-v1",
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+        "viewport": [
+          1920,
+          1080
+        ],
+        "devicePixelRatio": 1.0000000447034836
+      },
+      "fps": 59.98800241095934,
+      "frameMs": 17.09234042522755,
+      "renderedCitizens": 6000,
+      "cameraCitizens": 6000,
+      "individualCitizens": 6000,
+      "activeJourneys": 6000,
+      "lod": {
+        "near": 0,
+        "mid": 0,
+        "far": 6000
+      },
+      "renderer": "WebGPU",
+      "timings": {
+        "timings": {
+          "frameIntervalMs": {
+            "samples": 235,
+            "mean": 17.09234042522755,
+            "p95": 16.90000009536743,
+            "max": 66.29999995231628
+          },
+          "citizenPoseMs": {
+            "samples": 124,
+            "mean": 1.8185483880581395,
+            "p95": 6.399999976158142,
+            "max": 8.699999928474426
+          },
+          "citizenInstanceMs": {
+            "samples": 124,
+            "mean": 0.05000000134591134,
+            "p95": 0.20000004768371582,
+            "max": 0.8000000715255737
+          },
+          "renderCpuMs": {
+            "samples": 235,
+            "mean": 2.262553197779554,
+            "p95": 7.399999976158142,
+            "max": 11
+          },
+          "citizenSelectionMs": {
+            "samples": 8,
+            "mean": 11.437500029802322,
+            "p95": 17.100000023841858,
+            "max": 17.100000023841858
+          }
+        },
+        "citizenSelectionMs": 12.400000095367432,
+        "citizenPoseMs": 6.200000047683716,
+        "citizenInstanceMs": 0.10000002384185791,
+        "drawCalls": 128,
+        "crowdBufferBytes": 524288,
+        "candidateCitizens": 6000,
+        "candidateVehicles": 0,
+        "terrainMeshMs": 29.899999976158142,
+        "chunkUpdateMs": 47.700000047683716
+      },
+      "workerTimings": {
+        "populationMs": {
+          "samples": 58,
+          "mean": 0.005172412970970417,
+          "p95": 0.09999990463256836,
+          "max": 0.10000002384185791
+        },
+        "economyMs": {
+          "samples": 58,
+          "mean": 0.10172414779663086,
+          "p95": 0.30000007152557373,
+          "max": 0.5
+        },
+        "trafficMs": {
+          "samples": 58,
+          "mean": 0.03448276067602223,
+          "p95": 0.10000002384185791,
+          "max": 0.20000004768371582
+        },
+        "transitMs": {
+          "samples": 58,
+          "mean": 0.5431034523865272,
+          "p95": 0.20000004768371582,
+          "max": 27.899999976158142
+        },
+        "simulationTickMs": {
+          "samples": 58,
+          "mean": 0.6913793271985548,
+          "p95": 0.5,
+          "max": 27.899999976158142
+        },
+        "citizenQueryMs": {
+          "samples": 14,
+          "mean": 2.285714268684387,
+          "p95": 3.100000023841858,
+          "max": 3.100000023841858
+        },
+        "citizenEventsMs": {
+          "samples": 12,
+          "mean": 0.025000005960464478,
+          "p95": 0.10000002384185791,
+          "max": 0.10000002384185791
+        }
+      },
+      "messageBytes": 5627134,
+      "heapBytes": 38898314
+    }
+  ]
+}

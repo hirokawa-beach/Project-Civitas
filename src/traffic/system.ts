@@ -4,7 +4,8 @@ import type { RoadSegmentId } from '../shared/ids';
 import type { Lot } from '../lots/types';
 import type { BuildingOccupancy, Household, PopulationSnapshot } from '../population/types';
 import { CitizenSystem } from '../citizens/system';
-import { buildingLabel, citizenName } from '../citizens/identity';
+import { buildingLabel, citizenName, stableHash } from '../citizens/identity';
+import { pedestrianPose } from '../citizens/routing';
 import type { AgentDetails, Citizen, CitizenPlace } from '../citizens/types';
 import type { Vec2 } from '../world/types';
 import { HALF_WORLD_SIZE } from '../world/types';
@@ -84,7 +85,8 @@ export class TrafficSystem {
   }
   setCitizenView(position: Vec2, radius: number, cap: number): void {
     if (![position.x, position.z, radius, cap].every(Number.isFinite) || radius <= 0 || cap < 0) return;
-    this.citizenView = { position: { ...position }, radius: Math.min(600, radius), cap: Math.min(3000, Math.floor(cap)) };
+    // cap is a renderer detail preference, not a limit on actual camera-local identities.
+    this.citizenView = { position: { ...position }, radius: Math.min(600, radius), cap: Math.floor(cap) };
     this.revision++;
   }
   inspectCitizen(id: string): AgentDetails | undefined {
@@ -198,6 +200,8 @@ export class TrafficSystem {
       changed = true;
     }
     const transitPassengers = this.individualMode && this.transit?.passengerIds();
+    if (this.individualMode) for (const person of this.transit?.takeAlightedCitizens() ?? [])
+      this.citizens.alight(person.citizenId, person.stop, person.gameSeconds);
     if (this.individualMode) this.citizens.tick(gameSeconds,
       (citizen, origin, destination) => this.createCitizenTrip(citizen, origin, destination, gameSeconds),
       (id) => id.startsWith('transit:') ? !!transitPassengers && transitPassengers.has(id.slice(8)) : this.tripsById.has(id));
@@ -209,6 +213,14 @@ export class TrafficSystem {
   }
 
   snapshot(): TrafficSnapshot {
+    const citizenCandidates = this.individualMode ? this.citizens.nearby(this.citizenView.position, this.citizenView.radius,
+      this.citizens.count, this.gameSeconds) : [];
+    if (this.individualMode) for (const { group, stop } of this.transit?.nearbyWaitingCitizens(this.citizenView.position, this.citizenView.radius) ?? []) {
+      const candidate = this.citizens.transitCandidate(group.citizenId!, stop, group.requestedAtGameSeconds, group.readyAtGameSeconds, this.gameSeconds);
+      if (!candidate) continue;
+      const position = candidate.stationaryPosition ?? pedestrianPose(candidate.route, candidate.length, candidate.speed, candidate.departedAt, this.gameSeconds).position;
+      if (Math.hypot(position.x - this.citizenView.position.x, position.z - this.citizenView.position.z) <= this.citizenView.radius) citizenCandidates.push(candidate);
+    }
     const visibleCandidates: VisibleVehicleCandidate[] = [];
     let logicalVehicles = 0;
     let activeTrips = 0;
@@ -239,9 +251,8 @@ export class TrafficSystem {
       congestedSegmentCount: this.congestedSegmentCount, outsideConnections: this.outside,
       segments: this.segmentStates, visibleCandidates,
       maxVisibleVehicles: this.config.maxVisibleVehicles, visibleRadiusMeters: this.config.visibleRadiusMeters,
-      citizenCandidates: this.individualMode ? this.citizens.nearby(this.citizenView.position, this.citizenView.radius,
-        this.citizenView.cap, this.gameSeconds) : [], individualCitizens: this.citizens.count,
-      activeCitizenJourneys: this.citizens.activeJourneys, cameraCitizenCount: this.citizens.lastQueryCount,
+      citizenCandidates, individualCitizens: this.citizens.count,
+      activeCitizenJourneys: this.citizens.activeJourneys, cameraCitizenCount: citizenCandidates.length,
     };
   }
 
@@ -323,7 +334,13 @@ export class TrafficSystem {
     const roadCost = route ? route.reduce((sum, leg) => sum + legLength(leg)
       / Math.max(1, (this.segmentTraffic.get(leg.segmentId)?.averageSpeed ?? 30) / 3.6) / this.config.vehicleSpeedScale, 0) : Infinity;
     if (this.transit?.offerTrip(from, to, 1, roadCost + this.transit.config.parkingPenaltyGameSeconds,
-      now, this.segmentStates, citizen.id)) return `transit:${citizen.id}`;
+      now, this.segmentStates, citizen.id)) {
+      const group = this.transit.waitingCitizen(citizen.id);
+      const stop = group && this.transit.getStop(group.originStopId);
+      const access = stop && this.citizens.routeToStop(citizen, stop);
+      if (access) this.transit.setCitizenReadyAt(citizen.id, now + polylineLength(access) / (1.05 + stableHash(`${citizen.id}:speed`) * .5));
+      return `transit:${citizen.id}`;
+    }
     if (this.tripsById.size >= (this.config.maxIndividualTrips ?? DEFAULT_TRAFFIC_CONFIG.maxIndividualTrips!)) return null;
     if (!route?.length) return null;
     const purpose: TripPurpose = destination.buildingId === citizen.homeBuildingId
