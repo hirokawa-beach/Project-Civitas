@@ -208,7 +208,7 @@ describe('road traffic', () => {
     const traffic = new TrafficSystem(state.graph.snapshot());
     traffic.tick(30, populated([home], [shop]), [home, shop]);
     const save = state.serialize();
-    expect(save.saveVersion).toBe(12);
+    expect(save.saveVersion).toBe(13);
     const trafficSave = traffic.save();
     expect(trafficSave.trips).toHaveLength(4);
     expect('visibleCitizens' in save).toBe(false);

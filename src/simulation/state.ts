@@ -1,5 +1,6 @@
 import { RoadGraph } from '../roads/roadGraph';
-import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV12 } from '../save/serializer';
+import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV13 } from '../save/serializer';
+import { createWorldMetadata } from '../world/metadata';
 import { validateGenerationMetadata, validateMap, type GeneratedMap, type GenerationMetadata } from '../terrain/generator';
 import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
@@ -28,6 +29,7 @@ import { PerformanceLedger } from '../performance/metrics';
 
 export class SimulationState {
   readonly performance = new PerformanceLedger();
+  worldMetadata = createWorldMetadata();
   readonly graph = new RoadGraph();
   readonly clock = new GameClock();
   readonly history = new CommandHistory();
@@ -73,6 +75,8 @@ export class SimulationState {
     // Keep the Authority instance: its revision must not reset across world replacement.
     this.water.restore(water.save());
     this.generation = structuredClone(map.metadata);
+    this.worldMetadata.generatorMetadata = structuredClone(map.metadata);
+    this.worldMetadata.source.kind = 'procedural';
     this.history.clear();
     this.terrainChanged(createChunks().map((chunk) => chunk.id));
   }
@@ -232,6 +236,7 @@ export class SimulationState {
   snapshot(includeTerrainHeightmap = true): WorldSnapshot {
     this.ensureCitizens();
     return {
+      worldMetadata: structuredClone(this.worldMetadata),
       revision: this.revision,
       roadRevision: this.roadRevision,
       zoningRevision: this.zoningRevision,
@@ -273,7 +278,7 @@ export class SimulationState {
   serviceUpdate(): ServiceSnapshot { return this.services.snapshot(); }
   transitUpdate(): TransitSnapshot { return this.transit.snapshot(); }
 
-  serialize(): SaveFileV12 {
+  serialize(): SaveFileV13 {
     this.ensureCitizens();
     const active = new Set(this.zoningCells.map((cell) => cell.id));
     const zoningAssignments: ZoneAssignment[] = [...this.zoneAssignments]
@@ -283,7 +288,7 @@ export class SimulationState {
     return serializeWorld({ terrain: this.terrain.state(), roadGraph: this.graph.snapshot(), gameClock: this.clock.snapshot(), zoningAssignments,
       lots: this.lots.lots, buildings: this.lots.buildings, population: this.population.save(),
       economy: this.economy.save(), traffic: this.traffic.save(), services: this.services.save(), transit: this.transit.save(),
-      water: this.water.save(), generation: this.generation });
+      water: this.water.save(), generation: this.generation, worldMetadata: this.worldMetadata });
   }
 
   load(save: SaveFile): void {
@@ -341,6 +346,7 @@ export class SimulationState {
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
+    this.worldMetadata = structuredClone(world.worldMetadata!);
     this.water.restore(validatedWater.save());
     this.generation = world.generation;
     this.activeTerrainStroke = undefined;

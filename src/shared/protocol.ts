@@ -13,9 +13,11 @@ import type { TransitSnapshot } from '../transit/types';
 import type { WaterState } from '../water/staticWater';
 import type { GeneratedMap } from '../terrain/generator';
 import type { TimingSummary } from '../performance/metrics';
+import type { WorldMetadata } from '../world/metadata';
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
+  worldMetadata: WorldMetadata;
   revision: number;
   roadRevision: number;
   zoningRevision: number;

@@ -20,8 +20,9 @@ import { validateGenerationMetadata, type GenerationMetadata } from '../terrain/
 import { profileRoadElevation } from '../roads/elevation';
 import { getRoadType } from '../roads/roadTypes';
 import packageInfo from '../../package.json';
+import { createWorldMetadata, validateWorldMetadata, type WorldMetadata } from '../world/metadata';
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 export const GAME_VERSION = packageInfo.version;
 
 interface SaveFileBase {
@@ -105,10 +106,15 @@ export interface SaveFileV12 extends Omit<SaveFileV11, 'saveVersion'> {
   saveVersion: 12;
   generation: GenerationMetadata | null;
 }
+export interface SaveFileV13 extends Omit<SaveFileV12, 'saveVersion' | 'world'> {
+  saveVersion: 13;
+  world: SaveFileV12['world'] & { metadata: WorldMetadata };
+}
 
-export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9 | SaveFileV10 | SaveFileV11 | SaveFileV12;
+export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9 | SaveFileV10 | SaveFileV11 | SaveFileV12 | SaveFileV13;
 
 export interface SerializableWorld {
+  worldMetadata?: WorldMetadata;
   terrain: LegacyTerrainState | TerrainState;
   roadGraph: RoadGraphSnapshot;
   gameClock: GameClockSnapshot;
@@ -124,11 +130,14 @@ export interface SerializableWorld {
   generation?: GenerationMetadata | null;
 }
 
-export const serializeWorld = (world: SerializableWorld): SaveFileV12 => ({
+export const serializeWorld = (world: SerializableWorld): SaveFileV13 => ({
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
   world: {
+    metadata: { ...structuredClone(world.worldMetadata ?? createWorldMetadata({ worldWidthMeters: world.terrain.width,
+      worldDepthMeters: world.terrain.depth, terrainSampleSpacingMeters: 'settings' in world.terrain ? world.terrain.settings.sampleSpacing : 4 })),
+      generatorMetadata: structuredClone(world.generation ?? null) },
     width: world.terrain.width,
     depth: world.terrain.depth,
     terrain: new HeightmapTerrain(world.terrain).state(),
@@ -311,10 +320,25 @@ const isSaveFileV12 = (value: unknown): value is SaveFileV12 => !!value && typeo
   && (value as Partial<SaveFileV12>).saveVersion === 12 && isSaveFileV11({ ...value, saveVersion: 11 })
   && 'generation' in value;
 
-export const migrateSave = (value: unknown): SaveFileV12 => {
+const migrateToV12 = (value: unknown): SaveFileV12 => {
   if (isSaveFileV12(value)) return structuredClone(value);
   const prior = migrateToV11(value);
   return { ...prior, saveVersion: 12, gameVersion: GAME_VERSION, generation: null };
+};
+
+const isSaveFileV13 = (value: unknown): value is SaveFileV13 => !!value && typeof value === 'object'
+  && (value as Partial<SaveFileV13>).saveVersion === 13 && isSaveFileV12({ ...value, saveVersion: 12 })
+  && !!(value as SaveFileV13).world.metadata;
+export const migrateSave = (value: unknown): SaveFileV13 => {
+  if (isSaveFileV13(value)) {
+    const save = structuredClone(value); validateWorldMetadata(save.world.metadata, save.world.terrain); return save;
+  }
+  const old = migrateToV12(value);
+  const metadata = createWorldMetadata({ worldWidthMeters: old.world.width, worldDepthMeters: old.world.depth,
+    terrainSampleSpacingMeters: old.world.terrain.settings.sampleSpacing });
+  metadata.generatorMetadata = structuredClone(old.generation);
+  if (old.generation) metadata.source.kind = 'procedural';
+  return { ...old, saveVersion: 13, gameVersion: GAME_VERSION, world: { ...old.world, metadata } };
 };
 
 const migrateToV11 = (value: unknown): SaveFileV11 => {
@@ -337,13 +361,13 @@ const migrateToV11 = (value: unknown): SaveFileV11 => {
 };
 
 export const deserializeWorld = (value: unknown): SerializableWorld & { terrain: TerrainState; lots: Lot[]; buildings: Building[]; population: PopulationSaveState; economy: EconomyState; traffic: TrafficSaveState; services: ServiceSaveState; transit: TransitSaveState; water: WaterState; generation: GenerationMetadata | null; hasLotData: boolean; hasPopulationData: boolean; hasEconomyData: boolean; hasTrafficData: boolean; hasServiceData: boolean; hasTransitData: boolean } => {
-  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value);
-  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value);
-  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value);
-  const hasTrafficData = isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value);
-  const hasServiceData = isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value);
-  const hasTransitData = isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value);
-  let save: SaveFileV12;
+  const hasLotData = isSaveFileV5(value) || isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value) || isSaveFileV13(value);
+  const hasPopulationData = isSaveFileV6(value) || isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value) || isSaveFileV13(value);
+  const hasEconomyData = isSaveFileV7(value) || isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value) || isSaveFileV13(value);
+  const hasTrafficData = isSaveFileV8(value) || isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value) || isSaveFileV13(value);
+  const hasServiceData = isSaveFileV9(value) || isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value) || isSaveFileV13(value);
+  const hasTransitData = isSaveFileV10(value) || isSaveFileV11(value) || isSaveFileV12(value) || isSaveFileV13(value);
+  let save: SaveFileV13;
   try {
     save = migrateSave(value);
   } catch {
@@ -351,6 +375,7 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
   }
   if (save.generation) validateGenerationMetadata(save.generation);
   return {
+    worldMetadata: structuredClone(save.world.metadata),
     terrain: structuredClone(save.world.terrain),
     roadGraph: structuredClone(save.roadGraph),
     gameClock: { ...save.gameClock },
