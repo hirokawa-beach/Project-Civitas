@@ -404,7 +404,7 @@ export class ConstructionController {
     const points = curve?.points ?? this.previewPoints(current);
     const roadType = getRoadType('small');
     const profile = profileRoadElevation(points, this.structureType, this.structureType === 'ground' ? 0 : this.targetElevation,
-      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.water.seaLevel);
+      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.worldMetadata.waterMode === 'explicit' ? (x, z) => this.renderer.getWaterSurface(x, z) : this.snapshot?.water.seaLevel);
     const validation = validateRoadCandidate(this.nearbyGraph(points, 24), points, {
       bounds: worldBounds(this.snapshot?.worldMetadata ?? createWorldMetadata()),
       candidateWidth: roadType.width,
@@ -637,7 +637,7 @@ export class ConstructionController {
     const nearbyGraph = this.nearbyGraph(points, 24);
     const roadType = getRoadType('small');
     const profile = profileRoadElevation(points, this.structureType, this.structureType === 'ground' ? 0 : this.targetElevation,
-      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.water.seaLevel);
+      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.worldMetadata.waterMode === 'explicit' ? (x, z) => this.renderer.getWaterSurface(x, z) : this.snapshot?.water.seaLevel);
     const previewGeometry = { kind: 'polyline' as const, points, centerline: profile.centerline };
     const intersections = this.findIntersections(points, nearbyGraph.segments, previewGeometry);
     const estimatedCost = roadConstructionCost(points, roadType.id);

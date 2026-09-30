@@ -12,10 +12,12 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.26.0",
+    "earcut": "^3.2.4",
     "preact": "^10.27.2"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.2",
+    "@types/earcut": "^3.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
     "vitest": "^3.2.4"

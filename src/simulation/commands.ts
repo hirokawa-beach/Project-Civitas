@@ -120,7 +120,7 @@ export class BuildRoadCommand extends SnapshotCommand {
     private readonly economy?: EconomySystem, private readonly gameSeconds?: () => number,
     private readonly services?: ServiceSystem, private readonly water?: StaticWater) { super(assignments); }
   protected apply(graph: RoadGraph): SimulationCommandResult {
-    const result = graph.buildRoad(this.input, this.terrainHeight, this.water?.seaLevel);
+    const result = graph.buildRoad(this.input, this.terrainHeight, this.water?.mode === 'explicit' ? (x, z) => this.water!.waterSurfaceAt(x, z) : this.water?.seaLevel);
     if ((this.input.structureType ?? 'ground') === 'ground' && this.terrainHeight && result.createdSegmentIds.some((id) => {
       const segment = graph.segments.get(id);
       return segment && exceedsTerrainGrade(segment.geometry.points, this.terrainHeight!);

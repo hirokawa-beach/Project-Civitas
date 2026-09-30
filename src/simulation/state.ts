@@ -1,6 +1,7 @@
 import { RoadGraph } from '../roads/roadGraph';
 import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV13 } from '../save/serializer';
-import { createWorldMetadata, validateWorldMetadata } from '../world/metadata';
+import { createWorldMetadata, validateWorldMetadata, type WaterBody } from '../world/metadata';
+import { withShoreline } from '../water/geometry';
 import { validateGenerationMetadata, validateMap, type GeneratedMap, type GenerationMetadata } from '../terrain/generator';
 import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
@@ -77,6 +78,7 @@ export class SimulationState {
     this.terrain = terrain;
     this.worldMetadata = metadata;
     this.configureWorld();
+    this.water.configure(metadata);
     // Keep the Authority instance: its revision must not reset across world replacement.
     this.water.restore(water.save());
     this.generation = structuredClone(map.metadata);
@@ -84,6 +86,16 @@ export class SimulationState {
     this.worldMetadata.source.kind = 'procedural';
     this.history.clear();
     this.terrainChanged(createChunks(this.worldMetadata).map((chunk) => chunk.id));
+  }
+
+  setWaterBodies(bodies: WaterBody[]): void {
+    const next = structuredClone(this.worldMetadata);
+    next.waterMode = 'explicit';
+    next.waterBodies = bodies.map(body => withShoreline(body, next));
+    validateWorldMetadata(next, this.terrain.metadata());
+    this.worldMetadata = next;
+    this.water.configure(next);
+    this.revision++;
   }
 
   tick(realSeconds: number): boolean {
@@ -359,6 +371,7 @@ export class SimulationState {
     this.terrain = validatedTerrain;
     this.worldMetadata = structuredClone(world.worldMetadata!);
     this.water.restore(validatedWater.save());
+    this.water.configure(this.worldMetadata);
     this.generation = world.generation;
     this.activeTerrainStroke = undefined;
     this.terrainChanged(createChunks(this.worldMetadata).map((chunk) => chunk.id));

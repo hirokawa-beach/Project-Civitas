@@ -1,3 +1,4 @@
+import { validateWaterPolygon, waterPolygons } from '../water/geometry';
 import type { Vec2, TerrainMetadata } from './types';
 import type { GenerationMetadata } from '../terrain/generator';
 
@@ -83,7 +84,7 @@ export function validateWorldMetadata(world: WorldMetadata, terrain?: TerrainMet
       if (!Array.isArray(points) || points.length < minimum || points.length > 100000
         || points.some((point) => !point || !withinWorld(point, world))) throw new Error('Invalid Water Body geometry.');
     };
-    const polygon = (p: WaterPolygon) => { path(p.vertices, 3); for (const hole of p.holes ?? []) path(hole, 3); };
+    const polygon = (p: WaterPolygon) => { path(p.vertices, 3); for (const hole of p.holes ?? []) path(hole, 3); validateWaterPolygon(p); };
     if (body.geometry.kind === 'polygon') polygon(body.geometry);
     else if (body.geometry.kind === 'multipolygon') {
       if (!Array.isArray(body.geometry.polygons) || !body.geometry.polygons.length) throw new Error('Invalid Water Body polygons.');
@@ -93,6 +94,7 @@ export function validateWorldMetadata(world: WorldMetadata, terrain?: TerrainMet
       if (!Array.isArray(body.geometry.widths) || body.geometry.widths.length !== body.geometry.path.length
         || body.geometry.widths.some((width) => !Number.isFinite(width) || width <= 0 || width > 4096)) throw new Error('Invalid river width profile.');
     } else throw new Error('Invalid Water Body geometry type.');
+    if (body.geometry.kind === 'river') for (const p of waterPolygons(body.geometry, world)) polygon(p);
     for (const boundary of body.boundary) path(boundary, 2);
   }
   const outsideIds = new Set<string>();

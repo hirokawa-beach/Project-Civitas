@@ -554,7 +554,7 @@ export function App({ runtime, simulation }: AppProps) {
           <button onClick={() => runtime.setTerrainPreset('flat')}>FLAT</button>
           <button onClick={() => runtime.setTerrainPreset('hills')}>HILLS</button>
           <label>SEA LEVEL <input aria-label="Sea level" type="number" min="-80" max="240" step="1"
-            value={snapshot?.water.seaLevel ?? -12}
+            disabled={snapshot?.worldMetadata.waterMode === 'explicit'} value={snapshot?.water.seaLevel ?? -12}
             onChange={(event) => { void simulation.execute({ type: 'set-water-level', seaLevel: Number(event.currentTarget.value) }); }} />m</label>
         </div>
       )}

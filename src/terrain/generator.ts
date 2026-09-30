@@ -1,3 +1,5 @@
+import { captureGeneratedWater } from '../water/generatedWater';
+import { withShoreline } from '../water/geometry';
 import { createWorldMetadata, type WorldMetadata, type WorldDimensions } from '../world/metadata';
 
 export const GENERATOR_VERSION = 1;
@@ -192,6 +194,10 @@ function generateAttempt(metadata: GenerationMetadata, attempt: number, world: W
     heights[Math.round(z) * world.terrainColumns + Math.round(x)] = clamp(h, -80, 240);
   }
   world.generatorMetadata = structuredClone(metadata); world.source.kind = 'procedural';
+  world.waterMode = 'explicit';
+  world.waterBodies = paths.map((path, i) => withShoreline({ id: `generated-river-${i + 1}`, type: 'river', surfaceElevation: p.seaLevel, geometry: { kind: 'river', path, widths: path.map(() => p.riverWidth) } }, world));
+  if (metadata.preset === 'coastal' || metadata.preset === 'islands') world.waterBodies.push(...captureGeneratedWater(heights, p.seaLevel, world, 'sea'));
+  else if (!paths.length && p.waterAmount > 0) world.waterBodies.push(...captureGeneratedWater(heights, p.seaLevel, world, 'lake'));
   return { world: structuredClone(world), heights, metadata: structuredClone(metadata), validation: validateMap(heights, p.seaLevel, world), riverPaths: paths };
 }
 

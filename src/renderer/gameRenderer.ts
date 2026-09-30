@@ -1,3 +1,4 @@
+import { Hydrography, triangulateWater, waterPolygons } from '../water/geometry';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import type { ArcRotateCameraPointersInput } from '@babylonjs/core/Cameras/Inputs/arcRotateCameraPointersInput';
 import '@babylonjs/core/Culling/ray';
@@ -142,6 +143,8 @@ export class GameRenderer {
   private readonly tunnelMaterial: StandardMaterial;
   private waterMesh?: Mesh;
   private appliedWaterRevision = -1;
+  private hydrography?: Hydrography;
+  private waterBodyMeshes?: Mesh[];
   private terrain?: HeightmapTerrain;
   private terrainViewKey = '';
   private readonly dirtyTerrainMeshes = new Set<ChunkDescriptor['id']>();
@@ -782,8 +785,30 @@ export class GameRenderer {
     if (this.zonePreviewMesh) this.zonePreviewMesh.material = this.zonePreviewMaterials[brush ?? 'erase'];
   }
 
+  getWaterSurface(x: number, z: number): number | undefined {
+    return this.world.waterMode === 'explicit' ? this.hydrography?.waterSurfaceAt(x, z)
+      : this.snapshot && this.getHeight(x, z) < this.snapshot.water.seaLevel ? this.snapshot.water.seaLevel : undefined;
+  }
+
   private syncWater(snapshot: WorldSnapshot): void {
-    this.waterMesh?.dispose();
+    this.waterMesh?.dispose(); this.waterMesh = undefined;
+    for (const mesh of this.waterBodyMeshes ?? []) mesh.dispose(); this.waterBodyMeshes = [];
+    this.hydrography = snapshot.worldMetadata.waterMode === 'explicit' ? new Hydrography(snapshot.worldMetadata.waterBodies, snapshot.worldMetadata) : undefined;
+    if (this.hydrography) {
+      for (const body of snapshot.worldMetadata.waterBodies) {
+        const positions: number[] = []; const normals: number[] = []; const indices: number[] = [];
+        for (const polygon of waterPolygons(body.geometry, snapshot.worldMetadata)) {
+          const triangles = triangulateWater(polygon); const offset = positions.length / 3;
+          for (const p of triangles.points) { positions.push(p.x, body.surfaceElevation + .04, p.z); normals.push(0, 1, 0); }
+          for (const i of triangles.indices) indices.push(i + offset);
+        }
+        const mesh = new Mesh(`water-body-${body.id}`, this.scene); const data = new VertexData();
+        data.positions = positions; data.normals = normals; data.indices = indices; data.applyToMesh(mesh);
+        mesh.material = this.waterMaterial; mesh.isPickable = false; mesh.metadata = { type: 'water-body', bodyId: body.id };
+        this.waterBodyMeshes.push(mesh);
+      }
+      this.appliedWaterRevision = snapshot.water.revision; return;
+    }
     const mesh = CreateGround('static-water-surface', { width: this.world.worldWidthMeters, height: this.world.worldDepthMeters, subdivisions: 1 }, this.scene);
     mesh.position.y = snapshot.water.seaLevel + 0.04;
     mesh.material = this.waterMaterial;

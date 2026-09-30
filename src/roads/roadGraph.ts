@@ -113,7 +113,7 @@ export class RoadGraph {
   }
 
   buildRoad(input: BuildRoadInput, terrainHeight: (x: number, z: number) => number = () => 0,
-    waterLevel = Number.NEGATIVE_INFINITY): BuildRoadResult {
+    waterLevel: number | ((x: number, z: number) => number | undefined) = Number.NEGATIVE_INFINITY): BuildRoadResult {
     const before = this.snapshot();
     try {
       return this.buildRoadMutating(input, terrainHeight, waterLevel);
@@ -124,7 +124,7 @@ export class RoadGraph {
   }
 
   private buildRoadMutating(input: BuildRoadInput, terrainHeight: (x: number, z: number) => number,
-    waterLevel: number): BuildRoadResult {
+    waterLevel: number | ((x: number, z: number) => number | undefined)): BuildRoadResult {
     if (input.geometry.points.length < 2) throw new Error('A road needs at least two points.');
     const geometry = structuredClone(input.geometry);
     if (polylineLength(geometry.points) < 4) throw new Error('Road is too short.');

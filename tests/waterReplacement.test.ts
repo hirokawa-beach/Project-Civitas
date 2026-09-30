@@ -57,8 +57,14 @@ describe('water synchronization across world replacement', () => {
         const snapshot = state.snapshot(); synchronizeOtherDomains(snapshot);
         const previous = scene.getMeshByName('static-water-surface');
         renderer.updateSnapshot(snapshot);
-        const plane = scene.getMeshByName('static-water-surface')!;
-        expect(plane.position.y).toBeCloseTo(snapshot.water.seaLevel + .04);
+        const plane = scene.getMeshByName('static-water-surface');
+        if (snapshot.worldMetadata.waterMode === 'explicit') {
+          expect(plane).toBeNull();
+          expect(scene.meshes.some(m => m.name.startsWith('water-body-'))).toBe(true);
+          continue;
+        }
+        expect(plane).not.toBeNull();
+        expect(plane!.position.y).toBeCloseTo(snapshot.water.seaLevel + .04);
         expect(plane).not.toBe(previous);
         if (previous) expect(previous.isDisposed()).toBe(true);
       }
