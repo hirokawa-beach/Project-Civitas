@@ -52,7 +52,7 @@ export type UIToWorkerMessage =
   | { type: 'set-agent-view'; position: Vec2; radius: number; cap: number }
   | { type: 'inspect-citizen'; requestId: string; citizenId: string }
   | { type: 'request-save'; requestId: string }
-  | { type: 'load'; save: SaveFile }
+  | { type: 'load'; requestId: string; save: SaveFile }
   | { type: 'begin-terrain-stroke'; point: Vec2; mode: TerrainBrushMode; size: number; strength: number }
   | { type: 'terrain-stroke'; points: Vec2[]; seconds: number }
   | { type: 'end-terrain-stroke' }
@@ -60,6 +60,7 @@ export type UIToWorkerMessage =
   | { type: 'set-terrain-preset'; preset: TerrainPreset };
 
 export type WorkerToUIMessage =
+  | { type: 'load-result'; requestId: string; ok: boolean; error?: string }
   | { type: 'citizen-details'; requestId: string; details?: AgentDetails }
   | { type: 'snapshot'; snapshot: WorldSnapshot }
   | { type: 'clock-update'; revision: number; gameClock: GameClockSnapshot; simulationTickMs: number }

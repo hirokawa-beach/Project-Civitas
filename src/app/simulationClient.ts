@@ -16,6 +16,7 @@ export class SimulationClient {
   private readonly saveRequests = new Map<string, (save: SaveFile) => void>();
   private readonly commandRequests = new Map<string, (response: CommandResponse) => void>();
   private readonly citizenRequests = new Map<string, (details?: AgentDetails) => void>();
+  private readonly loadRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
   latestSnapshot?: WorldSnapshot;
   private terrainHeights?: Float32Array;
 
@@ -39,7 +40,13 @@ export class SimulationClient {
     const requestId = crypto.randomUUID();
     return new Promise((resolve) => { this.citizenRequests.set(requestId, resolve); this.post({ type: 'inspect-citizen', requestId, citizenId }); });
   }
-  load(save: SaveFile): void { this.post({ type: 'load', save }); }
+  load(save: SaveFile): Promise<void> {
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      this.loadRequests.set(requestId, { resolve, reject });
+      this.post({ type: 'load', requestId, save });
+    });
+  }
   beginTerrainStroke(point: Vec2, mode: TerrainBrushMode, size: number, strength: number): void { this.post({ type: 'begin-terrain-stroke', point, mode, size, strength }); }
   terrainStroke(points: Vec2[], seconds: number): void { this.post({ type: 'terrain-stroke', points, seconds }); }
   endTerrainStroke(): void { this.post({ type: 'end-terrain-stroke' }); }
@@ -68,7 +75,12 @@ export class SimulationClient {
   private post(message: UIToWorkerMessage): void { this.worker.postMessage(message); }
 
   private onMessage(message: WorkerToUIMessage): void {
-    if (message.type === 'citizen-details') {
+    if (message.type === 'load-result') {
+      const request = this.loadRequests.get(message.requestId);
+      if (message.ok) request?.resolve();
+      else request?.reject(new Error(message.error ?? 'Load failed.'));
+      this.loadRequests.delete(message.requestId);
+    } else if (message.type === 'citizen-details') {
       this.citizenRequests.get(message.requestId)?.(message.details); this.citizenRequests.delete(message.requestId);
     } else if (message.type === 'snapshot') {
       if (message.snapshot.terrainHeightmap) this.terrainHeights = message.snapshot.terrainHeightmap;

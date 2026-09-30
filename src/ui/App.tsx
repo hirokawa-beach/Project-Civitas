@@ -153,7 +153,7 @@ export function App({ runtime, simulation }: AppProps) {
       const data = await readQuickSave();
       if (!data) return setToast({ message: 'No local save found.', error: true });
       runtime.cancelConstruction();
-      simulation.load(data);
+      await simulation.load(data);
     } catch (error) {
       setToast({ message: error instanceof Error ? error.message : 'Load failed.', error: true });
     }

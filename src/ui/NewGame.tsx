@@ -32,7 +32,16 @@ function MapPreview({ map }: { map: GeneratedMap }) {
   </div>;
 }
 
-export function NewGame({ onStart }: { onStart: (map: GeneratedMap) => void }) {
+export function NewGame({ onStart, onLoad }: { onStart: (map: GeneratedMap) => void; onLoad: () => Promise<void> }) {
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const load = async () => {
+    if (loading) return;
+    setLoading(true); setLoadError('');
+    try { await onLoad(); }
+    catch (cause) { setLoadError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setLoading(false); }
+  };
   const [preset, setPreset] = useState<MapPreset>('flat-plains');
   const [seed, setSeed] = useState('civitas-1');
   const [parameters, setParameters] = useState<GeneratorParameters>(presetParameters('flat-plains'));
@@ -52,6 +61,9 @@ export function NewGame({ onStart }: { onStart: (map: GeneratedMap) => void }) {
   const randomize = () => { setSeed(String(crypto.getRandomValues(new Uint32Array(1))[0])); setMap(undefined); setError(''); };
   return <div class="new-game-screen" aria-label="New city map generator">
     <div class="new-game-header"><span class="identity-mark">C</span><span>PROJECT CIVITAS</span><small>NEW CITY / MAP GENERATOR</small></div>
+    <div class="startup-actions"><span aria-current="page">NEW CITY</span>
+      <button disabled={loading} onClick={load}>{loading ? 'LOADING CITY…' : 'LOAD EXISTING CITY'}</button></div>
+    {loadError && <p class="startup-load-error" role="alert">{loadError}</p>}
     <div class="new-game-layout">
       <section class="new-game-controls">
         <p class="new-game-eyebrow">CREATE A WORLD</p>
@@ -87,7 +99,7 @@ export function NewGame({ onStart }: { onStart: (map: GeneratedMap) => void }) {
           <div><strong>{map.validation.outsideRoadCandidates}</strong><span>EDGE CONNECTIONS</span></div>
           <div><strong>{Math.round(map.validation.largestBuildableAreaRatio * 100)}%</strong><span>CONNECTED AREA</span></div></div>}
         {error && <p class="new-game-error" role="alert">{error}</p>}
-        <button class="new-game-start" disabled={!map?.validation.valid} onClick={() => map && onStart(map)}>START CITY →</button>
+        <button class="new-game-start" disabled={loading || !map?.validation.valid} onClick={() => map && onStart(map)}>START CITY →</button>
       </section>
     </div>
   </div>;

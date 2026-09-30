@@ -68,7 +68,8 @@ export class SimulationState {
     const terrain = HeightmapTerrain.fromBuffer(new HeightmapTerrain().metadata(), map.heights);
     const water = new StaticWater({ version: 1, seaLevel: map.metadata.parameters.seaLevel });
     this.terrain = terrain;
-    this.water = water;
+    // Keep the Authority instance: its revision must not reset across world replacement.
+    this.water.restore(water.save());
     this.generation = structuredClone(map.metadata);
     this.history.clear();
     this.terrainChanged(createChunks().map((chunk) => chunk.id));
@@ -337,7 +338,7 @@ export class SimulationState {
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
-    this.water = validatedWater;
+    this.water.restore(validatedWater.save());
     this.generation = world.generation;
     this.activeTerrainStroke = undefined;
     this.terrainChanged(createChunks().map((chunk) => chunk.id));

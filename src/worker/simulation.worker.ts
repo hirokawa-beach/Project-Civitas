@@ -61,9 +61,17 @@ const processMessage = (message: UIToWorkerMessage): 'initial' | 'full' | 'terra
       post({ type: 'save-data', requestId: message.requestId, save: simulation.serialize() });
       return 'none';
     case 'load':
-      simulation.load(message.save);
-      notify('Save loaded.');
-      return 'initial';
+      try {
+        simulation.load(message.save);
+        initialized = true;
+        post({ type: 'load-result', requestId: message.requestId, ok: true });
+        notify('Save loaded.');
+        return 'initial';
+      } catch (error) {
+        post({ type: 'load-result', requestId: message.requestId, ok: false,
+          error: error instanceof Error ? error.message : String(error) });
+        return 'none';
+      }
     case 'begin-terrain-stroke':
       simulation.beginTerrainStroke(message.point, message.mode, message.size, message.strength);
       return 'terrain';

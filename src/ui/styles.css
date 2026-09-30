@@ -238,6 +238,11 @@ kbd { color: #dbe7df; font: inherit; }
 .new-game-validation strong { display: block; color: var(--mint); font-size: 18px; }
 .new-game-validation span { color: #9fb0a6; font: 8px Consolas, monospace; }
 .new-game-error { color: #f1a59b; font-size: 12px; }
+.startup-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; max-width: 1290px; margin: 0 auto; padding: 24px 28px 0; }
+.startup-actions span { color: var(--mint); font: 700 11px Consolas, monospace; letter-spacing: .09em; }
+.startup-actions button { padding: 12px 18px; }
+.startup-actions button:disabled { color: var(--muted); cursor: wait; }
+.startup-load-error { max-width: 1290px; margin: 16px auto 0; padding: 0 28px; color: #f1a59b; font-size: 13px; }
 @media (max-width: 760px) { .new-game-layout { grid-template-columns: 1fr; max-width: 540px; } .new-game-header small { display: none; } }
 
 @media (max-width: 900px) {
