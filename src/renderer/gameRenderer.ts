@@ -43,6 +43,9 @@ import type { AgentDetails } from '../citizens/types';
 import { buildingLabel } from '../citizens/identity';
 import type { ServiceFacility, ServiceType } from '../services/types';
 import { SERVICE_DEFINITIONS } from '../services/system';
+import { PerformanceLedger } from '../performance/metrics';
+import { CrowdInstanceBatch } from '../visual/crowdInstances';
+import { Frustum } from '@babylonjs/core/Maths/math.frustum';
 
 const ZONE_COLORS: Record<ZoneType, string> = {
   residential: '#67bd78',
@@ -69,6 +72,16 @@ export interface RoadPreviewVisual {
 }
 
 export class GameRenderer {
+  readonly performance = new PerformanceLedger();
+  private lastRenderAt = 0;
+  private citizenSelectionMs = 0;
+  private citizenPoseMs = 0;
+  private citizenInstanceMs = 0;
+  private cameraVehicleMetrics = { candidates: 0 };
+  private crowdBatches?: CrowdInstanceBatch[];
+  private crowdUpdatedAt: Record<AgentLod, number> = { near: -Infinity, mid: -Infinity, far: -Infinity };
+  private crowdSelectionSignature = '';
+  private lastCrowdCamera = { alpha: NaN, beta: NaN, radius: NaN };
   readonly scene: Scene;
   readonly camera: ArcRotateCamera;
   readonly rendererName: 'WebGPU' | 'WebGL2';
@@ -313,10 +326,14 @@ export class GameRenderer {
     this.engine.runRenderLoop(() => {
       if (this.disposed) return;
       const started = performance.now();
+      if (this.lastRenderAt) this.performance.record('frameIntervalMs', started - this.lastRenderAt);
+      this.lastRenderAt = started;
+      this.engine._drawCalls.fetchNewFrame();
       this.scene.render();
+      this.performance.record('renderCpuMs', performance.now() - started);
       this.frameSamples.push(performance.now() - started);
       if (this.frameSamples.length > 90) this.frameSamples.shift();
-      if (this.visualBudget.observe(this.frameSamples.at(-1)!, Math.min(.1, this.engine.getDeltaTime() / 1000)))
+      if (this.visualBudget.observe(this.engine.getDeltaTime(), Math.min(.1, this.engine.getDeltaTime() / 1000)))
         this.syncVisualAgents();
     });
     window.addEventListener('resize', this.resize);
@@ -970,12 +987,21 @@ export class GameRenderer {
     this.agentDetails.clear();
     this.syncVisibleVehicles(snap);
     const snapshot = this.snapshot;
+    const selectionStarted = performance.now();
+    const planes = Frustum.GetPlanes(this.camera.getTransformationMatrix());
     const citizens = this.citizenSampler.select({ x: this.camera.target.x, z: this.camera.target.z },
       this.visualBudget.config, this.visualBudget.citizenBudget, this.citizenSelection,
-      this.visualGameSeconds, snapshot.population.totals.population);
+      this.visualGameSeconds, snapshot.traffic.individualCitizens ?? snapshot.population.totals.population, {
+        visible: (point, retained) => planes.every((plane) => plane.normal.x * point.x + plane.normal.y * (this.getHeight(point.x, point.z) + 1)
+          + plane.normal.z * point.z + plane.d >= -(retained ? 8 : 3)),
+        lodDistance: (point) => Math.hypot(point.x - this.camera.position.x, point.z - this.camera.position.z, this.camera.position.y - this.getHeight(point.x, point.z)),
+        qualityScale: this.visualBudget.qualityScale,
+      });
+    this.citizenSelectionMs = performance.now() - selectionStarted;
+    this.performance.record('citizenSelectionMs', this.citizenSelectionMs);
     this.citizenSelection = citizens.agents;
     for (const citizen of citizens.agents) this.agentDetails.set(citizen.id, { id: citizen.id, name: citizen.name,
-      kind: 'citizen', activity: `walk:${citizen.activity}`, origin: citizen.origin.label, destination: citizen.destination.label,
+      kind: 'citizen', activity: `${citizen.state ?? 'walking'}:${citizen.activity}`, origin: citizen.origin.label, destination: citizen.destination.label,
       home: this.agentBuildingLabel(citizen.homeBuildingId), work: citizen.workBuildingId && this.agentBuildingLabel(citizen.workBuildingId) });
     this.visibleCitizenCount = citizens.agents.length;
     this.culledAgentCount = Math.max(0, snapshot.traffic.visibleCandidates.length - this.visibleVehicleCount) + citizens.culled;
@@ -985,7 +1011,10 @@ export class GameRenderer {
       + citizens.agents.filter((agent) => agent.lod === 'mid').length;
     this.lodFarCount = this.visibleVehicleCount + this.visibleCitizenCount - this.lodNearCount - this.lodMidCount;
     this.lastVisualSelectionGameSeconds = this.visualGameSeconds;
-    this.applyCitizenPoses();
+    const selectionSignature = citizens.agents.map((person) => `${person.id}:${person.lod}`).join('|');
+    this.applyCitizenPoses(selectionSignature !== this.crowdSelectionSignature || snap);
+    this.crowdSelectionSignature = selectionSignature;
+    this.lastCrowdCamera = { alpha: this.camera.alpha, beta: this.camera.beta, radius: this.camera.radius };
     this.visualAgentUpdateMs = performance.now() - started;
   }
 
@@ -999,7 +1028,7 @@ export class GameRenderer {
     const profile = this.visualBudget.config;
     const selected = selectVisibleVehicles(snapshot.traffic.visibleCandidates, snapshot.roadGraph.segments,
       { x: this.camera.target.x, z: this.camera.target.z }, profile.spawnMeters,
-      this.visualBudget.vehicleBudget, new Set(this.vehicleMotion.ids), profile.despawnMeters);
+      this.visualBudget.vehicleBudget, new Set(this.vehicleMotion.ids), profile.despawnMeters, this.cameraVehicleMetrics);
     const segmentById = new Map(snapshot.roadGraph.segments.map((segment) => [segment.id, segment]));
     const targets = new Map<string, VehiclePose>();
     const nextLods = new Map<string, AgentLod>();
@@ -1080,38 +1109,48 @@ export class GameRenderer {
     if (!this.snapshot) return;
     this.visualGameSeconds += realSeconds * this.snapshot.gameClock.speed * 10;
     if (this.visualGameSeconds - this.lastVisualSelectionGameSeconds > 60) this.syncVisualAgents();
-    else if (this.visibleCitizenCount) this.applyCitizenPoses();
+    else if (this.visibleCitizenCount && this.snapshot.gameClock.speed !== 0) this.applyCitizenPoses();
   }
 
-  private applyCitizenPoses(): void {
-    const bodies: number[][] = [[], [], []];
-    const heads: number[][] = [[], [], []];
-    const mid: number[] = [];
-    const far: number[] = [];
-    const bodyIds: string[][] = [[], [], []]; const midIds: string[] = []; const farIds: string[] = [];
+  private applyCitizenPoses(force = false): void {
+    const poseStarted = performance.now();
+    this.crowdBatches ??= [...this.citizenBodyMeshes.map((mesh) => new CrowdInstanceBatch(mesh)),
+      ...this.citizenHeadMeshes.map((mesh) => new CrowdInstanceBatch(mesh)), new CrowdInstanceBatch(this.citizenMidMesh), new CrowdInstanceBatch(this.citizenFarMesh)];
+    const batches = this.crowdBatches;
+    const now = performance.now(); const scale = this.visualBudget.qualityScale;
+    const update = { near: force || now - this.crowdUpdatedAt.near >= 1000 / (scale < .5 ? 15 : 30),
+      mid: force || now - this.crowdUpdatedAt.mid >= 1000 / (scale < .75 ? 8 : 15),
+      far: force || now - this.crowdUpdatedAt.far >= 1000 / (scale < .5 ? 3 : 8) };
+    if (!update.near && !update.mid && !update.far) return;
+    const counts = [0, 0, 0, 0, 0, 0, 0, 0];
     for (const agent of this.citizenSelection) {
+      const index = agent.lod === 'near' ? agent.variation : agent.lod === 'mid' ? 6 : 7;
+      counts[index]++; if (agent.lod === 'near') counts[index + 3]++;
+    }
+    for (let i = 0; i < batches.length; i++) if (i < 6 ? update.near : i === 6 ? update.mid : update.far) batches[i].begin(counts[i]);
+    for (const agent of this.citizenSelection) {
+      if (!update[agent.lod]) continue;
       const pose = this.citizenSampler.pose(agent.id, this.visualGameSeconds);
       if (!pose) continue;
       const y = this.getHeight(pose.position.x, pose.position.z);
-      const rotation = Quaternion.FromEulerAngles(0, pose.yaw, 0);
       if (agent.lod === 'near') {
-        bodyIds[agent.variation].push(agent.id);
-        bodies[agent.variation].push(...Matrix.Compose(Vector3.One(), rotation,
-          new Vector3(pose.position.x, y + .9, pose.position.z)).toArray());
-        heads[agent.variation].push(...Matrix.Compose(Vector3.One(), rotation,
-          new Vector3(pose.position.x, y + 1.8, pose.position.z)).toArray());
+        batches[agent.variation].append(agent.id, pose.position.x, y + .9, pose.position.z, pose.yaw);
+        batches[agent.variation + 3].append(agent.id, pose.position.x, y + 1.8, pose.position.z, pose.yaw);
       } else {
-        (agent.lod === 'mid' ? midIds : farIds).push(agent.id);
-        (agent.lod === 'mid' ? mid : far).push(...Matrix.Compose(Vector3.One(), rotation,
-          new Vector3(pose.position.x, y + (agent.lod === 'mid' ? .8 : .65), pose.position.z)).toArray());
+        batches[agent.lod === 'mid' ? 6 : 7].append(agent.id, pose.position.x, y + (agent.lod === 'mid' ? .8 : .65), pose.position.z, pose.yaw);
       }
     }
-    for (let index = 0; index < 3; index++) {
-      this.updateThinInstances(this.citizenBodyMeshes[index], bodies[index], bodyIds[index]);
-      this.updateThinInstances(this.citizenHeadMeshes[index], heads[index], bodyIds[index]);
-    }
-    this.updateThinInstances(this.citizenMidMesh, mid, midIds);
-    this.updateThinInstances(this.citizenFarMesh, far, farIds);
+    this.citizenPoseMs = performance.now() - poseStarted;
+    this.performance.record('citizenPoseMs', this.citizenPoseMs);
+    const instanceStarted = performance.now();
+    for (let i = 0; i < batches.length; i++) if (i < 6 ? update.near : i === 6 ? update.mid : update.far) batches[i].commit();
+    for (const lod of ['near', 'mid', 'far'] as const) if (update[lod]) this.crowdUpdatedAt[lod] = now;
+    this.visibleCitizenCount = batches.reduce((sum, batch, i) => sum + (i < 3 || i >= 6 ? batch.mesh.thinInstanceCount : 0), 0);
+    this.lodNearCount = [...this.vehicleLods.values()].filter((lod) => lod === 'near').length + batches.slice(0, 3).reduce((sum, batch) => sum + batch.mesh.thinInstanceCount, 0);
+    this.lodMidCount = [...this.vehicleLods.values()].filter((lod) => lod === 'mid').length + batches[6].mesh.thinInstanceCount;
+    this.lodFarCount = this.visibleCitizenCount + this.visibleVehicleCount - this.lodNearCount - this.lodMidCount;
+    this.citizenInstanceMs = performance.now() - instanceStarted;
+    this.performance.record('citizenInstanceMs', this.citizenInstanceMs);
   }
 
   private updateThinInstances(mesh: Mesh, matrices: number[], ids: string[] = []): void {
@@ -1145,7 +1184,16 @@ export class GameRenderer {
   getDebugVisible(): boolean { return this.debugVisible; }
   getFps(): number { return this.engine.getFps(); }
   getFrameTime(): number {
-    return this.frameSamples.length === 0 ? 0 : this.frameSamples.reduce((sum, value) => sum + value, 0) / this.frameSamples.length;
+    return this.performance.report().frameIntervalMs?.mean ?? 0;
+  }
+  getPerformanceMetrics() {
+    return { timings: this.performance.report(), citizenSelectionMs: this.citizenSelectionMs,
+      citizenPoseMs: this.citizenPoseMs, citizenInstanceMs: this.citizenInstanceMs,
+      drawCalls: this.scene.getEngine()._drawCalls.current,
+      crowdBufferBytes: this.crowdBatches?.reduce((sum, batch) => sum + batch.bytes, 0) ?? 0,
+      candidateCitizens: this.snapshot?.traffic.cameraCitizenCount ?? 0,
+      candidateVehicles: this.cameraVehicleMetrics.candidates,
+      terrainMeshMs: this.terrainMeshUpdateMs, chunkUpdateMs: this.terrainUpdateFrameMs };
   }
   getCurrentChunk(): ChunkCoordinate { return worldToChunk({ x: this.camera.target.x, z: this.camera.target.z }); }
 
@@ -1180,8 +1228,11 @@ export class GameRenderer {
       this.camera.target.x = Math.max(-HALF_WORLD_SIZE, Math.min(HALF_WORLD_SIZE, this.camera.target.x + direction.x * speed));
       this.camera.target.z = Math.max(-HALF_WORLD_SIZE, Math.min(HALF_WORLD_SIZE, this.camera.target.z + direction.z * speed));
     }
-    if (this.snapshot && distance({ x: this.lastVehicleCameraX, z: this.lastVehicleCameraZ },
-      { x: this.camera.target.x, z: this.camera.target.z }) > 12) this.syncVisualAgents();
+    if (this.snapshot && (distance({ x: this.lastVehicleCameraX, z: this.lastVehicleCameraZ },
+      { x: this.camera.target.x, z: this.camera.target.z }) > 12
+      || Math.abs(this.camera.alpha - this.lastCrowdCamera.alpha) > .025
+      || Math.abs(this.camera.beta - this.lastCrowdCamera.beta) > .025
+      || Math.abs(this.camera.radius - this.lastCrowdCamera.radius) > 5)) this.syncVisualAgents();
     return delta;
   }
 

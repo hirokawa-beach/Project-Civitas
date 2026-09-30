@@ -39,7 +39,7 @@ describe('derived visual agents', () => {
     expect(derived.nodes.some((node) => node.id === 'stop:stop-1')).toBe(true);
   });
 
-  it('samples stable citizens near the camera, caps them and releases them outside the despawn radius', () => {
+  it('keeps actual nearby citizens visible, reduces overflow detail, and releases them outside the despawn radius', () => {
     const sampler = new CitizenSampler();
     const candidates: CitizenCandidate[] = Array.from({ length: 80 }, (_, i) => ({
       id: `citizen-${i}`, name: `人物 ${i}`, homeBuildingId: 'building-home', activity: 'shopping',
@@ -54,7 +54,9 @@ describe('derived visual agents', () => {
     expect(first.agents.length).toBeLessThanOrEqual(80);
     expect(sampler.select({ x: 0, z: 0 }, profile, 1500, [], 12 * 3600, 80).agents)
       .toEqual(first.agents);
-    expect(sampler.select({ x: 0, z: 0 }, profile, 2, first.agents, 12 * 3600, 80).agents).toHaveLength(2);
+    const overflow = sampler.select({ x: 0, z: 0 }, profile, 2, first.agents, 12 * 3600, 80).agents;
+    expect(overflow).toHaveLength(80);
+    expect(overflow.slice(2).every((person) => person.lod === 'far')).toBe(true);
     expect(sampler.select({ x: 0, z: 0 }, profile, 1500, first.agents, 12 * 3600, 1).agents).toHaveLength(1);
     expect(sampler.select({ x: 500, z: 500 }, profile, 1500, first.agents, 12 * 3600, 80).agents).toHaveLength(0);
     const pose = sampler.pose(first.agents[0].id, 12 * 3600 + 5);

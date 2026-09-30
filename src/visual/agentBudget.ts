@@ -31,6 +31,7 @@ export class AdaptiveAgentBudget {
   get config(): VisualAgentProfile { return VISUAL_AGENT_PROFILES[this.profile]; }
   get vehicleBudget(): number { return Math.round(this.config.maxVehicles * this.scale); }
   get citizenBudget(): number { return Math.round(this.config.maxCitizens * this.scale); }
+  get qualityScale(): number { return this.scale; }
 
   setProfile(profile: PerformanceProfile): void {
     this.profile = profile;
@@ -70,3 +71,11 @@ export class AdaptiveAgentBudget {
 export const agentLod = (distanceMeters: number, profile: VisualAgentProfile): AgentLod =>
   distanceMeters <= profile.nearMeters ? 'near'
     : distanceMeters <= (profile.nearMeters + profile.spawnMeters) / 2 ? 'mid' : 'far';
+
+export function stableAgentLod(distance: number, prior: AgentLod | undefined, profile: VisualAgentProfile): AgentLod {
+  const mid = (profile.nearMeters + profile.spawnMeters) / 2;
+  if (prior === 'near' && distance <= profile.nearMeters * 1.12) return 'near';
+  if (distance <= profile.nearMeters * (prior ? .88 : 1)) return 'near';
+  if (prior === 'mid' && distance <= mid * 1.12) return 'mid';
+  return distance <= mid * (prior === 'far' ? .88 : 1) ? 'mid' : 'far';
+}

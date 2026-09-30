@@ -7,6 +7,7 @@ import { buildPedestrianGraph, type PedestrianGraph } from '../visual/pedestrian
 import { buildingLabel, citizenName, stableHash } from './identity';
 import { PedestrianRouter, pedestrianPose, polylineLength } from './routing';
 import type { Citizen, CitizenCandidate, CitizenJourney, CitizenPlace, CitizenSaveState } from './types';
+import { PerformanceLedger } from '../performance/metrics';
 
 const CELL = 64;
 const cellKey = (x: number, z: number) => `${x}:${z}`;
@@ -39,6 +40,10 @@ class EventQueue {
 
 /** Individual identities and journeys live in the worker. Only nearby walkers cross to the renderer. */
 export class CitizenSystem {
+  readonly performance = new PerformanceLedger();
+  lastQueryCount = 0;
+  get activeJourneys(): number { return this.cellsByWalker.size - this.dwellers.size + this.drivers.size; }
+  get pathfindingPerformance() { return this.router.performance.report(); }
   private residents = new Map<string, Citizen>();
   private buildings = new Map<string, CitizenPlace>();
   private shops: CitizenPlace[] = [];
@@ -51,6 +56,47 @@ export class CitizenSystem {
   private readonly walkersByCell = new Map<string, Set<string>>();
   private readonly cellsByWalker = new Map<string, string[]>();
   private readonly drivers = new Set<string>();
+  private readonly visualCandidates = new Map<string, CitizenCandidate>();
+  private readonly visualRoutes = new Map<string, CitizenCandidate['route']>();
+  private readonly transitVisuals = new Map<string, CitizenCandidate>();
+  private readonly dwellers = new Set<string>();
+  routeToStop(citizen: Citizen, stop: TransitStop): Vec2[] | null {
+    return this.router.route(citizen.journey?.origin.nodeId ?? citizen.location.nodeId, `stop:${stop.id}`);
+  }
+  transitCandidate(id: string, stop: TransitStop, requestedAt: number, readyAt: number | undefined, now: number): CitizenCandidate | undefined {
+    const citizen = this.residents.get(id); const journey = citizen?.journey;
+    if (!citizen || journey?.mode !== 'transit') return;
+    const key = `${id}:${stop.id}:${requestedAt}`;
+    let candidate = this.transitVisuals.get(key);
+    if (!candidate) {
+      const route = readyAt !== undefined ? this.routeToStop(citizen, stop) : null;
+      const destination = { id: stop.id, label: stop.name, nodeId: `stop:${stop.id}`, position: { ...stop.position } };
+      candidate = { id, name: citizen.name, homeBuildingId: citizen.homeBuildingId, workBuildingId: citizen.workBuildingId,
+        activity: journey.activity, origin: structuredClone(journey.origin), destination,
+        route: route ? structuredClone(route) : [{ ...stop.position }, { ...stop.position }],
+        length: route ? polylineLength(route) : 0, speed: journey.speed, departedAt: requestedAt, state: 'transit-access' };
+      if (this.transitVisuals.size >= Math.max(4096, this.drivers.size * 2)) this.transitVisuals.clear();
+      this.transitVisuals.set(key, candidate);
+    }
+    if (readyAt !== undefined && now < readyAt && candidate.length > 0) return candidate;
+    // Stable worker-derived stop queue positions belonging to actual waiting passenger identities.
+    return { ...candidate, state: 'waiting', stationaryPosition: {
+      x: stop.position.x + (stableHash(`queue-x:${stop.id}:${id}`) - .5) * 32,
+      z: stop.position.z + 2 + stableHash(`queue-z:${id}:${stop.id}`) * 12,
+    } };
+  }
+  alight(id: string, stop: TransitStop, at: number): void {
+    const citizen = this.residents.get(id); const journey = citizen?.journey;
+    if (!citizen || journey?.mode !== 'transit') return;
+    const route = this.router.route(`stop:${stop.id}`, journey.destination.nodeId);
+    if (!route || polylineLength(route) < .01) { this.drivers.delete(id); this.arrive(citizen, at); return; }
+    citizen.journey = { ...journey, mode: 'walk', tripId: undefined,
+      origin: { id: stop.id, label: stop.name, nodeId: `stop:${stop.id}`, position: { ...stop.position } },
+      route, length: polylineLength(route), departedAt: at };
+    this.drivers.delete(id); this.indexWalker(citizen);
+    this.visualCandidates.get(id)!.state = 'alighting';
+    this.events.push({ id, at: at + citizen.journey.length / citizen.journey.speed });
+  }
   private restored = false;
   get count(): number { return this.residents.size; }
   has(id: string): boolean { return this.residents.has(id); }
@@ -127,15 +173,21 @@ export class CitizenSystem {
     }
     this.restored = false;
     this.events.clear(); this.walkersByCell.clear(); this.cellsByWalker.clear(); this.drivers.clear();
+    this.visualCandidates.clear(); this.visualRoutes.clear(); this.transitVisuals.clear();
+    this.dwellers.clear();
     for (const resident of this.residents.values()) {
       if (resident.journey && resident.journey.mode !== 'walk') this.drivers.add(resident.id);
       else if (resident.journey) {
         this.indexWalker(resident); this.events.push({ id: resident.id, at: resident.journey.departedAt + resident.journey.length / resident.journey.speed });
-      } else this.events.push({ id: resident.id, at: resident.nextDepartureAt });
+      } else { this.events.push({ id: resident.id, at: resident.nextDepartureAt }); this.indexDweller(resident); }
     }
   }
 
   tick(now: number, createCar: (citizen: Citizen, origin: CitizenPlace, destination: CitizenPlace) => string | null,
+    carExists: (tripId: string) => boolean): void {
+    this.performance.measure('citizenEventsMs', () => this.processEvents(now, createCar, carExists));
+  }
+  private processEvents(now: number, createCar: (citizen: Citizen, origin: CitizenPlace, destination: CitizenPlace) => string | null,
     carExists: (tripId: string) => boolean): void {
     for (const id of this.drivers) {
       const citizen = this.residents.get(id);
@@ -149,6 +201,7 @@ export class CitizenSystem {
       const event = this.events.pop()!; const citizen = this.residents.get(event.id);
       if (!citizen) continue;
       if (citizen.journey) { this.arrive(citizen, now); continue; }
+      if (this.dwellers.has(citizen.id)) this.removeWalker(citizen.id);
       const destination = this.chooseDestination(citizen, now);
       if (!destination) { this.schedule(citizen, now + 120); continue; }
       const walkingRoute = this.router.route(citizen.location.nodeId, destination.place.nodeId);
@@ -202,9 +255,34 @@ export class CitizenSystem {
     this.removeWalker(citizen.id);
     const dwell = citizen.activity === 'work' ? 900 : citizen.activity === 'shopping' ? 120 : citizen.activity === 'home' ? 180 : 30;
     this.schedule(citizen, now + dwell + stableHash(`${citizen.id}:${citizen.journeysCompleted}:dwell`) * dwell);
+    this.indexDweller(citizen);
+  }
+  private indexDweller(citizen: Citizen): void {
+    // Only actual outdoor dwell states, never occupants inside homes/shops.
+    if (citizen.journey || citizen.location.buildingId || citizen.activity !== 'stroll') return;
+    const point = citizen.location.position; const key = cellKey(Math.floor(point.x / CELL), Math.floor(point.z / CELL));
+    const ids = this.walkersByCell.get(key) ?? new Set<string>(); ids.add(citizen.id); this.walkersByCell.set(key, ids);
+    this.cellsByWalker.set(citizen.id, [key]); this.dwellers.add(citizen.id);
+    this.visualCandidates.set(citizen.id, { id: citizen.id, name: citizen.name, homeBuildingId: citizen.homeBuildingId,
+      workBuildingId: citizen.workBuildingId, activity: citizen.activity, origin: structuredClone(citizen.location), destination: structuredClone(citizen.location),
+      route: [{ ...point }, { ...point }], length: 0, speed: 1, departedAt: 0, state: 'visiting', stationaryPosition: { ...point } });
   }
   private indexWalker(citizen: Citizen): void {
     const route = citizen.journey!.route; const keys = new Set<string>();
+    // Detach immutable transport data once per journey, share equal routes across people.
+    // postMessage still clones it across the Worker boundary; no renderer owns this state.
+    const signature = JSON.stringify(route);
+    let visualRoute = this.visualRoutes.get(signature);
+    if (!visualRoute) {
+      visualRoute = structuredClone(route);
+      for (const point of visualRoute) Object.freeze(point); Object.freeze(visualRoute);
+      if (this.visualRoutes.size >= 4096) this.visualRoutes.clear();
+      this.visualRoutes.set(signature, visualRoute);
+    }
+    const { route: _, ...journey } = citizen.journey!;
+    this.visualCandidates.set(citizen.id, { id: citizen.id, name: citizen.name,
+      homeBuildingId: citizen.homeBuildingId, workBuildingId: citizen.workBuildingId,
+      ...structuredClone(journey), route: visualRoute, state: 'walking' });
     for (let i = 1; i < route.length; i++) {
       const a = route[i - 1]; const b = route[i]; const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (CELL / 2)));
       for (let step = 0; step <= steps; step++) keys.add(cellKey(Math.floor((a.x + (b.x - a.x) * step / steps) / CELL),
@@ -214,25 +292,31 @@ export class CitizenSystem {
     for (const key of keys) { const ids = this.walkersByCell.get(key) ?? new Set<string>(); ids.add(citizen.id); this.walkersByCell.set(key, ids); }
   }
   private removeWalker(id: string): void {
+    this.visualCandidates.delete(id);
+    this.dwellers.delete(id);
     for (const key of this.cellsByWalker.get(id) ?? []) { const ids = this.walkersByCell.get(key); ids?.delete(id); if (!ids?.size) this.walkersByCell.delete(key); }
     this.cellsByWalker.delete(id);
   }
 
   nearby(camera: Vec2, radius: number, cap: number, now: number): CitizenCandidate[] {
+    return this.performance.measure('citizenQueryMs', () => this.query(camera, radius, cap, now));
+  }
+  private query(camera: Vec2, radius: number, cap: number, now: number): CitizenCandidate[] {
     const ids = new Set<string>();
     for (let x = Math.floor((camera.x - radius) / CELL); x <= Math.floor((camera.x + radius) / CELL); x++)
       for (let z = Math.floor((camera.z - radius) / CELL); z <= Math.floor((camera.z + radius) / CELL); z++)
         for (const id of this.walkersByCell.get(cellKey(x, z)) ?? []) ids.add(id);
     const nearby: Array<{ citizen: Citizen; distance: number }> = [];
     for (const id of ids) {
-      const citizen = this.residents.get(id)!; const journey = citizen.journey!;
-      const pose = pedestrianPose(journey.route, journey.length, journey.speed, journey.departedAt, now);
+      const citizen = this.residents.get(id)!; const candidate = this.visualCandidates.get(id)!;
+      const pose = candidate.stationaryPosition ? { position: candidate.stationaryPosition, arrived: false }
+        : pedestrianPose(candidate.route, candidate.length, candidate.speed, candidate.departedAt, now);
       const distance = Math.hypot(pose.position.x - camera.x, pose.position.z - camera.z);
       if (!pose.arrived && distance <= radius) nearby.push({ citizen, distance });
     }
-    nearby.sort((a, b) => a.distance - b.distance || a.citizen.id.localeCompare(b.citizen.id));
-    return nearby.slice(0, cap).map(({ citizen }) => ({ id: citizen.id, name: citizen.name, homeBuildingId: citizen.homeBuildingId,
-      workBuildingId: citizen.workBuildingId, ...structuredClone(citizen.journey!) }));
+    if (nearby.length > cap) nearby.sort((a, b) => a.distance - b.distance || a.citizen.id.localeCompare(b.citizen.id));
+    this.lastQueryCount = nearby.length;
+    return nearby.slice(0, cap).map(({ citizen }) => this.visualCandidates.get(citizen.id)!);
   }
 
   restore(saved: CitizenSaveState): void {

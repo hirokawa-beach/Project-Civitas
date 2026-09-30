@@ -116,4 +116,6 @@ export interface TrafficSnapshot {
   visibleRadiusMeters: number;
   citizenCandidates?: CitizenCandidate[];
   individualCitizens?: number;
+  activeCitizenJourneys?: number;
+  cameraCitizenCount?: number;
 }

@@ -55,6 +55,8 @@ export interface TransitVehicle {
 }
 
 export interface TransitWaitingGroup {
+  /** Optional for older saves; absent groups are already waiting at the stop. */
+  readyAtGameSeconds?: number;
   citizenId?: string;
   id: string;
   lineId: string;
@@ -88,6 +90,7 @@ export interface TransitGraphEdge { fromStopId: string; toStopId: string; lineId
 export interface TransitGraph { stopIds: string[]; edges: TransitGraphEdge[]; transferStopIds: string[] }
 
 export interface TransitSaveState {
+  alightedCitizens?: Array<{ citizenId: string; stopId: string; gameSeconds: number }>;
   config: TransitServiceConfig;
   stops: TransitStop[];
   lines: TransitLine[];

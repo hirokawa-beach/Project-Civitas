@@ -18,6 +18,7 @@ export class SimulationClient {
   private readonly citizenRequests = new Map<string, (details?: AgentDetails) => void>();
   private readonly loadRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
   latestSnapshot?: WorldSnapshot;
+  performanceMetrics?: Extract<WorkerToUIMessage, { type: 'performance-update' }>;
   private terrainHeights?: Float32Array;
 
   constructor(private readonly worker: Worker) {
@@ -75,7 +76,9 @@ export class SimulationClient {
   private post(message: UIToWorkerMessage): void { this.worker.postMessage(message); }
 
   private onMessage(message: WorkerToUIMessage): void {
-    if (message.type === 'load-result') {
+    if (message.type === 'performance-update') {
+      this.performanceMetrics = message;
+    } else if (message.type === 'load-result') {
       const request = this.loadRequests.get(message.requestId);
       if (message.ok) request?.resolve();
       else request?.reject(new Error(message.error ?? 'Load failed.'));
