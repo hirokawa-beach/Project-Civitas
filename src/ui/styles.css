@@ -320,3 +320,10 @@ kbd { color: #dbe7df; font: inherit; }
 .map-editor-help { margin-top: 22px; }
 .map-editor .new-game-start { width: 100%; margin-top: 16px; background: var(--mint); color: #0f211b; }
 @media (max-width: 760px) { .map-library { grid-template-columns: 1fr; } .map-editor-sidebar { width: 280px; right: 10px; padding: 14px; } .map-editor-header span { max-width: 220px; } }
+.dem-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.dem-controls > label, .dem-controls > div { margin-top: 16px; }
+.dem-controls p { font-size: 12px; line-height: 1.6; color: var(--muted); }
+.dem-controls input[type="checkbox"] { width: 18px; height: 18px; padding: 0; }
+.dem-attribution { font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.dem-attribution a { color: inherit; text-decoration: underline; }
+.dem-attribution details { margin-bottom: 12px; }

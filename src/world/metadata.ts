@@ -2,6 +2,7 @@ import { validateWaterPolygon, waterPolygons } from '../water/geometry';
 import type { Vec2, TerrainMetadata } from './types';
 import type { GenerationMetadata } from '../terrain/generator';
 import { entireMapOwnership, validateLandSettings, type LandOwnershipSettings } from './landOwnership';
+import type { DemProvenance } from '../dem/types';
 
 export const MAP_SCHEMA_VERSION = 1;
 export interface WorldDimensions {
@@ -40,8 +41,9 @@ export interface WorldMetadata extends WorldDimensions {
   outsideConnections: MapOutsideConnection[];
   generatorMetadata: GenerationMetadata | null;
   source: { kind: 'legacy' | 'procedural' | 'flat' | 'heightmap' | 'dem'; author?: string; name?: string; uri?: string };
-  /** Reserved import contract: projected world metres, without implementing DEM/GIS parsing. */
+  /** Projected sample-grid coordinates in metres; independent from terrain edits. */
   georeference?: { crs: string; affineTransform: [number, number, number, number, number, number]; verticalDatum?: string };
+  demImport?: DemProvenance;
   climate?: Record<string, unknown>;
   resources?: Record<string, unknown>;
 }
@@ -113,4 +115,25 @@ export function validateWorldMetadata(world: WorldMetadata, terrain?: TerrainMet
   if (world.georeference && (typeof world.georeference.crs !== 'string' || !world.georeference.crs.trim()
     || !Array.isArray(world.georeference.affineTransform) || world.georeference.affineTransform.length !== 6
     || !world.georeference.affineTransform.every(Number.isFinite))) throw new Error('Invalid georeference metadata.');
+  const dem = world.demImport;
+  if (dem) {
+    const bounds = dem.geographicBounds;
+    if (!world.georeference || ![dem.provider, dem.dataset, dem.sourceCrs, dem.horizontalDatum, dem.verticalDatum,
+      dem.attribution, dem.termsUrl, dem.license, dem.sourceUrl].every(v => typeof v === 'string' && !!v.trim())
+      || !Number.isFinite(dem.nominalResolutionMeters) || dem.nominalResolutionMeters <= 0
+      || !dem.center || ![dem.center.latitude, dem.center.longitude].every(Number.isFinite)
+      || Math.abs(dem.center.latitude) > 80 || Math.abs(dem.center.longitude) > 180
+      || !bounds || ![bounds.west, bounds.east, bounds.south, bounds.north].every(Number.isFinite)
+      || bounds.west >= bounds.east || bounds.south >= bounds.north || bounds.west < -180 || bounds.east > 180 || bounds.south < -90 || bounds.north > 90
+      || dem.resampling !== 'bilinear' || dem.orientation !== 'x-east-z-south' || !['reject', 'renormalize'].includes(dem.noDataPolicy)
+      || !Number.isInteger(dem.interpolatedNoDataSamples) || dem.interpolatedNoDataSamples < 0 || dem.interpolatedNoDataSamples > c * r
+      || (dem.tileZoom !== undefined && (!Number.isInteger(dem.tileZoom) || dem.tileZoom < 1 || dem.tileZoom > 17))
+      || (dem.rasterSpacingMetersAtCenter !== undefined && (!Number.isFinite(dem.rasterSpacingMetersAtCenter) || dem.rasterSpacingMetersAtCenter <= 0))
+      || (dem.files !== undefined && (!Array.isArray(dem.files) || dem.files.length > 256 || dem.files.some(f => typeof f !== 'string'))))
+      throw new Error('Invalid DEM provenance metadata.');
+    for (const url of [dem.termsUrl, dem.sourceUrl]) {
+      try { if (!['https:', 'http:'].includes(new URL(url).protocol)) throw new Error(); }
+      catch { throw new Error('Invalid DEM attribution URL.'); }
+    }
+  }
 }

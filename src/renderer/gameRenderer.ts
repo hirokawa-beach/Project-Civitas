@@ -643,6 +643,10 @@ export class GameRenderer {
       if (this.camera && this.world.landOwnership?.mode === 'progressive') {
         const first = this.world.landOwnership.startingTiles[0]; const box = landTileBounds(first, this.world, this.world.landOwnership.tileSizeMeters);
         this.focusMapPosition({ x: (box.minX + box.maxX) / 2, z: (box.minZ + box.maxZ) / 2 });
+      } else if (this.camera && this.world.source.kind === 'dem') {
+        // Real elevations can be far above the procedural range. Aim at the
+        // authoritative terrain when installing a DEM world, not at sea level.
+        this.focusMapPosition({ x: this.camera.target.x, z: this.camera.target.z });
       }
       changed = createChunks(this.world).map((chunk) => chunk.id);
     }

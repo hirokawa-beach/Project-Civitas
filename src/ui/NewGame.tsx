@@ -1,5 +1,6 @@
 import { Hydrography } from '../water/geometry';
 import { MapLibrary } from './MapLibrary';
+import { DemImport } from './DemImport';
 import { blankMapAsset, mapAssetFromGenerated, type MapAsset } from '../maps/mapAsset';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { generateMap, MAP_PRESETS, presetParameters, type GeneratedMap, type GeneratorParameters, type MapPreset } from '../terrain/generator';
@@ -42,7 +43,7 @@ function MapPreview({ map }: { map: GeneratedMap }) {
 }
 
 export function NewGame({ onStart, onLoad, onAssetStart, onEdit, initialTab = 'generator' }: { onStart: (map: GeneratedMap) => void; onLoad: () => Promise<void>; onAssetStart: (asset: MapAsset) => void; onEdit: (asset: MapAsset) => void; initialTab?: 'generator' | 'library' }) {
-  const [tab, setTab] = useState<'generator' | 'library'>(initialTab);
+  const [tab, setTab] = useState<'generator' | 'library' | 'dem'>(initialTab);
   const identity = () => ({ id: crypto.randomUUID(), name: 'Untitled Map', description: '', author: 'Local creator' });
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -82,8 +83,8 @@ export function NewGame({ onStart, onLoad, onAssetStart, onEdit, initialTab = 'g
     <div class="startup-actions"><span aria-current="page">NEW CITY</span>
       <button disabled={loading} onClick={load}>{loading ? 'LOADING CITY…' : 'LOAD EXISTING CITY'}</button></div>
     {loadError && <p class="startup-load-error" role="alert">{loadError}</p>}
-    <nav class="map-source-tabs"><button aria-pressed={tab === 'generator'} onClick={() => setTab('generator')}>CREATE MAP / GENERATOR</button><button aria-pressed={tab === 'library'} onClick={() => setTab('library')}>MAP LIBRARY</button></nav>
-    {tab === 'library' ? <MapLibrary onSelect={onAssetStart} onEdit={onEdit} /> : <div class="new-game-layout">
+    <nav class="map-source-tabs"><button aria-pressed={tab === 'generator'} onClick={() => setTab('generator')}>CREATE MAP / GENERATOR</button><button aria-pressed={tab === 'library'} onClick={() => setTab('library')}>MAP LIBRARY</button><button aria-pressed={tab === 'dem'} onClick={() => setTab('dem')}>DEM IMPORT</button></nav>
+    {tab === 'library' ? <MapLibrary onSelect={onAssetStart} onEdit={onEdit} /> : tab === 'dem' ? <DemImport onEdit={onEdit} /> : <div class="new-game-layout">
       <section class="new-game-controls">
         <p class="new-game-eyebrow">CREATE A WORLD</p>
         <h1>Choose your terrain.</h1>

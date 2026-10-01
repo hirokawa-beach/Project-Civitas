@@ -17,3 +17,5 @@ Thumbs.db
 .vscode/
 
 .world-benchmark-run/
+.dem-validation-run/
+.dem-validation-cache/
