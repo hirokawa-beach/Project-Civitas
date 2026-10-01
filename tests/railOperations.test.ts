@@ -82,6 +82,21 @@ describe('event-driven railway operations', () => {
     data.services[0].stopCalls[0].stopType = 'pass';
     expect(() => state.execute({ type: 'set-rail-timetable', timetable: data })).toThrow(/StopCall/);
   });
+  it('rejects unassigned formations and preserves a loadable city/depot', () => {
+    const state = railwayFixture(), data = opposing(state), before = state.railway.save();
+    data.services = []; data.operations = [];
+    expect(() => state.execute({ type: 'set-rail-timetable', timetable: data })).toThrow(/Every Formation/);
+    expect(state.railway.save()).toEqual(before);
+    state.execute({ type: 'remove-railway', kind: 'depot', id: [...state.railway.depots.keys()][0] });
+    const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.depots.size).toBe(0);
+  });
+  it('protects station references even for a line-only advanced timetable', () => {
+    const state = railwayFixture(), data = opposing(state); data.services = []; data.formations = []; data.operations = [];
+    state.execute({ type: 'set-rail-timetable', timetable: data });
+    expect(() => state.execute({ type: 'remove-railway', kind: 'station', id: data.lines[0].stationIds[0] })).toThrow(/clear/);
+    const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.hasOperations).toBe(true);
+    state.execute({ type: 'clear-rail-operations' }); state.execute({ type: 'remove-railway', kind: 'station', id: data.lines[0].stationIds[0] });
+  });
   it('records late arrival caused by physical travel time rather than teleporting', () => {
     const state = railwayFixture(), data = opposing(state); data.services.splice(1); data.formations.splice(1); data.operations.splice(1);
     data.services[0].stopCalls[1].arrivalTime = 31; data.services[0].stopCalls[1].departureTime = 51;

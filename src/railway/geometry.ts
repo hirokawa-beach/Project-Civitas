@@ -72,3 +72,18 @@ export class TrackIndex {
       for (let z = Math.floor(Math.min(a.z, b.z) / 128); z <= Math.floor(Math.max(a.z, b.z) / 128); z++) yield `${x}:${z}`;
   }
 }
+
+/** Fine geometry candidates for intersections; a long polyline is never re-scanned per new sample. */
+export class TrackEdgeIndex {
+  private index = new TrackIndex();
+  private edges = new Map<string, { trackId: string; along: number; length: number; points: Vec2[] }>();
+  rebuild(tracks: Iterable<{ id: string; points: Vec2[] }>) {
+    this.edges.clear(); const values: Array<{ id: string; points: Vec2[] }> = [];
+    for (const track of tracks) { let along = 0; for (let i = 1; i < track.points.length; i++) {
+      const id = `${track.id}:${i}`, points = [track.points[i - 1], track.points[i]], length = distance(points[0], points[1]);
+      this.edges.set(id, { trackId: track.id, along, length, points }); values.push({ id, points }); along += length;
+    } }
+    this.index.rebuild(values);
+  }
+  query(a: Vec2, b: Vec2) { return this.index.query(a, b).map(edge => this.edges.get(edge.id)!); }
+}

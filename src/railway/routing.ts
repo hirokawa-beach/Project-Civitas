@@ -57,7 +57,8 @@ export function railRoute(rail: RailwayInfrastructure, fromFace: string, toFace:
     if (target) {
       parts = [target.part]; if (target.junction) junctionIds.push(target.junction);
       let key: string | undefined = target.key;
-      while (key) { const step: { key?: string; part: Part; junction?: string } = previous.get(key)!; parts.unshift(step.part); if (step.junction) junctionIds.push(step.junction); key = step.key; }
+      while (key) { const step: { key?: string; part: Part; junction?: string } = previous.get(key)!; parts.push(step.part); if (step.junction) junctionIds.push(step.junction); key = step.key; }
+      parts.reverse();
     }
   }
   if (!parts) throw new Error('No connected rail route respecting gauge and switches.');

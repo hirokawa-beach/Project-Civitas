@@ -23,7 +23,7 @@ export function RailwayOperations({ simulation, snapshot, onCreate }: { simulati
   return <section aria-label="Railway operations">
     <h3>OPERATIONS / TIMETABLE</h3>
     <p>GameClock: {railTime(snapshot.gameClock.gameSeconds)} · {runtime?.activeTrains.length ?? 0} active trains</p>
-    {!operations?.services.length ? <details open><summary>CREATE FREQUENCY SERVICE</summary>
+    {!(operations?.services.length || operations?.lines.length) ? <details open><summary>CREATE FREQUENCY SERVICE</summary>
       <label>LINE NAME<input aria-label="Rail line name" value={name} onInput={e => setName(e.currentTarget.value)} /></label>
       <label>SERVICE TYPE<select aria-label="Rail service type" value={type} onChange={e => setType(e.currentTarget.value)}>{RAIL_SERVICE_TYPES.map(t => <option value={t.id}>{t.name}</option>)}</select></label>
       <label>FORMATION<select aria-label="Rail formation type" value={formation} onChange={e => setFormation(e.currentTarget.value)}>{FORMATION_TYPES.map(t => <option value={t.id}>{t.name} · {t.length}m · {t.capacity} people</option>)}</select></label>

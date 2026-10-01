@@ -1,13 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { SimulationState } from '../src/simulation/state';
 import { RailwayInfrastructure } from '../src/railway/infrastructure';
-import { trackGeometry } from '../src/railway/geometry';
+import { trackGeometry, TrackEdgeIndex } from '../src/railway/geometry';
 import { LandOwnership, defaultLandOwnership } from '../src/world/landOwnership';
 import { createWorldMetadata } from '../src/world/metadata';
 import type { StationTemplate, TrackMode } from '../src/railway/types';
 import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
+  it.each(['double', 'island'] as StationTemplate[])('rejects %s parallel track crossing side water or steep terrain atomically', template => {
+    const rail = new RailwayInfrastructure(); rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } });
+    const before = rail.save(), track = [...rail.segments.values()][0];
+    const command = { type: 'place-station' as const, name: 'Side validation', trackSegmentId: track.id, offset: 400, length: 120, template };
+    // Existing centerline, platform/boundary corners and both approaches stay valid.
+    rail.waterAt = (x, z) => Math.abs(x) < 10 && Math.abs(z - 6) < 1;
+    expect(() => rail.mutate(command)).toThrow(/water/); expect(rail.save()).toEqual(before);
+    rail.waterAt = () => false; rail.height = (x, z) => Math.abs(x) < 10 && Math.abs(z - 6) < 1 ? 10 : 0;
+    expect(() => rail.mutate(command)).toThrow(/grade/); expect(rail.save()).toEqual(before);
+  });
+  it('bounds intersection candidates locally on a 16km sampled track', () => {
+    const index = new TrackEdgeIndex(), points = Array.from({ length: 4001 }, (_, i) => ({ x: i * 4 - 8000, z: 0 }));
+    index.rebuild([{ id: 'long-track', points }]);
+    let queries = 0, candidates = 0;
+    for (let x = -8000; x < 8000; x += 4) { queries++; candidates += index.query({ x, z: 2 }, { x: x + 4, z: 2 }).length; }
+    expect(candidates / queries).toBeLessThan(70);
+    expect(index.query({ x: -1, z: -4 }, { x: 1, z: 4 }).every(e => Math.abs(e.points[0].x) <= 132)).toBe(true);
+  });
   it('keeps road/track graphs independent and creates snapped branch connectivity/switch direction', () => {
     const state = new SimulationState();
     state.execute({ type: 'build-track', input: { points: [{ x: -200, z: 0 }, { x: 200, z: 0 }], trackTypeId: 'standard' } });

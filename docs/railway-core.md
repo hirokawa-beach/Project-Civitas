@@ -36,6 +36,8 @@ Verification covers deterministic Save resumes during dwell, running, blocked re
 
 ## Scope
 
-Final Phase 2 gates: `npm test` **331 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
+Final gates after review fixes: `npm test` **339 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
+
+Codex Review's three P2 findings were addressed with regressions: validate the additional double/island station centerline against side water/grade, cancel the railway controller in common Load/Undo/Redo paths, and reject Formations without an Operation. Line-only advanced definitions also freeze referenced infrastructure until cleared. In the production browser, a one-point alignment → Load → next click correctly became a new **Point 1/2**, without creating a track from the old point; Console warnings/errors remained empty. Fine geometry edges, platform-face lookup, saved owner membership and route reconstruction also use indexes/sets or linear reconstruction to avoid repeated whole-path/model scans.
 
 No OuDiaSecond converter, coupling/splitting, full interlocking, ATS/ATC, crew scheduling, detailed depot shunting, rail bridges/tunnels or new GIS imports. Internal stable railway IDs, integer game-second calls and separate services/formations/operations will allow a future #10 adapter.

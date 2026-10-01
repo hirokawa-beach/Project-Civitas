@@ -4,6 +4,7 @@ import type { GameRenderer } from '../src/renderer/gameRenderer';
 import type { SimulationClient } from '../src/app/simulationClient';
 import type { RailCommandData } from '../src/railway/types';
 import { SimulationState } from '../src/simulation/state';
+import { GameRuntime } from '../src/app/gameRuntime';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('railway construction interaction', () => {
@@ -29,5 +30,12 @@ describe('railway construction interaction', () => {
     client.execute.mockImplementationOnce(() => new Promise(r => { resolve = r as typeof resolve; }));
     controller.trackMode = 'continuous'; controller.setEnabled(true); await click(-200, -200); await click(100, -200); await click(200, 200);
     controller.cancel(); resolve({ ok: true }); await Promise.resolve(); await click(0, 400); expect(commands).toHaveLength(0); controller.dispose();
+  });
+  it.each(['cancelConstruction', 'undo', 'redo'] as const)('%s clears railway anchors through the shared runtime path', async method => {
+    const { controller, click, commands } = setup(); controller.setEnabled(true); await click(-200, 0);
+    const runtime = Object.create(GameRuntime.prototype) as GameRuntime;
+    Object.assign(runtime, { construction: { cancel: vi.fn() }, railConstruction: controller, simulation: { undo: vi.fn(), redo: vi.fn() } });
+    runtime[method](); await click(200, 0); expect(commands).toHaveLength(0);
+    await click(400, 0); expect(commands).toHaveLength(1); controller.dispose();
   });
 });

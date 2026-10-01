@@ -2,7 +2,7 @@ import { closestPointOnPolyline, distance, normalize, pointAtDistance, polylineL
 import { LandOwnership } from '../world/landOwnership';
 import type { Vec2 } from '../world/types';
 import type { TrackNode, TrackSegment, Junction, Station, Depot, RailwaySave, RailwaySnapshot, RailCommandData, RailBlock, PlatformFace } from './types';
-import { sampleTrackPath, collinearOverlap, TrackIndex, validateTrack } from './geometry';
+import { sampleTrackPath, collinearOverlap, TrackIndex, TrackEdgeIndex, validateTrack } from './geometry';
 
 export class RailwayInfrastructure {
   revision = 0;
@@ -15,6 +15,8 @@ export class RailwayInfrastructure {
   readonly depots = new Map<string, Depot>();
   readonly blocks = new Map<string, RailBlock>();
   readonly index = new TrackIndex();
+  private edges = new TrackEdgeIndex();
+  private faceIndex = new Map<string, { station: Station; face: PlatformFace; length: number }>();
   protected adjacency = new Map<string, string[]>();
   private nodeIndex = new Map<string, TrackNode[]>();
   ownership = new LandOwnership({ worldWidthMeters: 1024, worldDepthMeters: 1024 });
@@ -115,8 +117,7 @@ export class RailwayInfrastructure {
   }
   requireTrack(id: string) { const track = this.segments.get(id); if (!track) throw new Error('Track no longer exists.'); return track; }
   face(id: string): { station: Station; face: PlatformFace; length: number } {
-    for (const station of this.stations.values()) for (const platform of station.platforms) for (const face of platform.faces)
-      if (face.platformFaceId === id) return { station, face, length: platform.length };
+    const value = this.faceIndex.get(id); if (value) return value;
     throw new Error('Platform face no longer exists.');
   }
   fitsPlatform(faceId: string, formationLength: number): boolean { return Number.isFinite(formationLength) && formationLength > 0 && formationLength <= this.face(faceId).length; }
@@ -148,21 +149,16 @@ export class RailwayInfrastructure {
     const cuts = new Map<string, number[]>(), ownCuts = [0, polylineLength(points)]; let traversed = 0;
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1], b = points[i], legLength = distance(a, b);
-      for (const candidate of this.index.query(a, b)) {
-        const track = this.requireTrack(candidate.id); let along = 0;
-        for (let j = 1; j < track.points.length; j++) {
-          const c = track.points[j - 1], d = track.points[j], length = distance(c, d), hit = segmentIntersection(a, b, c, d);
-          if (collinearOverlap(a, b, c, d)) throw new Error('Track overlaps an existing track.');
-          if (hit) { ownCuts.push(traversed + legLength * hit.aT); const values = cuts.get(track.id) ?? []; values.push(along + length * hit.bT); cuts.set(track.id, values); }
-          along += length;
-        }
-        for (const endpoint of [points[0], points.at(-1)!]) {
-          const projection = closestPointOnPolyline(endpoint, track.points);
-          if (projection.distance < .01) { const values = cuts.get(track.id) ?? []; values.push(projection.along); cuts.set(track.id, values); }
-        }
-        if (track.points.some(p => closestPointOnPolyline(p, points).distance < .01) && points.every(p => closestPointOnPolyline(p, track.points).distance < .01)) throw new Error('Track overlaps an existing track.');
+      for (const edge of this.edges.query(a, b)) {
+        const [c, d] = edge.points, hit = segmentIntersection(a, b, c, d);
+        if (collinearOverlap(a, b, c, d)) throw new Error('Track overlaps an existing track.');
+        if (hit) { ownCuts.push(traversed + legLength * hit.aT); const values = cuts.get(edge.trackId) ?? []; values.push(edge.along + edge.length * hit.bT); cuts.set(edge.trackId, values); }
       }
       traversed += legLength;
+    }
+    for (const endpoint of [points[0], points.at(-1)!]) for (const track of this.index.query({ x: endpoint.x - .01, z: endpoint.z - .01 }, { x: endpoint.x + .01, z: endpoint.z + .01 })) {
+      const projection = closestPointOnPolyline(endpoint, track.points);
+      if (projection.distance < .01) { const values = cuts.get(track.id) ?? []; values.push(projection.along); cuts.set(track.id, values); }
     }
     for (const [id, values] of cuts) this.split(id, values);
     const values = this.uniqueCuts(ownCuts); const ids: string[] = [];
@@ -207,7 +203,9 @@ export class RailwayInfrastructure {
     const platforms: Station['platforms'] = [{ platformId: this.id('platform'), length, faces: [firstFace], outline: rectangle(command.template === 'island' ? 3 : -3, 1.5) }];
     const connectedTrackIds = [base];
     if (command.template !== 'single') {
-      const second = this.add([at(from, 6), at(to, 6)], track.trackTypeId); connectedTrackIds.push(second);
+      const parallel = [at(from, 6), at(to, 6)];
+      validateTrack(parallel, track.trackTypeId, this.height, this.ownership, this.waterAt);
+      const second = this.add(parallel, track.trackTypeId); connectedTrackIds.push(second);
       for (const approach of [true, false]) {
         const points = Array.from({ length: 21 }, (_, i) => { const t = i / 20, smooth = t * t * (3 - 2 * t); return approach ? at(from - 80 + t * 80, smooth * 6) : at(to + t * 80, (1 - smooth) * 6); });
         validateTrack(points, track.trackTypeId, this.height, this.ownership, this.waterAt); this.add(points, track.trackTypeId);
@@ -223,6 +221,8 @@ export class RailwayInfrastructure {
     this.nodeIndex.clear(); for (const node of this.nodes.values()) { const key = `${Math.round(node.position.x * 100)}:${Math.round(node.position.z * 100)}`, bucket = this.nodeIndex.get(key) ?? []; bucket.push(node); this.nodeIndex.set(key, bucket); }
     this.adjacency.clear(); for (const track of this.segments.values()) for (const node of [track.startNodeId, track.endNodeId]) { const ids = this.adjacency.get(node) ?? []; ids.push(track.id); this.adjacency.set(node, ids); }
     this.index.rebuild(this.segments.values());
+    this.edges.rebuild(this.segments.values());
+    this.faceIndex.clear(); for (const station of this.stations.values()) for (const platform of station.platforms) for (const face of platform.faces) this.faceIndex.set(face.platformFaceId, { station, face, length: platform.length });
   }
   protected resourceIds(): Set<string> { return new Set([...this.segments.keys(), ...this.junctions.keys(), ...[...this.stations.values()].flatMap(s => s.platforms.flatMap(p => p.faces.map(f => f.platformFaceId)))]); }
   protected reconcile(): void {

@@ -30,7 +30,7 @@ export class RailwaySystem extends RailwayInfrastructure {
   private arrivedPassengers = 0;
   private leftBehind = 0;
   processedEvents = 0;
-  get hasOperations() { return this.services.size > 0; }
+  get hasOperations() { return this.services.size > 0 || this.timetable.lines.length > 0; }
   override mutate(command: RailCommandData): string[] {
     if (this.hasOperations) throw new Error('Stop and clear railway operations before changing infrastructure.');
     if ([...this.blocks.values()].some(b => b.occupancyOwner || b.reservationOwner)) throw new Error('Release occupied/reserved railway resources before editing.');
@@ -87,13 +87,15 @@ export class RailwaySystem extends RailwayInfrastructure {
         || state.actualCalls.some((call, i) => call.sequence !== i || [call.arrivalTime, call.departureTime, call.passTime].some(time => time !== undefined && (!integer(time) || time > data.now)))) throw new Error('Invalid saved rail progress.');
       this.progress.set(state.serviceId, structuredClone(state));
     }
+    const waitingActivationFormations = new Set([...this.waits.values()].filter(w => w.event.type === 'activate').map(w => this.operations.get(w.event.operationId)!.assignedFormationId));
     for (const formation of this.formations.values()) {
       const train = this.trains.get(formation.formationId);
       if (train && (formation.currentServiceId !== train.serviceId || formation.currentFaceId !== train.faceId || formation.state !== (train.state === 'dwelling' ? 'waiting' : train.state))) throw new Error('Formation state disagrees with its active train.');
-      if (!train && formation.state !== 'depot' && ![...this.waits.values()].some(w => w.event.type === 'activate' && this.operations.get(w.event.operationId)?.assignedFormationId === formation.formationId)) throw new Error('Formation lacks an operation event.');
+      if (!train && formation.state !== 'depot' && !waitingActivationFormations.has(formation.formationId)) throw new Error('Formation lacks an operation event.');
     }
+    const resourcesByTrain = new Map([...this.trains].map(([id, train]) => [id, new Set(train.resources)]));
     for (const block of this.blocks.values()) for (const owner of [block.occupancyOwner, block.reservationOwner]) if (owner) {
-      const train = this.trains.get(owner); if (!train || !train.resources.includes(block.id)) throw new Error('Rail resource has an orphaned owner.');
+      if (!resourcesByTrain.get(owner)?.has(block.id)) throw new Error('Rail resource has an orphaned owner.');
     }
     for (const train of this.trains.values()) if (train.resources.some(id => { const block = this.blocks.get(id)!; return block.occupancyOwner !== train.formationId && block.reservationOwner !== train.formationId; })) throw new Error('Train is missing its block ownership.');
     for (const group of data.passengers) this.addPassengers(group);
@@ -157,6 +159,7 @@ export class RailwaySystem extends RailwayInfrastructure {
       for (const item of items) { const key = id(item); if (typeof key !== 'string' || !key.trim() || key.length > 128 || map.has(key)) throw new Error('Invalid or duplicate rail timetable ID.'); map.set(key, item); } return map;
     };
     const lines = collection(data.lines, l => l.id, 100), serviceTypes = collection(data.serviceTypes, s => s.id, 100), types = collection(data.formationTypes, t => t.id, 100), formations = collection(data.formations, f => f.formationId, 512), services = collection(data.services, s => s.id, 5000);
+    const lineStations = new Map([...lines].map(([id, line]) => [id, new Set(line.stationIds)]));
     collection(data.operations, o => o.operationId, 512);
     for (const line of lines.values()) if (!line.name?.trim() || !/^#[\da-f]{6}$/i.test(line.color) || !Array.isArray(line.stationIds) || line.stationIds.some(id => !this.stations.has(id))) throw new Error('Invalid rail line.');
     for (const type of serviceTypes.values()) if (!type.name?.trim() || !['local', 'rapid', 'express', 'limited-express', 'deadhead', 'other'].includes(type.kind)) throw new Error('Invalid rail service type.');
@@ -184,7 +187,7 @@ export class RailwaySystem extends RailwayInfrastructure {
           || s.origin !== s.stopCalls[0].stationId || s.destination !== s.stopCalls.at(-1)!.stationId) throw new Error('Invalid TrainService.');
         for (let i = 0; i < s.stopCalls.length; i++) {
           const call = s.stopCalls[i], face = this.face(call.platformFaceId), prev = s.stopCalls[i - 1];
-          if (call.sequence !== i || face.station.stationId !== call.stationId || !line.stationIds.includes(call.stationId) || !integer(call.arrivalTime) || !integer(call.departureTime)
+          if (call.sequence !== i || face.station.stationId !== call.stationId || !lineStations.get(s.lineId)!.has(call.stationId) || !integer(call.arrivalTime) || !integer(call.departureTime)
             || call.departureTime < call.arrivalTime || !['stop', 'pass'].includes(call.stopType) || call.stopType === 'pass' && call.arrivalTime !== call.departureTime
             || prev && call.arrivalTime < prev.departureTime || !restoring && i === 0 && call.arrivalTime < now || call.stopType === 'stop' && !this.fitsPlatform(call.platformFaceId, type.length)) throw new Error('Invalid StopCall timing, station or platform length.');
           if (prev) { if (prev.platformFaceId === call.platformFaceId) throw new Error('Consecutive StopCalls need distinct platform faces.'); const key = `${prev.platformFaceId}|${call.platformFaceId}|${type.id}`; if (!routes.has(key)) routes.set(key, railRoute(this, prev.platformFaceId, call.platformFaceId, type)); }
@@ -194,6 +197,7 @@ export class RailwaySystem extends RailwayInfrastructure {
       }
     }
     if (assignedServices.size !== services.size || services.size && !data.operations.length) throw new Error('Every TrainService must be assigned to an Operation.');
+    if (assignedFormations.size !== formations.size) throw new Error('Every Formation must be assigned to an Operation.');
   }
   private frequency(input: FrequencyInput, now: number): RailTimetable {
     if (!input.name?.trim() || !integer(input.start) || !integer(input.end) || !integer(input.frequency) || input.frequency < 1 || input.end <= input.start

@@ -85,13 +85,13 @@ export class GameRuntime {
   setTerrainBrush(size: number, strength: number): void { this.construction.setTerrainBrush(size, strength); }
   setTerrainPreset(preset: TerrainPreset): void { this.construction.setTerrainPreset(preset); }
   toggleSnap(setting: SnapSettingKey): void { this.construction.toggleSnap(setting); }
-  cancelConstruction(): void { this.construction.cancel(); }
+  cancelConstruction(): void { this.construction.cancel(); this.railConstruction.cancel(); }
   undo(): void {
-    this.construction.cancel();
+    this.cancelConstruction();
     this.simulation.undo();
   }
   redo(): void {
-    this.construction.cancel();
+    this.cancelConstruction();
     this.simulation.redo();
   }
   toggleDebug(): boolean {
