@@ -4,6 +4,7 @@ import { GSI_DATASETS, type GsiDataset } from '../dem/gsiCatalog';
 import type { DemImportMessage } from '../dem/import.worker';
 import { safeTerrainSpacing, safeTerrainSpacings, WORLD_SIZE_OPTIONS } from '../world/worldSizing';
 import { DemAttribution } from './DemAttribution';
+import { DemAreaMap } from './DemAreaMap';
 
 const PLACES = [
   { name: 'Osaka Plain', latitude: 34.69, longitude: 135.50 },
@@ -63,12 +64,13 @@ export function DemImport({ onEdit }: { onEdit: (asset: MapAsset) => void }) {
     <section class="new-game-controls"><h1>Import real terrain.</h1><p>Elevation only. Add Water Bodies and review Outside Connections in the Map Editor.</p>
       <fieldset disabled={busy} class="dem-controls">
         <label>SOURCE<select aria-label="DEM source" value={source} onChange={e => setSource(e.currentTarget.value)}><option value="online">GSI PNG elevation tiles</option><option value="file">Local GSI GML / XML files</option></select></label>
-        <label>EXAMPLE LOCATION<select aria-label="DEM example location" onChange={e => { const place = PLACES[Number(e.currentTarget.value)]; setLatitude(place.latitude); setLongitude(place.longitude); }}>
+        <label>EXAMPLE LOCATION<select aria-label="DEM example location" value={PLACES.findIndex(place => place.latitude === latitude && place.longitude === longitude)} onChange={e => { const place = PLACES[Number(e.currentTarget.value)]; if (place) { setLatitude(place.latitude); setLongitude(place.longitude); } }}>
+          <option value="-1" disabled>Custom location</option>
           {PLACES.map((place, i) => <option value={i}>{place.name}</option>)}</select></label>
         <label>LATITUDE<input aria-label="DEM latitude" type="number" step="0.00001" min="-80" max="80" value={latitude} onInput={e => setLatitude(Number(e.currentTarget.value))} /></label>
         <label>LONGITUDE<input aria-label="DEM longitude" type="number" step="0.00001" min="-180" max="180" value={longitude} onInput={e => setLongitude(Number(e.currentTarget.value))} /></label>
-        <div class="new-game-dimensions"><label>WIDTH (m)<select aria-label="DEM width" value={width} onChange={e => resize(Number(e.currentTarget.value), depth)}>{WORLD_SIZE_OPTIONS.map(size => <option value={size}>{size}</option>)}</select></label>
-          <label>DEPTH (m)<select aria-label="DEM depth" value={depth} onChange={e => resize(width, Number(e.currentTarget.value))}>{WORLD_SIZE_OPTIONS.map(size => <option value={size}>{size}</option>)}</select></label>
+        <div class="new-game-dimensions"><label>WIDTH (m)<select aria-label="DEM width" value={width} onChange={e => resize(Number(e.currentTarget.value), depth)}>{!WORLD_SIZE_OPTIONS.includes(width) && <option value={width}>{width} (selected)</option>}{WORLD_SIZE_OPTIONS.map(size => <option value={size}>{size}</option>)}</select></label>
+          <label>DEPTH (m)<select aria-label="DEM depth" value={depth} onChange={e => resize(width, Number(e.currentTarget.value))}>{!WORLD_SIZE_OPTIONS.includes(depth) && <option value={depth}>{depth} (selected)</option>}{WORLD_SIZE_OPTIONS.map(size => <option value={size}>{size}</option>)}</select></label>
           <label>SAMPLE (m)<select aria-label="DEM sample spacing" value={spacing} onChange={e => setSpacing(Number(e.currentTarget.value))}>{safeTerrainSpacings(width, depth).map(size => <option value={size}>{size}</option>)}</select></label></div>
         {source === 'online' ? <><label>DATASET<select aria-label="DEM dataset" value={dataset} onChange={e => setDataset(e.currentTarget.value as GsiDataset)}>{Object.keys(GSI_DATASETS).map(key => <option value={key}>{key}</option>)}</select></label>
           <p>DEM10B has nationwide coverage. Finer datasets have limited coverage. Tile resolution and output spacing are recorded separately; finer output does not create new survey detail.</p></> : <><label>UNZIPPED DEM FILES<input aria-label="DEM local files" type="file" accept=".xml,.gml" multiple onChange={e => setFiles(Array.from(e.currentTarget.files ?? []))} /></label>
@@ -79,7 +81,10 @@ export function DemImport({ onEdit }: { onEdit: (asset: MapAsset) => void }) {
       </fieldset>{busy && <button onClick={cancel}>CANCEL IMPORT</button>}
     </section>
     <section class="new-game-preview" aria-label="DEM preview">
-      {asset ? <><ElevationPreview asset={asset} /><p>{asset.world.terrainColumns} × {asset.world.terrainRows} samples · {min.toFixed(2)}–{max.toFixed(2)} m elevation · X east, Z south</p><DemAttribution world={asset.world} /></> : <div class="new-game-placeholder"><strong>REAL-WORLD ELEVATION</strong><p>Select a region or local files to preview its terrain.</p></div>}
+      <DemAreaMap area={{ latitude, longitude, width, depth, spacing }} disabled={busy} onChange={area => {
+        setLatitude(area.latitude); setLongitude(area.longitude); setWidth(area.width); setDepth(area.depth); setSpacing(area.spacing);
+      }} />
+      {asset ? <><ElevationPreview asset={asset} /><p>{asset.world.terrainColumns} × {asset.world.terrainRows} samples · {min.toFixed(2)}–{max.toFixed(2)} m elevation · X east, Z south</p><DemAttribution world={asset.world} /></> : <p>Choose the outlined region or local files, then IMPORT & PREVIEW to load its elevation.</p>}
       {message && <p role="status">{message}</p>}{error && <p class="new-game-error" role="alert">{error}</p>}
       <button disabled={!asset || busy} class="new-game-start" onClick={() => asset && onEdit(asset)}>OPEN MAP EDITOR →</button>
     </section>

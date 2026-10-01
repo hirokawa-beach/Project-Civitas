@@ -2,7 +2,13 @@
 
 ## Workflow
 
-New Game → **DEM IMPORT** → enter centre latitude/longitude, width, depth and output sample spacing → **IMPORT & PREVIEW** → **OPEN MAP EDITOR** → review Terrain, Water Bodies and Outside Connections → Validate → Save as Map Asset. The existing Map Library starts an independent city from that asset.
+New Game → **DEM IMPORT** → choose the region on the OpenStreetMap basemap (or enter centre latitude/longitude, width, depth and output sample spacing) → **IMPORT & PREVIEW** → **OPEN MAP EDITOR** → review Terrain, Water Bodies and Outside Connections → Validate → Save as Map Asset. The existing Map Library starts an independent city from that asset.
+
+Drag/zoom the map to explore. **SELECT AREA** takes two opposite corner clicks; **SET CENTER** takes one click while retaining dimensions. **FIT AREA** returns to the selected footprint. Clicking an active selection button cancels it. Numerical inputs, example locations and the outline stay synchronized; pan/zoom does not change the import region. Changing a selection invalidates the previous terrain preview. Selection is disabled during import.
+
+Corner coordinates are projected through the importer's local transverse Mercator, rounded to 64m dimensions (minimum 64m, maximum 32,768m per side), then validated with the existing terrain sample budget. A too-large area is rejected rather than silently cropped. The polygon shows the **adjusted actual metric footprint**, including the same edge samples used to compute acquisition bounds. Custom rectangular sizes appear in the dimension selectors. Map scale/browser Web Mercator coordinates are never treated as world metres.
+
+The OSM basemap is only a selection aid. It does not import roads, water, imagery or features into the Map Asset and is not stored/cached for offline use by the application. Visible attribution links to OSM contributors; browser-default Referer and HTTP caching are preserved. Leaflet requests only viewport tiles, without offscreen buffering or bulk/prefetch downloads. A tile failure leaves coordinates and offline DEM file import available. The map does not request device location.
 
 The source can be current GSI PNG elevation tiles (DEM1A/5A/5B/5C/10B), or downloaded **unzipped UTF-8 GSI GML/XML files**. GSI downloads require their own account; the application does not collect credentials. Select adjoining files of the same dataset/datum/resolution together. ZIP extraction is left to the user.
 
@@ -22,7 +28,7 @@ NoData defaults to rejection with an actionable error. Optional partial-cell int
 
 `request.dimensions` uses the existing `WorldDimensions` names: `worldWidthMeters`, `worldDepthMeters`, `terrainSampleSpacingMeters`, optional `terrainColumns`, `terrainRows`, `chunkSizeMeters`. Specified columns/rows must agree with the physical dimensions and spacing. The existing world validation/memory limits apply; the UI reuses safe world sizing. Rectangular grids are supported.
 
-The creation Worker performs fetch, decode, projection and resampling. Provider implementations and GIS libraries are excluded from the Simulation Worker and UI main bundle. Simulation remains authoritative once the existing Map Asset load operation installs the terrain. No GIS calls, global world scans or extra heightmap transfers are introduced in simulation ticks/snapshots.
+The creation Worker performs DEM fetch, decode, projection and resampling. The map lazily loads Leaflet and the shared region projection solely to display/select the footprint; it never processes elevation or changes Simulation state. Provider implementations stay in the creation Worker; GIS libraries are excluded from the Simulation Worker. Simulation remains authoritative once the existing Map Asset load operation installs the terrain. No GIS calls, global world scans or extra heightmap transfers are introduced in simulation ticks/snapshots.
 
 The importer uses a local transverse Mercator projection centred on the selected geographic point, GRS80, scale factor 1 at the centre. X points east, Z points south; the terrain grid runs NW→SE. World coordinates and raw source elevations are metres. Web Mercator source coordinates are reprojected, not copied as world metres. As with any planar metric projection, ground-distance distortion grows away from the centre; no global flat-earth distance guarantee is implied.
 
@@ -36,6 +42,7 @@ Map schema, Map Asset version and City Save version stay unchanged. Old assets/s
 
 ## Official specifications checked 2026-10-01
 
+- [OSM standard tile policy](https://operations.osmfoundation.org/policies/tiles/) and [Leaflet 1.9.4 API](https://leafletjs.com/reference.html): viewport-only HTTPS tiles, visible attribution, normal browser caching/Referer, no application offline cache or bulk downloading.
 - [GSI tile catalogue](https://maps.gsi.go.jp/development/ichiran.html): current PNG dataset endpoints/zoom ranges. TXT tiles stopped receiving updates in October 2024; TXT decoding is offline legacy support only.
 - [GSI PNG/TXT numeric format](https://maps.gsi.go.jp/development/demtile.html): signed 24-bit centimetres, RGB 128/0/0 NoData, 256×256 **source tiles**. Output dimensions are independent.
 - [GSI tile production/resolution](https://maps.gsi.go.jp/development/hyokochi.html): source spacing, source coverage and lower-zoom averaging.
@@ -57,10 +64,12 @@ See `benchmarks/dem-import.json` and `benchmarks/dem-import-offline.json`. These
 
 Regression coverage includes signed PNG/NoData/CRC validation, the actual Osaka fixture, current and legacy GML/startPoint, source mosaics/seams, metric/orientation/bounds and variable rectangular grids, bilinear/partial/missing/edge cases, invalid input, finite real mountain heights, bounded tile plans, cancellation/HTTP errors, offline creation Worker integration, editor water independence, asset and city persistence/metadata with fetch unavailable.
 
-Local verification: **291 tests in 38 files passed**, Production Build passed. The existing Babylon bundle-size warning remains; no new simulation dependency was introduced. Dependency audit reports the two existing moderate Vitest/mocker development advisories and no advisory in the new production dependencies.
+Local verification including the visual selector: **294 tests in 39 files passed**, Production Build passed. Additional regressions cover metre-accurate displayed/imported footprints at Osaka/Rokko/Kyoto, both corner click orders, non-square dimensions, 64m rounding/minimum, safe large selection spacing, invalid/too-large/antimeridian rejection. The existing Babylon bundle-size warning remains; no new simulation dependency was introduced. The map's lazy JavaScript chunks are ~150kB Leaflet + ~134kB projection/selection (~88kB gzip combined), loaded only on DEM Import; terrain/snapshot memory is unchanged. Dependency audit reports the two existing moderate Vitest/mocker development advisories and no advisory in the new production dependencies.
 
 Browser smoke used the Production Build at a separate localhost origin to preserve existing saves. Osaka online Preview → Editor → Validation (4 usable road entries) → Save → Library → New Game succeeded. Rokko 4km / 513×513 preview and high-elevation Editor display succeeded (about 60 FPS / 16.7ms, 81 local chunks at the initial view). GML file selection exercised the creation Worker and explicit NoData rejection/partial interpolation. No captured browser console errors/warnings were reported. One initial online fetch failed transiently; retry succeeded, with an actionable retry/file-input error path.
 
 Screenshots: [Osaka saved asset](screenshots/dem-osaka-library.png), [Rokko preview](screenshots/dem-rokko-preview.png), [Rokko editor](screenshots/dem-rokko-editor.png). Editor FPS here is a smoke observation of an empty imported world, not a populated-city performance comparison.
 
-Deferred by scope: GeoTIFF decoder, generic image UI, bounding-box/map picking UI, ZIP extraction, datum correction grids, terrain streaming, hydrography GIS import, OSM/roads/buildings/railways/imagery. They do not block the elevation import API/required workflow.
+Visual selection browser smoke: real OSM Osaka tiles and visible attribution, two-corner 704×640m selection → synchronized custom dimensions/centre, pan/zoom without region changes, numerical latitude → updated outline, centre click → invalidated old preview, online DEM10B → 177×161 at 4m → existing Map Editor → Validation (4 usable road entries) → Save as Map Asset. The selected rectangle's elevation was 1.90–4.09m. Captured console errors/warnings: none. [Visual selection](screenshots/dem-map-selection.png).
+
+Deferred by scope: GeoTIFF decoder, generic image UI, ZIP extraction, datum correction grids, terrain streaming, hydrography GIS import, OSM feature/roads/buildings/railways/imagery import. They do not block the elevation import API/required workflow.

@@ -1,0 +1,13 @@
+.dem-area-map { width: 100%; min-width: 0; }
+.dem-map-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.dem-map-toolbar button { padding: 9px 12px; font-size: 11px; }
+.dem-area-map .dem-map-toolbar button[aria-pressed="true"], .dem-area-map .dem-map-toolbar button[aria-pressed="true"]:hover { background: #b9d5bc; color: #152b21; border-color: #b9d5bc; }
+.dem-map-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
+.dem-area-map > p { font-size: 12px; line-height: 1.5; margin: 10px 0; }
+.dem-map-canvas { height: 380px; width: 100%; isolation: isolate; background: #deded9; color: #222; }
+.dem-map-canvas .leaflet-control-zoom a { color: #222; background: #fff; }
+.dem-map-canvas .leaflet-control-attribution { color: #333; font: 11px/1.5 Arial, sans-serif; background: rgba(255,255,255,.95); }
+.dem-map-canvas .leaflet-control-attribution a { color: #07589b; }
+.dem-map-canvas .leaflet-control-scale-line { color: #222; }
+.dem-map-caption { opacity: .8; }
+@media (max-width: 700px) { .dem-map-canvas { height: 320px; } }
