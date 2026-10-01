@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
+import { DemAttribution } from './DemAttribution';
 import type { GameRuntime } from '../app/gameRuntime';
 import type { SimulationClient } from '../app/simulationClient';
 import { validateMapAsset, suggestOutsideConnections, type MapAsset, type MapAssetValidation } from '../maps/mapAsset';
@@ -91,6 +92,7 @@ export function MapEditor({ runtime, simulation, asset, onBack }: { runtime: Gam
     <aside class="map-editor-sidebar panel">
       <label>MAP NAME<input aria-label="Map asset name" value={name} maxLength={120} onInput={e => { setName(e.currentTarget.value); setValidation(undefined); }} /></label>
       <label>DESCRIPTION<textarea aria-label="Map description" value={description} maxLength={4000} onInput={e => setDescription(e.currentTarget.value)} /></label>
+      <DemAttribution world={asset.world} />
       <nav>{(['terrain', 'water', 'outside', 'ownership', 'validate'] as const).map(key => <button aria-pressed={tab === key} onClick={() => setTab(key)}>{key === 'outside' ? 'CONNECTIONS' : key === 'ownership' ? 'LAND / START' : key.toUpperCase()}</button>)}</nav>
       {tab === 'terrain' && <section><h2>Sculpt the terrain.</h2><p>Drag on the map to edit. Water boundaries stay fixed.</p>
         <div class="map-editor-tools">{(['raise', 'lower', 'flatten', 'smooth'] as const).map(mode => <button aria-pressed={brush === mode} onClick={() => setBrush(mode)}>{mode.toUpperCase()}</button>)}</div>

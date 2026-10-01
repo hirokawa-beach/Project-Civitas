@@ -1,0 +1,212 @@
+{
+  "capturedAt": "2026-10-01T11:19:01.534Z",
+  "runtime": "v22.23.2",
+  "sourceMode": "current GSI PNG (cached on disk after acquisition)",
+  "terms": "https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html",
+  "attribution": "GSI DEM processed by Project Civitas: projection and bilinear resampling.",
+  "scenarios": [
+    {
+      "name": "Osaka Plain",
+      "latitude": 34.69,
+      "longitude": 135.5,
+      "width": 1024,
+      "depth": 1024,
+      "spacing": 4,
+      "dataset": "DEM10B",
+      "zoom": 14,
+      "columns": 257,
+      "rows": 257,
+      "sourceNominalResolutionMeters": 10,
+      "rasterSpacingMetersAtCenter": 7.856230124174587,
+      "outputRangeMeters": {
+        "min": 0.9374536275863647,
+        "max": 4.099999904632568
+      },
+      "noDataOutput": 0,
+      "waterBodies": 0,
+      "bounds": {
+        "west": 135.49441206828757,
+        "east": 135.50558793171243,
+        "south": 34.68538455115285,
+        "north": 34.69461531728422
+      },
+      "outsideConnections": 4,
+      "importMillisecondsIncludingFetch": 459.85,
+      "terrainBytesFloat32": 264196,
+      "assetJsonBytes": 1142109,
+      "deterministicOffline": true,
+      "metadataRoundtrip": true,
+      "tileCount": 4
+    },
+    {
+      "name": "Kobe / Rokko foothills",
+      "latitude": 34.74,
+      "longitude": 135.23,
+      "width": 4096,
+      "depth": 4096,
+      "spacing": 8,
+      "dataset": "DEM10B",
+      "zoom": 14,
+      "columns": 513,
+      "rows": 513,
+      "sourceNominalResolutionMeters": 10,
+      "rasterSpacingMetersAtCenter": 7.851481684957749,
+      "outputRangeMeters": {
+        "min": 28.203975677490234,
+        "max": 829.2835083007812
+      },
+      "noDataOutput": 0,
+      "waterBodies": 0,
+      "bounds": {
+        "west": 135.20763108201524,
+        "east": 135.25236891798474,
+        "south": 34.72153679589187,
+        "north": 34.758461096317475
+      },
+      "outsideConnections": 4,
+      "importMillisecondsIncludingFetch": 670.74,
+      "terrainBytesFloat32": 1052676,
+      "assetJsonBytes": 4714525,
+      "deterministicOffline": true,
+      "metadataRoundtrip": true,
+      "tileCount": 9
+    },
+    {
+      "name": "Kyoto Basin",
+      "latitude": 35,
+      "longitude": 135.75,
+      "width": 4096,
+      "depth": 4096,
+      "spacing": 16,
+      "dataset": "DEM10B",
+      "zoom": 13,
+      "columns": 257,
+      "rows": 257,
+      "sourceNominalResolutionMeters": 10,
+      "rasterSpacingMetersAtCenter": 15.653386994794404,
+      "outputRangeMeters": {
+        "min": 19.343172073364258,
+        "max": 47.51768493652344
+      },
+      "noDataOutput": 0,
+      "waterBodies": 0,
+      "bounds": {
+        "west": 135.7275605086508,
+        "east": 135.7724394913492,
+        "south": 34.98153756685454,
+        "north": 35.018460305337996
+      },
+      "outsideConnections": 4,
+      "importMillisecondsIncludingFetch": 222.38,
+      "terrainBytesFloat32": 264196,
+      "assetJsonBytes": 1203683,
+      "deterministicOffline": true,
+      "metadataRoundtrip": true,
+      "tileCount": 4
+    }
+  ],
+  "tiles": [
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14358/6507.png",
+      "filename": "dem_png-14-14358-6507.png",
+      "sha256": "94523b5aac7551a1657934107aa39575f527807f0e4370197551a44c618a0b7d",
+      "bytes": 19198
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14359/6507.png",
+      "filename": "dem_png-14-14359-6507.png",
+      "sha256": "977e3693ee36c7069386d0eb4512435890ec89661a0a6202ffa7369a521950bb",
+      "bytes": 45183
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14359/6506.png",
+      "filename": "dem_png-14-14359-6506.png",
+      "sha256": "885c279e31f2feecc772f1069d8d6238f0e0ad693fa6c4234fc8286ca4387346",
+      "bytes": 26969
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14358/6506.png",
+      "filename": "dem_png-14-14358-6506.png",
+      "sha256": "7b1f287eb07b75cf11202bad1fbf448508f5f0bf831cd7a3783eac69e532ec72",
+      "bytes": 22351
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14347/6503.png",
+      "filename": "dem_png-14-14347-6503.png",
+      "sha256": "e4a698e4e09df600ebb98eb3934ce3a870d922a7f483ce790092912c044d52ac",
+      "bytes": 109242
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14345/6504.png",
+      "filename": "dem_png-14-14345-6504.png",
+      "sha256": "4cb421d00854130362b5f96fc5b7f1b7ccb7805da4a025123a3f7a7bce5c13d7",
+      "bytes": 110827
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14346/6503.png",
+      "filename": "dem_png-14-14346-6503.png",
+      "sha256": "f3f2c57d0d2744901a45ca98d01cae7eb718be34eb4bb3b90445077e191c5efb",
+      "bytes": 108076
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14345/6503.png",
+      "filename": "dem_png-14-14345-6503.png",
+      "sha256": "bf4a1cca6bb59705c0a939086f0f928d21e9fcc23381eaef708b697f9f9093d6",
+      "bytes": 107705
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14346/6504.png",
+      "filename": "dem_png-14-14346-6504.png",
+      "sha256": "c3518f27cc329d7b256532c4161623afe3d194b3c7e6f4100aff96b1fbe29223",
+      "bytes": 103135
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14347/6504.png",
+      "filename": "dem_png-14-14347-6504.png",
+      "sha256": "bdda46cd5b097714043d1c284eb6d9057e2e16e0a4ac4600edc6e4b6274cf02e",
+      "bytes": 96880
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14346/6505.png",
+      "filename": "dem_png-14-14346-6505.png",
+      "sha256": "1654415b8e0780ad1fa87a811f0a7f663286bf96fc627b780c88acba29c82e62",
+      "bytes": 66466
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14345/6505.png",
+      "filename": "dem_png-14-14345-6505.png",
+      "sha256": "df35f66e9c7bf7f8388ef9ea4e12682bb8e8d190298f5273288b9fc1bf38f4a2",
+      "bytes": 95775
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/14347/6505.png",
+      "filename": "dem_png-14-14347-6505.png",
+      "sha256": "fa178be9c4a18a977884ddc67c73497d9d1d94a368bafad10e5e89d49c529cd5",
+      "bytes": 53636
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/13/7184/3245.png",
+      "filename": "dem_png-13-7184-3245.png",
+      "sha256": "0fe83cbf92074f03bbccf85c68d7d368af7d0884f9871b2ac8e3e98cfdd1f440",
+      "bytes": 41570
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/13/7184/3244.png",
+      "filename": "dem_png-13-7184-3244.png",
+      "sha256": "bc8caf52fdb67036b4021fdc741dcf0778de17d93cf77c62b87caa159f2e7eeb",
+      "bytes": 62860
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/13/7185/3245.png",
+      "filename": "dem_png-13-7185-3245.png",
+      "sha256": "9c6a02b17a97037f8093cc964f689033a5d6a31c15c4e6233cdc27deb07ae248",
+      "bytes": 82004
+    },
+    {
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/13/7185/3244.png",
+      "filename": "dem_png-13-7185-3244.png",
+      "sha256": "5a88efd8b5cb7d7a67003dde838a1afc3dc84fe1e2dfe550a1ed62608e1fdfc2",
+      "bytes": 68439
+    }
+  ]
+}

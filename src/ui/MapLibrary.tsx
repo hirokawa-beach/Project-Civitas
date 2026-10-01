@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
+import { DemAttribution } from './DemAttribution';
 import { builtInMaps, duplicateMapAsset, validateMapAsset, type MapAsset } from '../maps/mapAsset';
 import { listUserMaps, deleteMapAsset, duplicateStoredMap, renameMapAsset } from '../maps/mapStore';
 import { defaultLandOwnership, type LandOwnershipMode } from '../world/landOwnership';
@@ -20,6 +21,7 @@ export function MapLibrary({ onSelect, onEdit }: { onSelect: (asset: MapAsset) =
     </button>)}</div>
     <div class="map-library-detail">{asset ? <>
       <h2>{asset.name}</h2><p>{asset.description}</p><p>Author: {asset.author || 'Local creator'} · Source: {asset.world.source.kind}</p>
+      <DemAttribution world={asset.world} />
       <p>Grid {asset.world.terrainColumns} × {asset.world.terrainRows} · Chunks {asset.world.chunkSizeMeters} m · {asset.world.outsideConnections.length} outside entries</p>
       <label>LAND OWNERSHIP<select aria-label="Library New Game ownership mode" value={mode} onChange={e => setMode(e.currentTarget.value as LandOwnershipMode)}><option value="entire-map">Entire Map</option><option value="progressive">Progressive</option></select></label>
       <button class="new-game-start" disabled={!validation?.valid} onClick={() => { const copy = structuredClone(asset); if (copy.world.landOwnership?.mode !== mode) copy.world.landOwnership = defaultLandOwnership(copy.world, mode, copy.world.landOwnership?.tileSizeMeters); onSelect(copy); }}>START CITY FROM THIS MAP →</button>

@@ -10,12 +10,16 @@
     "test:watch": "vitest",
     "benchmark": "node scripts/benchmark.mjs",
     "benchmark:world": "node scripts/world-benchmark.mjs",
-    "benchmark:land": "node scripts/land-ownership-benchmark.mjs"
+    "benchmark:land": "node scripts/land-ownership-benchmark.mjs",
+    "verify:dem": "node scripts/verify-dem.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^8.26.0",
     "earcut": "^3.2.4",
-    "preact": "^10.27.2"
+    "fast-png": "^8.0.0",
+    "fast-xml-parser": "^5.11.2",
+    "preact": "^10.27.2",
+    "proj4": "^2.22.0"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.2",
