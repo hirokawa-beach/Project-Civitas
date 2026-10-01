@@ -19,6 +19,7 @@ import type { TransitLineInput, TransitSaveState, TransitStop, TransitLine } fro
 import type { StaticWater } from '../water/staticWater';
 
 export type SimulationCommandData =
+  | { type: 'unlock-land'; tile: import('../world/landOwnership').LandTile }
   | { type: 'build-road'; input: BuildRoadInput }
   | { type: 'remove-road'; segmentId: RoadSegmentId }
   | { type: 'set-zone'; cellIds: ZoningCellId[]; zoneType: ZoneBrush }
@@ -32,6 +33,7 @@ export type SimulationCommandData =
   | { type: 'set-water-level'; seaLevel: number };
 
 export type SimulationCommandResult =
+  | { type: 'unlock-land'; tile: import('../world/landOwnership').LandTile }
   | ({ type: 'build-road' } & BuildRoadResult)
   | { type: 'remove-road'; segmentId: RoadSegmentId }
   | { type: 'set-zone'; cellIds: ZoningCellId[]; zoneType: ZoneBrush }
@@ -407,6 +409,7 @@ export const commandFromData = (data: SimulationCommandData, assignments: Map<Zo
   services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[], transit?: TransitSystem,
   water?: StaticWater): SimulationCommand => {
   switch (data.type) {
+    case 'unlock-land': throw new Error('Land unlock is handled by the Worker Authority.');
     case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds, services, water);
     case 'remove-road': return new RemoveRoadCommand(data.segmentId, assignments);
     case 'set-zone': return new SetZoneCommand(data.cellIds, data.zoneType, assignments);

@@ -1,3 +1,4 @@
+import { LandOwnership } from '../world/landOwnership';
 import { numericId, type RoadLineageId, type RoadNodeId, type RoadSegmentId } from '../shared/ids';
 import { LEGACY_CHUNK_WORLD, type ChunkWorld, type Vec2 } from '../world/types';
 import {
@@ -39,6 +40,7 @@ interface Anchor {
 const cloneSnapshot = (snapshot: RoadGraphSnapshot): RoadGraphSnapshot => structuredClone(snapshot);
 
 export class RoadGraph {
+  landOwnership?: LandOwnership;
   readonly nodes = new Map<RoadNodeId, RoadNode>();
   readonly segments = new Map<RoadSegmentId, RoadSegment>();
   readonly lanes = new Map<Lane['id'], Lane>();
@@ -153,6 +155,8 @@ export class RoadGraph {
     const lastIndex = geometry.points.length - 1;
     const resolvedEndNode = endNode ?? this.resolveEndpoint(geometry.points[lastIndex], 12, 10, terrainHeight);
     geometry.points[lastIndex] = { ...resolvedEndNode.position };
+    const access = (this.landOwnership ?? new LandOwnership(this.world)).canConstruct({ kind: 'path', points: geometry.points, width: roadType.width });
+    if (!access.allowed) throw new Error(access.reason);
 
     const profile = profileRoadElevation(geometry.points, structure, targetElevation, terrainHeight, roadType, waterLevel);
     if (!profile.valid) throw new Error(`Invalid road elevation: ${profile.reason}.`);

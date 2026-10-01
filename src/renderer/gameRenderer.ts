@@ -31,9 +31,11 @@ import type { WorldSnapshot } from '../shared/protocol';
 import { createChunks, groupByChunk, worldToChunk,  type ChunkCoordinate, type ChunkDescriptor, type Vec2 } from '../world/types';
 import { HeightmapTerrain } from '../terrain/heightmap';
 import { createWorldMetadata } from '../world/metadata';
+import { LandOwnership, landTileAt, landTileBounds } from '../world/landOwnership';
 import { distance, normalize, pointAtDistance, subtract } from '../roads/geometry';
 import type { RoadGeometry, RoadSegment } from '../roads/types';
 import { roadHeightAt } from '../roads/elevation';
+import { roadRibbonSides } from '../roads/footprint';
 import type { ConstructionGuide } from '../roads/snapping';
 import { ZONE_TYPES, type ZoneBrush, type ZoneType, type ZoningCell } from '../zoning/types';
 import type { ScreenPoint } from '../zoning/interaction';
@@ -149,6 +151,9 @@ export class GameRenderer {
   private mapGeometryPreview?: LinesMesh;
   private outsideMarkers?: Mesh[];
   private outsideSignature?: string;
+  private landOverlayEnabled = false;
+  private landOverlayKey = '';
+  private landOverlayMeshes: LinesMesh[] = [];
   private terrain?: HeightmapTerrain;
   private terrainViewKey = '';
   private readonly dirtyTerrainMeshes = new Set<ChunkDescriptor['id']>();
@@ -330,6 +335,7 @@ export class GameRenderer {
       const agentStarted = performance.now();
       const delta = this.updateCamera();
       this.syncTerrainView();
+      this.syncLandOverlay();
       this.animateVisibleVehicles(delta);
       this.animateVisibleCitizens(delta);
       this.visualAgentUpdateMs = performance.now() - agentStarted;
@@ -634,6 +640,10 @@ export class GameRenderer {
       for (const mesh of this.terrainMeshes.values()) mesh.dispose(); this.terrainMeshes.clear();
       this.dirtyTerrainMeshes.clear(); this.terrainViewKey = '';
       this.terrain = HeightmapTerrain.fromBuffer(snapshot.terrain, snapshot.terrainHeightmap);
+      if (this.camera && this.world.landOwnership?.mode === 'progressive') {
+        const first = this.world.landOwnership.startingTiles[0]; const box = landTileBounds(first, this.world, this.world.landOwnership.tileSizeMeters);
+        this.focusMapPosition({ x: (box.minX + box.maxX) / 2, z: (box.minZ + box.maxZ) / 2 });
+      }
       changed = createChunks(this.world).map((chunk) => chunk.id);
     }
     for (const id of changed) this.dirtyTerrainMeshes.add(id);
@@ -702,8 +712,16 @@ export class GameRenderer {
   }
 
   private syncZones(cells: readonly ZoningCell[], chunkIds: readonly ChunkDescriptor['id'][]): void {
+    // World replacement invalidates cached chunks, including chunks absent from
+    // the incoming small map. This also clears debug overlays from that world.
+    const valid = (id: string) => { const match = /^chunk-(\d+)-(\d+)/.exec(id); return !!match && Number(match[1]) < Math.ceil(this.world.worldWidthMeters / this.world.chunkSizeMeters) && Number(match[2]) < Math.ceil(this.world.worldDepthMeters / this.world.chunkSizeMeters); };
+    for (const [key, mesh] of this.zoneMeshes) if (!valid(key)) { mesh.dispose(); this.zoneMeshes.delete(key); }
+    for (const [key, mesh] of this.zoningDebugMeshes) if (!valid(key)) { mesh.dispose(); this.zoningDebugMeshes.delete(key); }
     const grouped = groupByChunk(cells.filter(cell => cell.terrainSuitable !== false && cell.zoneType), cell => cell.center, this.world);
-    for (const id of chunkIds) {
+    const dirty = new Set(chunkIds);
+    const populated = new Set<ChunkDescriptor['id']>([...grouped.keys(), ...[...this.zoneMeshes.keys()].map(key => key.split(':')[0] as ChunkDescriptor['id'])]);
+    for (const id of populated) {
+      if (!dirty.has(id as ChunkDescriptor['id'])) continue;
       for (const type of ZONE_TYPES) {
         const key = `${id}:${type}`;
         this.zoneMeshes.get(key)?.dispose();
@@ -830,6 +848,28 @@ export class GameRenderer {
   }
 
   getTerrainMeshCount(): number { return this.terrainMeshes.size; }
+  setLandOverlayEnabled(enabled: boolean): void { this.landOverlayEnabled = enabled; this.landOverlayKey = ''; this.syncLandOverlay(); }
+  private syncLandOverlay(): void {
+    if (!this.snapshot || !this.camera) return;
+    const settings = this.world.landOwnership;
+    const size = settings?.tileSizeMeters ?? 1024; const tile = landTileAt(this.camera.target, this.world, size);
+    const reach = Math.max(1, Math.ceil(this.camera.radius * 1.8 / size));
+    const key = `${this.landOverlayEnabled}:${tile.x}:${tile.z}:${reach}:${this.world.worldWidthMeters}:${this.world.worldDepthMeters}:${this.snapshot.terrainRevision}:${this.snapshot.revision}`;
+    if (key === this.landOverlayKey) return; this.landOverlayKey = key;
+    for (const mesh of this.landOverlayMeshes) mesh.dispose(); this.landOverlayMeshes = [];
+    if (!this.landOverlayEnabled) return;
+    const access = new LandOwnership(this.world, settings, this.snapshot.landOwnership);
+    const owned: Vector3[][] = []; const locked: Vector3[][] = [];
+    for (let z = Math.max(0, tile.z - reach); z <= Math.min(Math.ceil(this.world.worldDepthMeters / size) - 1, tile.z + reach); z++)
+      for (let x = Math.max(0, tile.x - reach); x <= Math.min(Math.ceil(this.world.worldWidthMeters / size) - 1, tile.x + reach); x++) {
+        const box = landTileBounds({ x, z }, this.world, size);
+        const points = [{ x: box.minX, z: box.minZ }, { x: box.maxX, z: box.minZ }, { x: box.maxX, z: box.maxZ }, { x: box.minX, z: box.maxZ }, { x: box.minX, z: box.minZ }].map(p => this.toVector(p, .6));
+        (access.owns({ x, z }) ? owned : locked).push(points);
+      }
+    for (const [name, lines, color] of [['owned', owned, '#91d8b2'], ['locked', locked, '#e5bd7c']] as const) if (lines.length) {
+      const mesh = CreateLineSystem(`land-${name}`, { lines }, this.scene); mesh.color = Color3.FromHexString(color); mesh.isPickable = false; this.landOverlayMeshes.push(mesh);
+    }
+  }
   focusMapPosition(position: Vec2): void {
     this.camera.target.set(Math.max(-this.world.worldWidthMeters / 2, Math.min(this.world.worldWidthMeters / 2, position.x)),
       this.getHeight(position.x, position.z), Math.max(-this.world.worldDepthMeters / 2, Math.min(this.world.worldDepthMeters / 2, position.z)));
@@ -1468,22 +1508,10 @@ export class GameRenderer {
   }
 
   private roadSidePaths(points: Vec2[], width: number, y: number, geometry?: RoadGeometry): [Vector3[], Vector3[]] {
-    const left: Vector3[] = [];
-    const right: Vector3[] = [];
     const sampled = this.sampleRoadPolyline(points);
-    for (let index = 0; index < sampled.length; index += 1) {
-      const previous = sampled[Math.max(0, index - 1)];
-      const next = sampled[Math.min(sampled.length - 1, index + 1)];
-      const tangent = normalize(subtract(next, previous));
-      const normal = { x: -tangent.z, z: tangent.x };
-      const leftX = sampled[index].x + normal.x * width / 2;
-      const leftZ = sampled[index].z + normal.z * width / 2;
-      const rightX = sampled[index].x - normal.x * width / 2;
-      const rightZ = sampled[index].z - normal.z * width / 2;
-      left.push(new Vector3(leftX, geometry?.centerline ? roadHeightAt(geometry, sampled[index]) + y : this.getHeight(leftX, leftZ) + y, leftZ));
-      right.push(new Vector3(rightX, geometry?.centerline ? roadHeightAt(geometry, sampled[index]) + y : this.getHeight(rightX, rightZ) + y, rightZ));
-    }
-    return [left, right];
+    const sides = roadRibbonSides(points, width, this.terrain?.settings.sampleSpacing ?? 4);
+    return sides.map(side => side.map((p, i) => new Vector3(p.x,
+      (geometry?.centerline ? roadHeightAt(geometry, sampled[i]) : this.getHeight(p.x, p.z)) + y, p.z))) as [Vector3[], Vector3[]];
   }
 
   private sampleRoadPolyline(points: readonly Vec2[]): Vec2[] {

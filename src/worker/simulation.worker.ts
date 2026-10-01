@@ -40,6 +40,7 @@ const processMessage = (message: UIToWorkerMessage): 'initial' | 'full' | 'terra
         if (op.kind === 'load') { simulation.startMapAsset(op.asset, op.editor); initialized = true; }
         else if (op.kind === 'water') simulation.setWaterBodies(op.bodies);
         else if (op.kind === 'outside') simulation.setOutsideConnections(op.connections);
+        else if (op.kind === 'ownership') simulation.setLandOwnershipSettings(op.settings);
         else asset = simulation.exportMapAsset(op.identity);
         post({ type: 'map-result', requestId: message.requestId, ok: true, asset });
         return op.kind === 'load' ? 'initial' : op.kind === 'export' ? 'none' : 'full';

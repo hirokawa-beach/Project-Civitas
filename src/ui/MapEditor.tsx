@@ -6,6 +6,7 @@ import { saveMapAsset } from '../maps/mapStore';
 import type { MapOutsideConnection, WaterBody, WaterGeometry } from '../world/metadata';
 import type { TerrainBrushMode, Vec2 } from '../world/types';
 import { HeightmapTerrain } from '../terrain/heightmap';
+import { defaultLandOwnership, entireMapOwnership, landTileAt, landTileBounds, type LandOwnershipSettings } from '../world/landOwnership';
 
 const parsePoints = (text: string): Vec2[] => text.trim() ? text.trim().split(/\n+/).map(line => {
   const values = line.trim().split(/[,\s]+/).map(Number);
@@ -16,7 +17,9 @@ const formatPoints = (points: readonly Vec2[]) => points.map(p => `${p.x}, ${p.z
 
 export function MapEditor({ runtime, simulation, asset, onBack }: { runtime: GameRuntime; simulation: SimulationClient; asset: MapAsset; onBack: () => void }) {
   const [snapshot, setSnapshot] = useState(simulation.latestSnapshot);
-  const [tab, setTab] = useState<'terrain' | 'water' | 'outside' | 'validate'>('terrain');
+  const [tab, setTab] = useState<'terrain' | 'water' | 'outside' | 'ownership' | 'validate'>('terrain');
+  const [land, setLand] = useState<LandOwnershipSettings>(asset.world.landOwnership ?? entireMapOwnership());
+  const [startingTiles, setStartingTiles] = useState(formatPoints((asset.world.landOwnership?.startingTiles ?? []).map(t => ({ x: t.x, z: t.z }))));
   const [name, setName] = useState(asset.name); const [description, setDescription] = useState(asset.description);
   const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   const [validation, setValidation] = useState<MapAssetValidation>();
@@ -35,15 +38,17 @@ export function MapEditor({ runtime, simulation, asset, onBack }: { runtime: Gam
     const timer = setInterval(() => setPerf(`${runtime.renderer.getFps().toFixed(0)} FPS · ${runtime.renderer.getFrameTime().toFixed(1)} ms/frame · ${runtime.renderer.getTerrainMeshCount()} local terrain chunks`), 1000);
     return () => { clearInterval(timer); runtime.renderer.setMapGeometryPreview(); };
   }, [runtime]);
+  useEffect(() => { runtime.renderer.setLandOverlayEnabled(tab === 'ownership'); return () => runtime.renderer.setLandOverlayEnabled(false); }, [runtime, tab]);
   useEffect(() => { if (tab === 'terrain') { runtime.setTerrainMode(brush); runtime.setTerrainBrush(size, strength); } else runtime.setTool('inspect'); }, [tab, brush, size, strength, runtime]);
   useEffect(() => {
     const canvas = document.getElementById('game-canvas')!;
     const click = (event: PointerEvent) => {
-      if (event.button !== 0 || (tab !== 'water' && tab !== 'outside')) return;
+      if (event.button !== 0 || !['water', 'outside', 'ownership'].includes(tab)) return;
       const p = runtime.renderer.pickGround(event.clientX, event.clientY); if (!p) return;
       event.preventDefault(); event.stopImmediatePropagation();
       const q = { x: Math.round(p.x), z: Math.round(p.z) };
-      if (tab === 'water') { setPoints(current => `${current}${current.trim() ? '\n' : ''}${q.x}, ${q.z}`); setGeometryEdited(true); }
+      if (tab === 'ownership') { if (land.mode === 'progressive') { const tile = landTileAt(q, asset.world, land.tileSizeMeters); setStartingTiles(`${tile.x}, ${tile.z}`); } }
+      else if (tab === 'water') { setPoints(current => `${current}${current.trim() ? '\n' : ''}${q.x}, ${q.z}`); setGeometryEdited(true); }
       else {
         const world = simulation.latestSnapshot!.worldMetadata; const w = world.worldWidthMeters / 2; const d = world.worldDepthMeters / 2;
         const edges = [{ x: -w, z: q.z }, { x: w, z: q.z }, { x: q.x, z: -d }, { x: q.x, z: d }];
@@ -51,7 +56,7 @@ export function MapEditor({ runtime, simulation, asset, onBack }: { runtime: Gam
       }
     };
     canvas.addEventListener('pointerdown', click, true); return () => canvas.removeEventListener('pointerdown', click, true);
-  }, [tab, runtime, simulation]);
+  }, [tab, runtime, simulation, land.mode, land.tileSizeMeters]);
   useEffect(() => {
     try { runtime.renderer.setMapGeometryPreview(tab === 'water' ? parsePoints(points) : undefined, geometryKind === 'polygon'); }
     catch { runtime.renderer.setMapGeometryPreview(); }
@@ -86,7 +91,7 @@ export function MapEditor({ runtime, simulation, asset, onBack }: { runtime: Gam
     <aside class="map-editor-sidebar panel">
       <label>MAP NAME<input aria-label="Map asset name" value={name} maxLength={120} onInput={e => { setName(e.currentTarget.value); setValidation(undefined); }} /></label>
       <label>DESCRIPTION<textarea aria-label="Map description" value={description} maxLength={4000} onInput={e => setDescription(e.currentTarget.value)} /></label>
-      <nav>{(['terrain', 'water', 'outside', 'validate'] as const).map(key => <button aria-pressed={tab === key} onClick={() => setTab(key)}>{key === 'outside' ? 'CONNECTIONS' : key.toUpperCase()}</button>)}</nav>
+      <nav>{(['terrain', 'water', 'outside', 'ownership', 'validate'] as const).map(key => <button aria-pressed={tab === key} onClick={() => setTab(key)}>{key === 'outside' ? 'CONNECTIONS' : key === 'ownership' ? 'LAND / START' : key.toUpperCase()}</button>)}</nav>
       {tab === 'terrain' && <section><h2>Sculpt the terrain.</h2><p>Drag on the map to edit. Water boundaries stay fixed.</p>
         <div class="map-editor-tools">{(['raise', 'lower', 'flatten', 'smooth'] as const).map(mode => <button aria-pressed={brush === mode} onClick={() => setBrush(mode)}>{mode.toUpperCase()}</button>)}</div>
         <label>BRUSH SIZE (m)<input aria-label="Editor brush size" type="range" min="8" max="256" value={size} onInput={e => setSize(Number(e.currentTarget.value))} /><output>{size}</output></label>
@@ -118,6 +123,12 @@ export function MapEditor({ runtime, simulation, asset, onBack }: { runtime: Gam
           await simulation.mapOperation({ kind: 'outside', connections: [...simulation.latestSnapshot!.worldMetadata.outsideConnections.filter(c => c.id !== id), { id, type: connectionType, position: connectionPosition }] }); setConnectionId(id); setValidation(undefined); setMessage('Outside Connection applied.'); })}>APPLY CONNECTION</button>
         {connectionId && <button onClick={() => void run(async () => { await simulation.mapOperation({ kind: 'outside', connections: simulation.latestSnapshot!.worldMetadata.outsideConnections.filter(c => c.id !== connectionId) }); setConnectionId(''); setValidation(undefined); })}>DELETE CONNECTION</button>}
         <button onClick={() => void run(async () => { const draft = await exportAsset(); await simulation.mapOperation({ kind: 'outside', connections: suggestOutsideConnections(draft.world, new HeightmapTerrain(draft.terrain)) }); setValidation(undefined); })}>SUGGEST ROAD ENTRIES</button>
+      </section>}
+      {tab === 'ownership' && <section><h2>Land & Starting Area</h2><p>Land Ownership Tiles are independent of terrain chunks. Green outlines are owned; amber outlines are locked. Only nearby tiles are shown.</p>
+        <label>OWNERSHIP MODE<select aria-label="Map ownership mode" value={land.mode} onChange={e => { const next = defaultLandOwnership(asset.world, e.currentTarget.value as LandOwnershipSettings['mode'], land.tileSizeMeters); setLand(next); setStartingTiles(formatPoints(next.startingTiles)); }}><option value="entire-map">Entire Map</option><option value="progressive">Progressive</option></select></label>
+        <label>LAND TILE SIZE (m)<select aria-label="Land tile size" value={land.tileSizeMeters} onChange={e => { const next = defaultLandOwnership(asset.world, land.mode, Number(e.currentTarget.value)); setLand(next); setStartingTiles(formatPoints(next.startingTiles)); }}>{[512, 1024, 2048, 4096].map(size => <option value={size}>{size}</option>)}</select></label>
+        {land.mode === 'progressive' ? <><p>Click terrain to select a starting tile, or enter tile x, z pairs below. Unlock adjacent tiles after founding a city.</p><label>STARTING TILES<textarea aria-label="Starting land tiles" value={startingTiles} onInput={e => setStartingTiles(e.currentTarget.value)} /></label><button onClick={() => { try { const tile = parsePoints(startingTiles)[0]; if (!tile) return; const box = landTileBounds(tile, asset.world, land.tileSizeMeters); runtime.renderer.focusMapPosition({ x: (box.minX + box.maxX) / 2, z: (box.minZ + box.maxZ) / 2 }); } catch (error) { setMessage(String(error)); } }}>FOCUS STARTING AREA</button></> : <p>The complete physical world is buildable. No starting tiles are required.</p>}
+        <button disabled={busy} onClick={() => void run(async () => { const next = { ...land, startingTiles: land.mode === 'progressive' ? parsePoints(startingTiles) : [] }; await simulation.mapOperation({ kind: 'ownership', settings: next }); setLand(next); setValidation(undefined); setMessage('Land ownership and Starting Area applied to the working map.'); })}>APPLY LAND SETTINGS</button>
       </section>}
       {tab === 'validate' && <section><h2>Validate & save.</h2><p>This asset stores the initial world. City saves contain their own independent world copy.</p>
         <button disabled={busy} onClick={() => void run(async () => { setValidation(validateMapAsset(await exportAsset())); })}>VALIDATE MAP</button>

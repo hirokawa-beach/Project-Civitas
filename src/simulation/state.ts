@@ -29,10 +29,13 @@ import { StaticWater } from '../water/staticWater';
 import { AppliedTerrainStrokeCommand, CommandHistory, TerrainPresetCommand, commandFromData, type SimulationCommandData, type SimulationCommandResult, type TerrainEditBounds } from './commands';
 import { GameClock, type GameSpeed } from './gameClock';
 import { PerformanceLedger } from '../performance/metrics';
+import { LandOwnership, type LandOwnershipSettings } from '../world/landOwnership';
 
 export class SimulationState {
   readonly performance = new PerformanceLedger();
   worldMetadata = createWorldMetadata();
+  landOwnership = new LandOwnership(this.worldMetadata);
+  private mapEditor = false;
   readonly graph = new RoadGraph();
   readonly clock = new GameClock();
   readonly history = new CommandHistory();
@@ -107,6 +110,15 @@ export class SimulationState {
     this.load(serializeWorld({ terrain: structuredClone(asset.terrain), worldMetadata: structuredClone(asset.world),
       roadGraph: { nodes: [], segments: [], lanes: [] }, zoningAssignments: [], gameClock: { gameSeconds: 0, speed: editor ? 0 : 1 },
       generation: structuredClone(asset.world.generatorMetadata), water: asset.legacyWater ?? { version: 1, seaLevel: -12 } }));
+    this.mapEditor = editor;
+  }
+
+  setLandOwnershipSettings(settings: LandOwnershipSettings): void {
+    if (!this.mapEditor) throw new Error('Change starting ownership in the Map Editor before founding a city.');
+    const next = structuredClone(this.worldMetadata); next.landOwnership = structuredClone(settings);
+    validateWorldMetadata(next, this.terrain.metadata());
+    const ownership = new LandOwnership(next, settings);
+    this.worldMetadata = next; this.landOwnership = ownership; this.bindLandOwnership(); this.revision++;
   }
 
   exportMapAsset(identity: MapIdentity): MapAsset { return mapAssetFromTerrain(identity, this.terrain.state(), this.worldMetadata); }
@@ -146,11 +158,17 @@ export class SimulationState {
   }
 
   execute(command: SimulationCommandData): SimulationCommandResult {
+    if (command.type === 'unlock-land') {
+      if (this.mapEditor) throw new Error('Set Starting Area in the Map Editor.');
+      this.landOwnership.unlock(command.tile); this.revision++;
+      return { type: 'unlock-land', tile: structuredClone(command.tile) };
+    }
     let accepted = command;
     if (command.type === 'set-zone') {
       if (command.zoneType !== null && !isZoneType(command.zoneType)) throw new Error('Unknown zoning type.');
       const active = new Set(this.zoningCells.filter((cell) => command.zoneType === null
         || (isTerrainSuitableForZone(cell, (x, z) => this.terrain.getHeight(x, z))
+          && this.landOwnership.canConstruct({ kind: 'polygon', points: cell.corners }).allowed
           && !this.services.overlapsCell(cell))).map((cell) => cell.id));
       const cellIds = [...new Set(command.cellIds)];
       if (cellIds.some((id) => !active.has(id))) throw new Error('Zoning cell no longer exists.');
@@ -283,6 +301,7 @@ export class SimulationState {
       terrainUpdatedChunkIds: [...this.terrainUpdatedChunkIds],
       terrainEditMs: this.terrainEditMs,
       water: this.water.snapshot(),
+      landOwnership: this.landOwnership.save(),
       chunks: createChunks(this.worldMetadata),
       roadGraph: this.graph.snapshot(),
       zoningCells: structuredClone(this.zoningCells),
@@ -325,7 +344,7 @@ export class SimulationState {
     return serializeWorld({ terrain: this.terrain.state(), roadGraph: this.graph.snapshot(), gameClock: this.clock.snapshot(), zoningAssignments,
       lots: this.lots.lots, buildings: this.lots.buildings, population: this.population.save(),
       economy: this.economy.save(), traffic: this.traffic.save(), services: this.services.save(), transit: this.transit.save(),
-      water: this.water.save(), generation: this.generation, worldMetadata: this.worldMetadata });
+      water: this.water.save(), generation: this.generation, worldMetadata: this.worldMetadata, landOwnership: this.landOwnership.save() });
   }
 
   load(save: SaveFile): void {
@@ -343,6 +362,8 @@ export class SimulationState {
     // Validate into detached instances first. No live Authority state is touched
     // until every save component is known to be safe.
     const validatedGraph = new RoadGraph(world.roadGraph, world.worldMetadata);
+    const validatedOwnership = new LandOwnership(world.worldMetadata!, world.worldMetadata!.landOwnership, world.landOwnership);
+    for (const road of world.roadGraph.segments) if (!validatedOwnership.canConstruct({ kind: 'path', points: road.geometry.points, width: road.width }).allowed) throw new Error('Saved road is outside owned land.');
     const validatedTerrain = new HeightmapTerrain(world.terrain);
     const validatedWater = new StaticWater(world.water);
     const validatedClock = new GameClock();
@@ -360,7 +381,9 @@ export class SimulationState {
       terrainHeight: validatedTerrain.getHeight(cell.center.x, cell.center.z),
       zoneType: loadedAssignments.get(cell.id),
       terrainSuitable: isTerrainSuitableForZone(cell, (x, z) => validatedTerrain.getHeight(x, z)) }));
+    if (validatedCells.some(cell => cell.zoneType && !validatedOwnership.canConstruct({ kind: 'polygon', points: cell.corners }).allowed)) throw new Error('Saved zoning is outside owned land.');
     const validatedLots = new LotSystem(world.worldMetadata);
+    validatedLots.landOwnership = validatedOwnership;
     const validRoadIds = new Set(validatedGraph.snapshot().segments.map((segment) => segment.id));
     if (world.lots.some((lot) => !validRoadIds.has(lot.roadAccess?.roadSegmentId))) throw new Error('Save contains invalid lot road access.');
     if (world.hasLotData) validatedLots.restore(world.lots, world.buildings, validatedCells,
@@ -377,6 +400,7 @@ export class SimulationState {
     validatedTraffic.reconcileLots(validatedLots.lots);
     const validatedServices = new ServiceSystem();
     validatedServices.world = world.worldMetadata!;
+    validatedServices.landOwnership = validatedOwnership;
     if (world.hasServiceData) validatedServices.restore(world.services, validatedGraph.snapshot(),
       (x, z) => validatedTerrain.getHeight(x, z));
     validatedServices.recalculate(validatedGraph.snapshot(), validatedLots.lots, validatedPopulation.snapshot());
@@ -391,6 +415,7 @@ export class SimulationState {
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
     this.worldMetadata = structuredClone(world.worldMetadata!);
+    this.mapEditor = false; this.landOwnership = validatedOwnership;
     this.water.restore(validatedWater.save());
     this.water.configure(this.worldMetadata);
     this.generation = world.generation;
@@ -410,6 +435,7 @@ export class SimulationState {
     this.traffic = validatedTraffic;
     this.services = validatedServices;
     this.transit = validatedTransit;
+    this.bindLandOwnership();
     this.citizenPopulationRevision = this.population.revision;
     this.citizensDirty = false;
     this.refreshTerrainProtection();
@@ -417,10 +443,16 @@ export class SimulationState {
   }
 
   private configureWorld(): void {
+    this.landOwnership = new LandOwnership(this.worldMetadata, this.worldMetadata.landOwnership);
+    this.bindLandOwnership();
     this.graph.world = this.worldMetadata; this.zoningSystem.setWorld(this.worldMetadata);
     this.lots.world = this.worldMetadata; this.services.world = this.worldMetadata; this.transit.world = this.worldMetadata;
     this.traffic.world = this.worldMetadata; this.traffic.mapConnections = this.worldMetadata.outsideConnections;
     this.refreshTerrainProtection();
+  }
+
+  private bindLandOwnership(): void {
+    this.graph.landOwnership = this.landOwnership; this.lots.landOwnership = this.landOwnership; this.services.landOwnership = this.landOwnership;
   }
 
   private roadChanged(): void {

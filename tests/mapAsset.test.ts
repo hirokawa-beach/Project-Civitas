@@ -63,6 +63,7 @@ describe('Map Assets and library', () => {
     await import('../src/worker/simulation.worker');
     const loaded = client.mapOperation({ kind: 'load', asset: blankMapAsset(identity), editor: true }); vi.advanceTimersByTime(50); await loaded;
     expect(client.latestSnapshot?.gameClock.speed).toBe(0);
+    const ownership = client.mapOperation({ kind: 'ownership', settings: { mode: 'progressive', tileSizeMeters: 512, startingTiles: [{ x: 1, z: 1 }] } }); vi.advanceTimersByTime(50); await ownership;
     client.beginTerrainStroke({ x: 0, z: 0 }, 'raise', 40, 10); client.terrainStroke([{ x: 0, z: 0 }], .5); client.endTerrainStroke(); vi.advanceTimersByTime(50);
     const water = client.mapOperation({ kind: 'water', bodies: [withShoreline({ id: 'lake', type: 'lake', surfaceElevation: 20, geometry: { kind: 'polygon', vertices: [{ x: 100, z: 100 }, { x: 200, z: 100 }, { x: 200, z: 200 }, { x: 100, z: 200 }] } })] });
     vi.advanceTimersByTime(50); await water;
@@ -70,6 +71,9 @@ describe('Map Assets and library', () => {
     await saveMapAsset(asset); const stored = (await readMapAsset(asset.id))!;
     const started = client.mapOperation({ kind: 'load', asset: stored, editor: false }); vi.advanceTimersByTime(50); await started;
     expect(client.latestSnapshot?.worldMetadata.waterBodies[0].id).toBe('lake'); expect(client.latestSnapshot?.gameClock.speed).toBe(1);
+    expect(client.latestSnapshot?.landOwnership.ownedTiles).toEqual([{ x: 1, z: 1 }]);
+    const unlock = client.execute({ type: 'unlock-land', tile: { x: 0, z: 1 } }); vi.advanceTimersByTime(50); expect((await unlock).ok).toBe(true);
+    expect(client.latestSnapshot?.landOwnership.ownedTiles).toHaveLength(2);
     expect(client.latestSnapshot?.terrainHeightmap?.[128 * 257 + 128]).toBeGreaterThan(0);
     const editSnapshot = messages.filter((m): m is Extract<WorkerToUIMessage, { type: 'snapshot' }> => m.type === 'snapshot')[1];
     expect(editSnapshot.snapshot.terrainHeightmap).toBeUndefined();

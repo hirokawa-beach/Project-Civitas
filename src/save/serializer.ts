@@ -1,3 +1,4 @@
+import { LandOwnership, entireMapOwnership } from '../world/landOwnership';
 import type { RoadGraphSnapshot } from '../roads/types';
 import { HeightmapTerrain } from '../terrain/heightmap';
 import type { RoadLineageId } from '../shared/ids';
@@ -107,6 +108,7 @@ export interface SaveFileV12 extends Omit<SaveFileV11, 'saveVersion'> {
   generation: GenerationMetadata | null;
 }
 export interface SaveFileV13 extends Omit<SaveFileV12, 'saveVersion' | 'world'> {
+  landOwnership?: import('../world/landOwnership').LandOwnershipSave;
   saveVersion: 13;
   world: SaveFileV12['world'] & { metadata: WorldMetadata };
 }
@@ -114,6 +116,7 @@ export interface SaveFileV13 extends Omit<SaveFileV12, 'saveVersion' | 'world'> 
 export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9 | SaveFileV10 | SaveFileV11 | SaveFileV12 | SaveFileV13;
 
 export interface SerializableWorld {
+  landOwnership?: import('../world/landOwnership').LandOwnershipSave;
   worldMetadata?: WorldMetadata;
   terrain: LegacyTerrainState | TerrainState;
   roadGraph: RoadGraphSnapshot;
@@ -131,6 +134,7 @@ export interface SerializableWorld {
 }
 
 export const serializeWorld = (world: SerializableWorld): SaveFileV13 => ({
+  landOwnership: structuredClone(world.landOwnership ?? new LandOwnership({ worldWidthMeters: world.terrain.width, worldDepthMeters: world.terrain.depth }, world.worldMetadata?.landOwnership).save()),
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
   savedAt: new Date().toISOString(),
@@ -331,7 +335,11 @@ const isSaveFileV13 = (value: unknown): value is SaveFileV13 => !!value && typeo
   && !!(value as SaveFileV13).world.metadata;
 export const migrateSave = (value: unknown): SaveFileV13 => {
   if (isSaveFileV13(value)) {
-    const save = structuredClone(value); validateWorldMetadata(save.world.metadata, save.world.terrain);
+    const save = structuredClone(value);
+    if (!save.landOwnership) { save.world.metadata.landOwnership = entireMapOwnership(); save.landOwnership = new LandOwnership(save.world.metadata).save(); }
+    save.world.metadata.landOwnership ??= entireMapOwnership();
+    validateWorldMetadata(save.world.metadata, save.world.terrain);
+    new LandOwnership(save.world.metadata, save.world.metadata.landOwnership, save.landOwnership);
     if (save.world.width !== save.world.metadata.worldWidthMeters || save.world.depth !== save.world.metadata.worldDepthMeters) throw new Error('World dimensions disagree.'); return save;
   }
   const old = migrateToV12(value);
@@ -339,7 +347,7 @@ export const migrateSave = (value: unknown): SaveFileV13 => {
     terrainSampleSpacingMeters: old.world.terrain.settings.sampleSpacing });
   metadata.generatorMetadata = structuredClone(old.generation);
   if (old.generation) metadata.source.kind = 'procedural';
-  return { ...old, saveVersion: 13, gameVersion: GAME_VERSION, world: { ...old.world, metadata } };
+  return { ...old, saveVersion: 13, gameVersion: GAME_VERSION, world: { ...old.world, metadata }, landOwnership: new LandOwnership(metadata).save() };
 };
 
 const migrateToV11 = (value: unknown): SaveFileV11 => {
@@ -376,6 +384,7 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
   }
   if (save.generation) validateGenerationMetadata(save.generation);
   return {
+    landOwnership: structuredClone(save.landOwnership),
     worldMetadata: structuredClone(save.world.metadata),
     terrain: structuredClone(save.world.terrain),
     roadGraph: structuredClone(save.roadGraph),

@@ -17,12 +17,14 @@ import type { WorldMetadata } from '../world/metadata';
 import type { MapAsset, MapIdentity } from '../maps/mapAsset';
 import type { WaterBody, MapOutsideConnection } from '../world/metadata';
 export type MapOperation = { kind: 'load'; asset: MapAsset; editor: boolean }
+  | { kind: 'ownership'; settings: import('../world/landOwnership').LandOwnershipSettings }
   | { kind: 'water'; bodies: WaterBody[] }
   | { kind: 'outside'; connections: MapOutsideConnection[] }
   | { kind: 'export'; identity: MapIdentity };
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
+  landOwnership: import('../world/landOwnership').LandOwnershipSave;
   worldMetadata: WorldMetadata;
   revision: number;
   roadRevision: number;

@@ -19,6 +19,13 @@ button { font: inherit; }
 .game-shell { position: relative; background: #101a18; }
 #game-canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
 .hud-root { position: absolute; inset: 0; pointer-events: none; }
+.land-panel { position: absolute; top: 96px; right: 18px; width: 310px; max-height: calc(100vh - 220px); padding: 18px; overflow: auto; pointer-events: auto; z-index: 10; }
+.land-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.land-panel h2 { font-size: 17px; margin: 0; }
+.land-panel p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.land-panel label { display: grid; gap: 5px; margin: 12px 0; font: 10px Consolas, monospace; }
+.land-panel input, .land-panel select { background: #172925; color: #e9eee8; border: 1px solid var(--line); padding: 9px; }
+.land-panel button { border: 1px solid var(--line); padding: 9px; font: 10px Consolas, monospace; }
 .panel { border: 1px solid var(--line); background: var(--panel); box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2); backdrop-filter: blur(9px); }
 .hud-root button { pointer-events: auto; color: #dfe8e2; border: 1px solid transparent; background: transparent; cursor: pointer; transition: 120ms ease; }
 .hud-root button:hover { color: white; border-color: rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.06); }

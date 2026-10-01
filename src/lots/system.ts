@@ -1,5 +1,6 @@
-import { LEGACY_CHUNK_WORLD, type ChunkWorld, type ChunkDescriptor } from '../world/types';
 import type { ZoningCell } from '../zoning/types';
+import { LandOwnership } from '../world/landOwnership';
+import { LEGACY_CHUNK_WORLD, type ChunkWorld, type ChunkDescriptor } from '../world/types';
 import type { ZoningCellId } from '../shared/ids';
 import type { RoadSegment } from '../roads/types';
 import { closestPointOnPolyline } from '../roads/geometry';
@@ -18,6 +19,7 @@ const nextState: Record<Exclude<BuildingGrowthState, 'Occupied'>, BuildingGrowth
 };
 
 export class LotSystem {
+  landOwnership?: LandOwnership;
   constructor(public world: ChunkWorld = LEGACY_CHUNK_WORLD) {}
   private readonly lotsById = new Map<LotId, Lot>();
   private readonly buildingsById = new Map<Building['id'], Building>();
@@ -78,7 +80,8 @@ export class LotSystem {
     const candidates = cells.filter((cell) => (affected(cell.center.x, cell.center.z) || removedLotCellIds.has(cell.id))
       && !reserved.has(cell.id));
     this.lastReevaluatedCells = candidates.length;
-    const generated = generateLots(candidates, getHeight);
+    const access = this.landOwnership ?? new LandOwnership(this.world);
+    const generated = generateLots(candidates, getHeight).filter(lot => access.canConstruct({ kind: 'polygon', points: lot.corners }).allowed);
     const nextBuildings = new Map<Building['id'], Building>();
     for (const lot of retained.values()) if (lot.buildingId) {
       const building = this.buildingsById.get(lot.buildingId);
@@ -178,6 +181,7 @@ export class LotSystem {
     const validCells = new Map(cells.map((cell) => [cell.id, cell]));
     const occupiedCells = new Set<ZoningCellId>();
     for (const lot of savedLots) {
+      if (!(this.landOwnership ?? new LandOwnership(this.world)).canConstruct({ kind: 'polygon', points: lot.corners }).allowed) throw new Error('Saved building lot is outside owned land.');
       if (!lot || !lot.id?.startsWith('lot-') || !lot.zoneType || !Number.isInteger(lot.widthCells)
         || !Number.isInteger(lot.depthCells) || lot.widthCells < 1 || lot.widthCells > 4
         || lot.depthCells < 1 || lot.depthCells > 4 || lot.width !== lot.widthCells * 8

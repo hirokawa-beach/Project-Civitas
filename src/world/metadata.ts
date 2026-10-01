@@ -1,6 +1,7 @@
 import { validateWaterPolygon, waterPolygons } from '../water/geometry';
 import type { Vec2, TerrainMetadata } from './types';
 import type { GenerationMetadata } from '../terrain/generator';
+import { entireMapOwnership, validateLandSettings, type LandOwnershipSettings } from './landOwnership';
 
 export const MAP_SCHEMA_VERSION = 1;
 export interface WorldDimensions {
@@ -31,6 +32,8 @@ export interface MapOutsideConnection {
   name?: string;
 }
 export interface WorldMetadata extends WorldDimensions {
+  /** Optional only for old schema-v1 assets/saves: missing means Entire Map. */
+  landOwnership?: LandOwnershipSettings;
   mapSchemaVersion: typeof MAP_SCHEMA_VERSION;
   waterMode: 'legacy-height' | 'explicit';
   waterBodies: WaterBody[];
@@ -51,7 +54,7 @@ export function createWorldMetadata(input: Partial<WorldDimensions> = {}): World
   dimensions.terrainColumns = dimensions.worldWidthMeters / dimensions.terrainSampleSpacingMeters + 1;
   dimensions.terrainRows = dimensions.worldDepthMeters / dimensions.terrainSampleSpacingMeters + 1;
   const world: WorldMetadata = { ...dimensions, mapSchemaVersion: MAP_SCHEMA_VERSION, waterMode: 'legacy-height',
-    waterBodies: [], outsideConnections: [], generatorMetadata: null, source: { kind: 'legacy' } };
+    waterBodies: [], outsideConnections: [], generatorMetadata: null, source: { kind: 'legacy' }, landOwnership: entireMapOwnership() };
   validateWorldMetadata(world); return world;
 }
 export function worldBounds(world: WorldDimensions) {
@@ -71,6 +74,7 @@ export function validateWorldMetadata(world: WorldMetadata, terrain?: TerrainMet
     || c * r > 16777216 || Math.ceil(w / chunk) * Math.ceil(d / chunk) > 65536) throw new Error('Invalid world dimensions or terrain grid.');
   if (terrain && (terrain.width !== w || terrain.depth !== d || terrain.settings.sampleSpacing !== s || (terrain.chunkSizeMeters ?? 256) !== chunk))
     throw new Error('World and terrain metadata disagree.');
+  validateLandSettings(world.landOwnership ?? entireMapOwnership(), world);
   if (!['legacy-height', 'explicit'].includes(world.waterMode) || !Array.isArray(world.waterBodies)
     || !Array.isArray(world.outsideConnections) || !world.source || !['legacy', 'procedural', 'flat', 'heightmap', 'dem'].includes(world.source.kind))
     throw new Error('Invalid world metadata.');

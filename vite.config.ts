@@ -8,5 +8,7 @@ export default defineConfig({
   optimizeDeps: { exclude: ['@babylonjs/core'] },
   worker: { format: 'es' },
   build: { rollupOptions: { input: { app: 'index.html', benchmark: 'benchmark.html' } } },
-  test: { environment: 'node' },
+  // Large-world and 100k-citizen fixtures otherwise compete for CPU/memory on
+  // high-core laptops and trip unrelated 5s regression deadlines.
+  test: { environment: 'node', maxWorkers: 2 },
 });
