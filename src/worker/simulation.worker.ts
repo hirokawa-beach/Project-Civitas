@@ -13,6 +13,7 @@ let sentEconomyRevision = -1;
 let sentTrafficRevision = -1;
 let sentServiceRevision = -1;
 let sentTransitRevision = -1;
+let sentRailRevision = -1;
 
 let messageSampleAt = 0;
 let messageBytes = 0;
@@ -143,9 +144,11 @@ setInterval(() => {
         sentTrafficRevision = simulation.traffic.revision;
         sentServiceRevision = simulation.services.revision;
         sentTransitRevision = simulation.transit.revision;
+        sentRailRevision = simulation.railway.revision;
         simulation.consumeTerrainUpdate();
         simulation.lots.takeDelta();
       } else {
+        if (simulation.railway.revision !== sentRailRevision) { post({ type: 'rail-runtime-update', railwayRuntime: simulation.railway.runtime() }); sentRailRevision = simulation.railway.revision; }
         if (needsTerrainUpdate) {
           const update = simulation.consumeTerrainUpdate();
           if (update) post({ type: 'terrain-update', terrain: simulation.terrain.metadata(), terrainRevision: update.terrainRevision,

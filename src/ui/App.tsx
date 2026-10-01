@@ -54,6 +54,7 @@ const formatClock = (seconds: number): string => {
 const money = (amount: number): string => amount.toLocaleString();
 
 const toolLabel = (status: ConstructionStatus): string => {
+  if (status.tool === 'railway') return 'RAILWAY';
   if (status.tool === 'inspect') return 'CITIZEN INSPECTOR';
   if (status.tool === 'demolish') return 'DEMOLISH';
   if (status.tool === 'zone') return `${status.zoneBrush ? status.zoneBrush.toUpperCase() : 'ERASE'} ZONING`;
@@ -417,7 +418,7 @@ export function App({ runtime, simulation }: AppProps) {
 
       <div class={`construction-readout panel ${construction?.valid ? 'is-valid' : ''} ${construction?.tool === 'service' ? 'service-mode' : ''}`}>
         <div class="mode-tag">{construction ? toolLabel(construction) : 'CONNECTING'}</div>
-        <strong>{construction?.prompt ?? 'Starting simulation worker…'}</strong>
+        <strong>{construction?.tool === 'railway' ? 'Railway controls are in the Railway panel.' : construction?.prompt ?? 'Starting simulation worker…'}</strong>
         {construction?.tool === 'road' && construction.length > 0 && (
           <div class="readout-data">
             <span>{construction.length.toFixed(1)} m</span>

@@ -5,18 +5,7 @@ import { trackGeometry } from '../src/railway/geometry';
 import { LandOwnership, defaultLandOwnership } from '../src/world/landOwnership';
 import { createWorldMetadata } from '../src/world/metadata';
 import type { StationTemplate, TrackMode } from '../src/railway/types';
-
-export function railwayFixture(template: StationTemplate = 'single') {
-  const state = new SimulationState();
-  state.execute({ type: 'build-track', input: { points: [{ x: -480, z: 0 }, { x: 480, z: 0 }], trackTypeId: 'standard' } });
-  const first = [...state.railway.segments.values()][0];
-  state.execute({ type: 'place-station', trackSegmentId: first.id, offset: 180, length: 120, template, name: 'West' });
-  const last = [...state.railway.segments.values()].find(t => t.points.at(-1)!.x === 480)!;
-  state.execute({ type: 'place-station', trackSegmentId: last.id, offset: 460, length: 120, template: 'single', name: 'East' });
-  const depotTrack = [...state.railway.segments.values()].find(t => t.points[0].x === -480)!;
-  state.execute({ type: 'place-depot', trackSegmentId: depotTrack.id, capacity: 8, name: 'West Depot' });
-  return state;
-}
+import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
   it('keeps road/track graphs independent and creates snapped branch connectivity/switch direction', () => {
@@ -82,5 +71,10 @@ describe('Railway Infrastructure authority', () => {
     saved.railway!.stations[0].platforms[0].faces[0].trackSegmentId = 'missing';
     expect(() => state.load(saved)).toThrow(); expect(state.railway.save()).toEqual(before);
     delete saved.railway; state.load(saved); expect(state.railway.segments.size).toBe(0); expect(state.railway.stations.size).toBe(0);
+  });
+  it('loads existing infrastructure after water elevation changes without weakening new-construction validation', () => {
+    const state = railwayFixture(); state.water.setSeaLevel(20);
+    const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.save()).toEqual(state.railway.save());
+    expect(() => loaded.execute({ type: 'build-track', input: { points: [{ x: -100, z: 200 }, { x: 100, z: 200 }], trackTypeId: 'standard' } })).toThrow(/water/);
   });
 });

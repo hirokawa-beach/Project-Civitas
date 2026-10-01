@@ -1,5 +1,5 @@
 import { RoadGraph } from '../roads/roadGraph';
-import { RailwayInfrastructure } from '../railway/infrastructure';
+import { RailwaySystem } from '../railway/system';
 import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV13 } from '../save/serializer';
 import { createWorldMetadata, validateWorldMetadata, type WaterBody } from '../world/metadata';
 import { Hydrography, withShoreline } from '../water/geometry';
@@ -38,7 +38,7 @@ export class SimulationState {
   landOwnership = new LandOwnership(this.worldMetadata);
   private mapEditor = false;
   readonly graph = new RoadGraph();
-  railway = new RailwayInfrastructure();
+  railway = new RailwaySystem();
   readonly clock = new GameClock();
   readonly history = new CommandHistory();
   terrain = new HeightmapTerrain();
@@ -136,6 +136,7 @@ export class SimulationState {
   tick(realSeconds: number): boolean {
     const started = performance.now();
     this.clock.advance(realSeconds);
+    if (this.clock.speed !== 0) this.performance.measure('railwayEventMs', () => this.railway.advance(this.clock.gameSeconds));
     const buildingChanged = this.lots.advance(this.clock.gameSeconds, this.population.demandValues);
     if (buildingChanged) {
       this.lotRevision += 1;
@@ -161,6 +162,9 @@ export class SimulationState {
   }
 
   execute(command: SimulationCommandData): SimulationCommandResult {
+    if (command.type === 'create-rail-frequency' || command.type === 'set-rail-timetable' || command.type === 'clear-rail-operations' || command.type === 'extend-rail-dwell' || command.type === 'add-rail-passengers') {
+      const ids = this.railway.executeOperation(command, this.clock.gameSeconds); this.revision++; return { type: 'railway', ids };
+    }
     if (command.type === 'unlock-land') {
       if (this.mapEditor) throw new Error('Set Starting Area in the Map Editor.');
       this.landOwnership.unlock(command.tile); this.revision++;
@@ -307,6 +311,7 @@ export class SimulationState {
       terrainUpdatedChunkIds: [...this.terrainUpdatedChunkIds],
       terrainEditMs: this.terrainEditMs,
       railway: this.railway.snapshot(),
+      railwayRuntime: this.railway.runtime(),
       water: this.water.snapshot(),
       landOwnership: this.landOwnership.save(),
       chunks: createChunks(this.worldMetadata),
@@ -374,10 +379,12 @@ export class SimulationState {
     const validatedTerrain = new HeightmapTerrain(world.terrain);
     const validatedWater = new StaticWater(world.water);
     validatedWater.configure(world.worldMetadata!);
-    const validatedRailway = new RailwayInfrastructure();
+    const validatedRailway = new RailwaySystem();
     validatedRailway.ownership = validatedOwnership; validatedRailway.height = (x, z) => validatedTerrain.getHeight(x, z);
     validatedRailway.waterAt = (x, z) => validatedWater.isWaterAt(x, z, validatedTerrain);
     if (world.railway) validatedRailway.restore(world.railway);
+    if (world.railway?.operations && world.railway.operations.now !== world.gameClock.gameSeconds) throw new Error('Railway and GameClock disagree.');
+    validatedRailway.setClock(world.gameClock.gameSeconds);
     const validatedClock = new GameClock();
     validatedClock.restore(world.gameClock);
     const validatedZoning = new ZoningSystem(world.worldMetadata);

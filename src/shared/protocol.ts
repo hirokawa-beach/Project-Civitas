@@ -25,6 +25,7 @@ import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, 
 
 export interface WorldSnapshot {
   railway?: import('../railway/types').RailwaySnapshot;
+  railwayRuntime?: import('../railway/operationsTypes').RailRuntimeSnapshot;
   landOwnership: import('../world/landOwnership').LandOwnershipSave;
   worldMetadata: WorldMetadata;
   revision: number;
@@ -73,6 +74,7 @@ export type UIToWorkerMessage =
   | { type: 'set-terrain-preset'; preset: TerrainPreset };
 
 export type WorkerToUIMessage =
+  | { type: 'rail-runtime-update'; railwayRuntime: import('../railway/operationsTypes').RailRuntimeSnapshot }
   | { type: 'map-result'; requestId: string; ok: boolean; asset?: MapAsset; error?: string }
   | { type: 'performance-update'; timings: Record<string, TimingSummary>; messageBytes: number; snapshotBytes: number }
   | { type: 'load-result'; requestId: string; ok: boolean; error?: string }

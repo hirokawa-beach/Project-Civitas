@@ -388,6 +388,7 @@ export class GameRenderer {
     const updateStarted = performance.now();
     this.snapshot = snapshot;
     this.railwayVisual?.update(snapshot.railway, snapshot.terrainRevision, this.getDebugVisible());
+    this.railwayVisual?.updateRuntime(snapshot.railwayRuntime);
     if (Math.abs(this.visualGameSeconds - snapshot.gameClock.gameSeconds) > 2)
       this.visualGameSeconds = snapshot.gameClock.gameSeconds;
     const terrainChanged = snapshot.terrainRevision !== this.appliedTerrainRevision;
@@ -1249,6 +1250,7 @@ export class GameRenderer {
   private animateVisibleCitizens(realSeconds: number): void {
     if (!this.snapshot) return;
     this.visualGameSeconds += realSeconds * this.snapshot.gameClock.speed * 10;
+    this.railwayVisual?.animate(this.visualGameSeconds);
     if (this.visualGameSeconds - this.lastVisualSelectionGameSeconds > 60) this.syncVisualAgents();
     else if (this.visibleCitizenCount && this.snapshot.gameClock.speed !== 0) this.applyCitizenPoses();
   }

@@ -18,6 +18,8 @@
 .railway-panel p { font-size: 11px; line-height: 1.5; color: var(--muted); }
 .railway-panel label { display: grid; gap: 6px; margin: 12px 0; font: 10px Consolas, monospace; }
 .railway-panel select, .railway-panel input { width: 100%; padding: 9px; background: #172925; color: #e9eee8; border: 1px solid var(--line); }
+.railway-panel input[type="checkbox"] { width: 18px; height: 18px; }
+.railway-panel li { font: 11px Consolas, monospace; overflow-wrap: anywhere; }
 .railway-panel button { padding: 8px; margin: 3px; font: 10px Consolas, monospace; }
 .railway-panel summary { padding: 10px 0; font: 11px Consolas, monospace; cursor: pointer; }
 

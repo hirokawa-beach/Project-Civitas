@@ -3,6 +3,7 @@ import type { GameRuntime } from '../app/gameRuntime';
 import type { SimulationClient } from '../app/simulationClient';
 import type { WorldSnapshot } from '../shared/protocol';
 import { TRACK_TYPES, type TrackMode, type StationTemplate } from '../railway/types';
+import { RailwayOperations } from './RailwayOperations';
 
 export function RailwayPanel({ runtime, simulation, snapshot, onClose }: { runtime: GameRuntime; simulation: SimulationClient; snapshot: WorldSnapshot; onClose: () => void }) {
   const rail = runtime.railConstruction, state = snapshot.railway;
@@ -26,12 +27,13 @@ export function RailwayPanel({ runtime, simulation, snapshot, onClose }: { runti
       <label>DEPOT CAPACITY<input aria-label="Rail depot capacity" type="number" min="1" max="1000" value={capacity} onInput={e => { setCapacity(Number(e.currentTarget.value)); rail.capacity = Number(e.currentTarget.value); }} /></label>
       <button onClick={() => activate('depot')}>PLACE DEPOT ON TRACK</button>
     </details>
+    <RailwayOperations simulation={simulation} snapshot={snapshot} onCreate={() => rail.setEnabled(false)} />
     <details><summary>TRACK GRAPH / PLATFORMS / BLOCKS</summary>
       <p>{state?.nodes.length ?? 0} nodes · {state?.segments.length ?? 0} tracks · {state?.junctions.length ?? 0} junctions</p>
       {state?.stations.map(station => <div><strong>{station.name} · {station.stationId}</strong>{station.platforms.map(platform => <p>{platform.platformId} · {platform.length}m · {platform.faces.map(face => `${face.platformFaceId}: ${face.trackSegmentId} (${face.side}, ${face.direction})`).join(' / ')}</p>)}<button onClick={() => void simulation.execute({ type: 'remove-railway', kind: 'station', id: station.stationId })}>REMOVE {station.name}</button></div>)}
       {state?.depots.map(depot => <p>{depot.name} · {depot.id} · {depot.connectedTrackId} · capacity {depot.capacity} <button onClick={() => void simulation.execute({ type: 'remove-railway', kind: 'depot', id: depot.id })}>REMOVE DEPOT</button></p>)}
       {state?.junctions.slice(0, 50).map(junction => <label>{junction.id}<select aria-label={`Switch ${junction.id}`} value={junction.selectedRoute?.join('|') ?? ''} onChange={e => void simulation.execute({ type: 'set-rail-switch', junctionId: junction.id, route: e.currentTarget.value ? e.currentTarget.value.split('|') as [string, string] : null })}><option value="">Automatic connectivity</option>{junction.segmentIds.flatMap((a, i) => junction.segmentIds.slice(i + 1).map(b => <option value={`${a}|${b}`}>{a} ↔ {b}</option>))}</select></label>)}
-      {state?.blocks.slice(0, 50).map(block => <p>{block.id} · occupied {block.occupancyOwner ?? '—'} · reserved {block.reservationOwner ?? '—'}</p>)}
+      {(snapshot.railwayRuntime?.ownedBlocks.length ? snapshot.railwayRuntime.ownedBlocks : state?.blocks.slice(0, 50))?.slice(0, 50).map(block => <p>{block.id} · occupied {block.occupancyOwner ?? '—'} · reserved {block.reservationOwner ?? '—'}</p>)}
     </details>
   </aside>;
 }

@@ -24,6 +24,8 @@ export class RailwayInfrastructure {
   save(): RailwaySave { return structuredClone({ version: 1, nextId: this.nextId, nodes: [...this.nodes.values()], segments: [...this.segments.values()],
     junctions: [...this.junctions.values()], stations: [...this.stations.values()], depots: [...this.depots.values()], blocks: [...this.blocks.values()] }); }
   snapshot(): RailwaySnapshot { return { ...this.save(), revision: this.revision, networkRevision: this.networkRevision }; }
+  assertEditable(): void { if ([...this.blocks.values()].some(b => b.occupancyOwner || b.reservationOwner)) throw new Error('Stop rail operations before Undo/Redo of infrastructure.'); }
+  restoreConstruction(save: RailwaySave): void { this.assertEditable(); this.restore(save); }
   restore(save: RailwaySave): void {
     if (!save || save.version !== 1 || !Number.isSafeInteger(save.nextId) || save.nextId < 1) throw new Error('Invalid railway save.');
     const put = <T extends { [key: string]: unknown }>(values: T[], key: keyof T, target: Map<string, T>) => {
@@ -42,7 +44,9 @@ export class RailwayInfrastructure {
     for (const node of this.nodes.values()) if (!node.position || ![node.position.x, node.position.z].every(Number.isFinite)
       || Math.abs(node.position.x) > this.ownership.world.worldWidthMeters / 2 || Math.abs(node.position.z) > this.ownership.world.worldDepthMeters / 2) throw new Error('Invalid track node.');
     for (const segment of this.segments.values()) {
-      validateTrack(segment.points, segment.trackTypeId, this.height, this.ownership, this.waterAt, .01);
+      // Suitability is checked on construction. Later floods/terrain presets
+      // must not make an already saved city's infrastructure impossible to load.
+      validateTrack(segment.points, segment.trackTypeId, () => 0, this.ownership, () => false, .01);
       if (!this.nodes.has(segment.startNodeId) || !this.nodes.has(segment.endNodeId) || segment.startNodeId === segment.endNodeId
         || distance(this.nodes.get(segment.startNodeId)!.position, segment.points[0]) > .01
         || distance(this.nodes.get(segment.endNodeId)!.position, segment.points.at(-1)!) > .01

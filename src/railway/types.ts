@@ -17,6 +17,7 @@ export interface Station { stationId: string; name: string; platforms: Platform[
 export interface Depot { id: string; name: string; connectedTrackId: string; capacity: number; position: Vec2 }
 export interface RailBlock { id: string; occupancyOwner: string | null; reservationOwner: string | null }
 export interface RailwaySave {
+  operations?: import('./operationsTypes').RailOperationsSave;
   version: 1; nextId: number; nodes: TrackNode[]; segments: TrackSegment[]; junctions: Junction[];
   stations: Station[]; depots: Depot[]; blocks: RailBlock[];
 }

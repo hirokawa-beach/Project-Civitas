@@ -15,7 +15,6 @@ export class RailwayCommand implements SimulationCommand {
     this.before = this.system.save(); const ids = this.system.mutate(this.command); this.after = this.system.save();
     return this.result = { type: 'railway', ids };
   }
-  undo(_graph: RoadGraph): void { this.assertEditable(); this.system.restore(this.before!); }
-  redo(_graph: RoadGraph): SimulationCommandResult { this.assertEditable(); this.system.restore(this.after!); return this.result!; }
-  private assertEditable() { if ([...this.system.blocks.values()].some(b => b.occupancyOwner || b.reservationOwner)) throw new Error('Stop rail operations before Undo/Redo of infrastructure.'); }
+  undo(_graph: RoadGraph): void { this.system.restoreConstruction(this.before!); }
+  redo(_graph: RoadGraph): SimulationCommandResult { this.system.restoreConstruction(this.after!); return this.result!; }
 }

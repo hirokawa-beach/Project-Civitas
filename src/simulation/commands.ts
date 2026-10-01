@@ -19,7 +19,7 @@ import type { TransitSystem } from '../transit/system';
 import type { TransitLineInput, TransitSaveState, TransitStop, TransitLine } from '../transit/types';
 import type { StaticWater } from '../water/staticWater';
 
-export type SimulationCommandData = import('../railway/types').RailCommandData
+export type SimulationCommandData = import('../railway/types').RailCommandData | import('../railway/operationsTypes').RailOperationCommand
   | { type: 'unlock-land'; tile: import('../world/landOwnership').LandTile }
   | { type: 'build-road'; input: BuildRoadInput }
   | { type: 'remove-road'; segmentId: RoadSegmentId }
@@ -412,6 +412,8 @@ export const commandFromData = (data: SimulationCommandData, assignments: Map<Zo
   services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[], transit?: TransitSystem,
   water?: StaticWater, railway?: import('../railway/infrastructure').RailwayInfrastructure): SimulationCommand => {
   switch (data.type) {
+    case 'create-rail-frequency': case 'set-rail-timetable': case 'clear-rail-operations': case 'extend-rail-dwell': case 'add-rail-passengers':
+      throw new Error('Rail operations are handled by the Worker Authority.');
     case 'build-track': case 'place-station': case 'place-depot': case 'remove-railway': case 'set-rail-switch':
       if (!railway) throw new Error('Railway is unavailable.');
       return new RailwayCommand(railway, data);
