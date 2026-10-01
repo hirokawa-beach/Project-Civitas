@@ -18,6 +18,7 @@ import type { PerformanceProfile } from '../visual/agentBudget';
 import type { AgentDetails } from '../citizens/types';
 import { downloadReport } from '../performance/download';
 import { LandOwnershipPanel } from './LandOwnershipPanel';
+import { RailwayPanel } from './RailwayPanel';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -87,6 +88,7 @@ const SNAP_CONTROLS: ReadonlyArray<{ key: SnapSettingKey; label: string; title: 
 
 export function App({ runtime, simulation }: AppProps) {
   const [showLand, setShowLand] = useState(false);
+  const [showRail, setShowRail] = useState(false);
   const [snapshot, setSnapshot] = useState<WorldSnapshot | undefined>(simulation.latestSnapshot);
   const [construction, setConstruction] = useState<ConstructionStatus>();
   const [metrics, setMetrics] = useState<Metrics>({ fps: 0, frameTime: 0, chunk: { x: 2, z: 2 }, terrainMeshMs: 0,
@@ -202,12 +204,14 @@ export function App({ runtime, simulation }: AppProps) {
           </div>
         </div>
         <div class="file-actions">
+          <button onClick={() => setShowRail(!showRail)}>RAIL</button>
           <button onClick={() => setShowLand(!showLand)}>LAND</button>
           <button onClick={save}>SAVE</button>
           <button onClick={load}>LOAD</button>
         </div>
       </header>
       {showLand && snapshot && <LandOwnershipPanel snapshot={snapshot} runtime={runtime} simulation={simulation} onClose={() => setShowLand(false)} />}
+      {showRail && snapshot && <RailwayPanel snapshot={snapshot} runtime={runtime} simulation={simulation} onClose={() => setShowRail(false)} />}
 
       {snapshot && !inspecting && <aside class="city-stats panel" aria-label="Population and RCIO demand">
         <div class="panel-title">CITY LIFE</div>

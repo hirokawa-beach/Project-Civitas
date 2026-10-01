@@ -24,6 +24,7 @@ export type MapOperation = { kind: 'load'; asset: MapAsset; editor: boolean }
 import type { ChunkDescriptor, TerrainBrushMode, TerrainMetadata, TerrainPatch, TerrainPreset, Vec2 } from '../world/types';
 
 export interface WorldSnapshot {
+  railway?: import('../railway/types').RailwaySnapshot;
   landOwnership: import('../world/landOwnership').LandOwnershipSave;
   worldMetadata: WorldMetadata;
   revision: number;

@@ -109,6 +109,7 @@ export interface SaveFileV12 extends Omit<SaveFileV11, 'saveVersion'> {
 }
 export interface SaveFileV13 extends Omit<SaveFileV12, 'saveVersion' | 'world'> {
   landOwnership?: import('../world/landOwnership').LandOwnershipSave;
+  railway?: import('../railway/types').RailwaySave;
   saveVersion: 13;
   world: SaveFileV12['world'] & { metadata: WorldMetadata };
 }
@@ -116,6 +117,7 @@ export interface SaveFileV13 extends Omit<SaveFileV12, 'saveVersion' | 'world'> 
 export type SaveFile = SaveFileV1 | SaveFileV2 | SaveFileV3 | SaveFileV4 | SaveFileV5 | SaveFileV6 | SaveFileV7 | SaveFileV8 | SaveFileV9 | SaveFileV10 | SaveFileV11 | SaveFileV12 | SaveFileV13;
 
 export interface SerializableWorld {
+  railway?: import('../railway/types').RailwaySave;
   landOwnership?: import('../world/landOwnership').LandOwnershipSave;
   worldMetadata?: WorldMetadata;
   terrain: LegacyTerrainState | TerrainState;
@@ -134,6 +136,7 @@ export interface SerializableWorld {
 }
 
 export const serializeWorld = (world: SerializableWorld): SaveFileV13 => ({
+  railway: structuredClone(world.railway),
   landOwnership: structuredClone(world.landOwnership ?? new LandOwnership({ worldWidthMeters: world.terrain.width, worldDepthMeters: world.terrain.depth }, world.worldMetadata?.landOwnership).save()),
   saveVersion: SAVE_VERSION,
   gameVersion: GAME_VERSION,
@@ -395,6 +398,7 @@ export const deserializeWorld = (value: unknown): SerializableWorld & { terrain:
     population: structuredClone(save.population),
     economy: structuredClone(save.economy),
     traffic: structuredClone(save.traffic),
+    railway: structuredClone(save.railway),
     services: structuredClone(save.services),
     transit: structuredClone(save.transit),
     water: structuredClone(save.water),

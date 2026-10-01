@@ -36,7 +36,7 @@ import type { ServiceType } from '../services/types';
 import { SERVICE_DEFINITIONS, planServicePlacement } from '../services/system';
 import { planBusStopPlacement } from '../transit/system';
 
-export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain' | 'service' | 'bus-stop' | 'inspect';
+export type ActiveTool = 'road' | 'demolish' | 'zone' | 'terrain' | 'service' | 'bus-stop' | 'inspect' | 'railway';
 export type RoadMode = 'straight' | 'one-curve' | 'two-curve' | 'continuous';
 export type ZonePaintMode = 'brush' | 'box';
 
@@ -311,7 +311,7 @@ export class ConstructionController {
   }
 
   private readonly onPointerMove = (event: PointerEvent): void => {
-    if (this.tool === 'inspect') return;
+    if (this.tool === 'inspect' || this.tool === 'railway') return;
     if (this.tool === 'zone' && this.zonePainting && event.pointerId === this.zonePointerId && this.zoneMode === 'box') {
       this.zoneSelectionEnd = this.canvasPoint(event);
     }
@@ -341,7 +341,7 @@ export class ConstructionController {
   };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
-    if (this.tool === 'inspect') return;
+    if (this.tool === 'inspect' || this.tool === 'railway') return;
     if (event.button !== 0 || this.commandPending) return;
     const picked = this.renderer.pickGround(event.clientX, event.clientY);
     if (picked) this.cursor = picked;
@@ -505,6 +505,7 @@ export class ConstructionController {
   };
 
   private refreshAt(rawPoint: Vec2): void {
+    if (this.tool === 'railway') return;
     const analysisStarted = performance.now();
     if (this.tool === 'service') {
       const plan = this.snapshot ? planServicePlacement(this.serviceType, rawPoint, this.snapshot.roadGraph,

@@ -1,3 +1,4 @@
+import { RailwayCommand } from '../railway/command';
 import type { RoadSegmentId, ZoningCellId } from '../shared/ids';
 import { RoadGraph, type BuildRoadResult } from '../roads/roadGraph';
 import type { BuildRoadInput, RoadGraphSnapshot } from '../roads/types';
@@ -18,7 +19,7 @@ import type { TransitSystem } from '../transit/system';
 import type { TransitLineInput, TransitSaveState, TransitStop, TransitLine } from '../transit/types';
 import type { StaticWater } from '../water/staticWater';
 
-export type SimulationCommandData =
+export type SimulationCommandData = import('../railway/types').RailCommandData
   | { type: 'unlock-land'; tile: import('../world/landOwnership').LandTile }
   | { type: 'build-road'; input: BuildRoadInput }
   | { type: 'remove-road'; segmentId: RoadSegmentId }
@@ -32,7 +33,7 @@ export type SimulationCommandData =
   | { type: 'remove-bus-line'; lineId: string }
   | { type: 'set-water-level'; seaLevel: number };
 
-export type SimulationCommandResult =
+export type SimulationCommandResult = import('../railway/types').RailCommandResult
   | { type: 'unlock-land'; tile: import('../world/landOwnership').LandTile }
   | ({ type: 'build-road' } & BuildRoadResult)
   | { type: 'remove-road'; segmentId: RoadSegmentId }
@@ -52,7 +53,7 @@ export interface TerrainEditBounds { minX: number; maxX: number; minZ: number; m
 
 export interface SimulationCommand {
   readonly label: string;
-  readonly domain: 'road' | 'zone' | 'terrain' | 'service' | 'transit' | 'water';
+  readonly domain: 'road' | 'zone' | 'terrain' | 'service' | 'transit' | 'water' | 'railway';
   readonly affectedCellIds?: readonly ZoningCellId[];
   readonly affectedChunkIds?: readonly ChunkDescriptor['id'][];
   readonly affectedTerrainBounds?: TerrainEditBounds;
@@ -368,9 +369,10 @@ export class CommandHistory {
   }
 
   undo(graph: RoadGraph): boolean {
-    const command = this.undoStack.pop();
+    const command = this.undoStack.at(-1);
     if (!command) return false;
     command.undo(graph);
+    this.undoStack.pop();
     this.lastDomain = command.domain;
     this.lastAffectedCellIds = command.affectedCellIds ?? [];
     this.lastAffectedChunkIds = command.affectedChunkIds ?? [];
@@ -381,9 +383,10 @@ export class CommandHistory {
   }
 
   redo(graph: RoadGraph): boolean {
-    const command = this.redoStack.pop();
+    const command = this.redoStack.at(-1);
     if (!command) return false;
     command.redo(graph);
+    this.redoStack.pop();
     this.lastDomain = command.domain;
     this.lastAffectedCellIds = command.affectedCellIds ?? [];
     this.lastAffectedChunkIds = command.affectedChunkIds ?? [];
@@ -407,8 +410,11 @@ export class CommandHistory {
 export const commandFromData = (data: SimulationCommandData, assignments: Map<ZoningCellId, ZoneType>,
   terrainHeight?: (x: number, z: number) => number, economy?: EconomySystem, gameSeconds?: () => number,
   services?: ServiceSystem, lots?: () => readonly Lot[], cells?: () => readonly ZoningCell[], transit?: TransitSystem,
-  water?: StaticWater): SimulationCommand => {
+  water?: StaticWater, railway?: import('../railway/infrastructure').RailwayInfrastructure): SimulationCommand => {
   switch (data.type) {
+    case 'build-track': case 'place-station': case 'place-depot': case 'remove-railway': case 'set-rail-switch':
+      if (!railway) throw new Error('Railway is unavailable.');
+      return new RailwayCommand(railway, data);
     case 'unlock-land': throw new Error('Land unlock is handled by the Worker Authority.');
     case 'build-road': return new BuildRoadCommand(data.input, assignments, terrainHeight, economy, gameSeconds, services, water);
     case 'remove-road': return new RemoveRoadCommand(data.segmentId, assignments);

@@ -1,4 +1,5 @@
 import { Hydrography, triangulateWater, waterPolygons } from '../water/geometry';
+import { RailwayRenderer } from './railwayRenderer';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import type { ArcRotateCameraPointersInput } from '@babylonjs/core/Cameras/Inputs/arcRotateCameraPointersInput';
 import '@babylonjs/core/Culling/ray';
@@ -76,6 +77,7 @@ export interface RoadPreviewVisual {
 }
 
 export class GameRenderer {
+  private railwayVisual?: RailwayRenderer;
   readonly performance = new PerformanceLedger();
   private lastRenderAt = 0;
   private citizenSelectionMs = 0;
@@ -329,6 +331,7 @@ export class GameRenderer {
     }
     this.zonePreviewMaterials.erase = this.makeZoneMaterial('zone-preview-erase', '#ef6c64', 0.88);
 
+    this.railwayVisual = new RailwayRenderer(this.scene, (x, z) => this.getHeight(x, z));
     this.createChunkGrid();
     this.bindCameraKeys();
     this.scene.onBeforeRenderObservable.add(() => {
@@ -340,6 +343,7 @@ export class GameRenderer {
       this.animateVisibleCitizens(delta);
       this.visualAgentUpdateMs = performance.now() - agentStarted;
       this.animateTransitVehicles(delta);
+      this.railwayVisual?.draw({ x: this.camera.target.x, z: this.camera.target.z }, this.camera.radius);
     });
     this.engine.runRenderLoop(() => {
       if (this.disposed) return;
@@ -383,6 +387,7 @@ export class GameRenderer {
   updateSnapshot(snapshot: WorldSnapshot): void {
     const updateStarted = performance.now();
     this.snapshot = snapshot;
+    this.railwayVisual?.update(snapshot.railway, snapshot.terrainRevision, this.getDebugVisible());
     if (Math.abs(this.visualGameSeconds - snapshot.gameClock.gameSeconds) > 2)
       this.visualGameSeconds = snapshot.gameClock.gameSeconds;
     const terrainChanged = snapshot.terrainRevision !== this.appliedTerrainRevision;
@@ -1334,6 +1339,7 @@ export class GameRenderer {
   getCurrentChunk(): ChunkCoordinate { return worldToChunk({ x: this.camera.target.x, z: this.camera.target.z }, this.world); }
 
   dispose(): void {
+    this.railwayVisual?.dispose();
     this.disposed = true;
     window.removeEventListener('resize', this.resize);
     window.removeEventListener('keydown', this.cameraKeyDown); window.removeEventListener('keyup', this.cameraKeyUp);
