@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "seed": "land-ownership-foundation",
+  "preset": "flat-plains",
+  "scenarios": [
+    {
+      "sizeMeters": 1024,
+      "spacingMeters": 4,
+      "grid": [
+        257,
+        257
+      ],
+      "totalTerrainChunks": 16,
+      "terrainBytes": 264196,
+      "normalSnapshotTerrainBytes": 0,
+      "entireMapOwnedTilesStored": 0,
+      "progressiveStartingTiles": 1,
+      "dirtyChunks": 4,
+      "patchBytes": 67669,
+      "citySaveBytes": 532395,
+      "generationMs": 103.59979999999996,
+      "loadMs": 108.09429999999975,
+      "localEditMs": 17.087600000000293,
+      "emptyTick100Ms": 6.9012000000002445,
+      "serializeMs": 14.538700000000063,
+      "reloadMs": 58.822799999999916
+    },
+    {
+      "sizeMeters": 4096,
+      "spacingMeters": 4,
+      "grid": [
+        1025,
+        1025
+      ],
+      "totalTerrainChunks": 256,
+      "terrainBytes": 4202500,
+      "normalSnapshotTerrainBytes": 0,
+      "entireMapOwnedTilesStored": 0,
+      "progressiveStartingTiles": 1,
+      "dirtyChunks": 4,
+      "patchBytes": 67669,
+      "citySaveBytes": 8409003,
+      "generationMs": 653.4519,
+      "loadMs": 2268.6073000000006,
+      "localEditMs": 4.7524999999996,
+      "emptyTick100Ms": 0.9637999999995372,
+      "serializeMs": 179.77469999999994,
+      "reloadMs": 948.4072000000006
+    },
+    {
+      "sizeMeters": 16384,
+      "spacingMeters": 16,
+      "grid": [
+        1025,
+        1025
+      ],
+      "totalTerrainChunks": 4096,
+      "terrainBytes": 4202500,
+      "normalSnapshotTerrainBytes": 0,
+      "entireMapOwnedTilesStored": 0,
+      "progressiveStartingTiles": 1,
+      "dirtyChunks": 4,
+      "patchBytes": 4693,
+      "citySaveBytes": 8409003,
+      "generationMs": 719.3813999999993,
+      "loadMs": 1928.8319999999985,
+      "localEditMs": 1.3479999999999563,
+      "emptyTick100Ms": 0.783900000000358,
+      "serializeMs": 172.27219999999943,
+      "reloadMs": 1047.117400000001
+    },
+    {
+      "sizeMeters": 32768,
+      "spacingMeters": 32,
+      "grid": [
+        1025,
+        1025
+      ],
+      "totalTerrainChunks": 16384,
+      "terrainBytes": 4202500,
+      "normalSnapshotTerrainBytes": 0,
+      "entireMapOwnedTilesStored": 0,
+      "progressiveStartingTiles": 1,
+      "dirtyChunks": 4,
+      "patchBytes": 1365,
+      "citySaveBytes": 8409003,
+      "generationMs": 600.7499000000007,
+      "loadMs": 1792.3671999999988,
+      "localEditMs": 0.37080000000059954,
+      "emptyTick100Ms": 0.7960000000002765,
+      "serializeMs": 170.10430000000088,
+      "reloadMs": 1175.2051999999985
+    }
+  ],
+  "environment": {
+    "runtime": "v22.23.2",
+    "platform": "win32",
+    "cpu": "Intel(R) Core(TM) Ultra 5 125H",
+    "renderer": "CPU only"
+  }
+}
