@@ -8,6 +8,25 @@ import type { StationTemplate, TrackMode } from '../src/railway/types';
 import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
+  it.each(['double', 'island'] as StationTemplate[])('rejects %s generated parallel/platform/approach collisions with existing tracks', template => {
+    for (const points of [
+      [{ x: -100, z: 6 }, { x: 100, z: 6 }],
+      [{ x: 0, z: 2 }, { x: 0, z: 20 }],
+      [{ x: -100, z: 2 }, { x: -100, z: 20 }],
+    ]) {
+      const rail = new RailwayInfrastructure(); rail.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } });
+      const ids = rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } }), before = rail.save();
+      expect(() => rail.mutate({ type: 'place-station', name: 'Collision', trackSegmentId: ids[0], offset: 400, length: 120, template })).toThrow(/overlaps|collides/);
+      expect(rail.save()).toEqual(before);
+    }
+  });
+  it('rejects a depot footprint containing water even when the connected track and all corners are dry', () => {
+    const rail = new RailwayInfrastructure(); rail.mutate({ type: 'build-track', input: { points: [{ x: -100, z: 0 }, { x: 100, z: 0 }], trackTypeId: 'standard' } });
+    const id = [...rail.segments.keys()][0], before = rail.save(); rail.waterAt = (x, z) => Math.abs(x) < 3 && Math.abs(z - 4) < 1;
+    expect(rail.depotOutline({ x: 0, z: 0 }).some(p => rail.waterAt(p.x, p.z))).toBe(false);
+    expect(() => rail.mutate({ type: 'place-depot', trackSegmentId: id, name: 'Wet depot', capacity: 8 })).toThrow(/water/);
+    expect(rail.save()).toEqual(before);
+  });
   it.each(['double', 'island'] as StationTemplate[])('rejects %s parallel track crossing side water or steep terrain atomically', template => {
     const rail = new RailwayInfrastructure(); rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } });
     const before = rail.save(), track = [...rail.segments.values()][0];

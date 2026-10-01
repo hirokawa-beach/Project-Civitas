@@ -81,6 +81,9 @@ export class RailConstruction {
   }
   private key = (event: KeyboardEvent) => {
     if (!this.enabled || (event.target as HTMLElement)?.closest('input,textarea,select')) return;
+    // The shared road controller sends history shortcuts; clear this controller
+    // as well without sending a second Undo/Redo command.
+    if (event.ctrlKey && (event.code === 'KeyZ' || event.code === 'KeyY')) this.cancel();
     if (event.key === 'Escape') this.cancel();
     if (event.key === 'Backspace') { event.preventDefault(); this.anchors.pop(); this.renderer.setMapGeometryPreview(this.anchors, false); }
   };

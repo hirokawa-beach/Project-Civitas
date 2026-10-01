@@ -9,13 +9,14 @@ import { GameRuntime } from '../src/app/gameRuntime';
 afterEach(() => vi.unstubAllGlobals());
 describe('railway construction interaction', () => {
   function setup() {
-    vi.stubGlobal('window', new EventTarget()); const state = new SimulationState(), listeners = new Map<string, (e: PointerEvent) => void>(), commands: RailCommandData[] = [];
+    vi.stubGlobal('window', new EventTarget()); const keyListener = vi.spyOn(window, 'addEventListener'); const state = new SimulationState(), listeners = new Map<string, (e: PointerEvent) => void>(), commands: RailCommandData[] = [];
     const canvas = { addEventListener: (name: string, listener: (e: PointerEvent) => void) => listeners.set(name, listener), removeEventListener: (name: string) => listeners.delete(name) };
     const renderer = { pickGround: (x: number, z: number) => ({ x, z }), setMapGeometryPreview: vi.fn() };
     const client = { latestSnapshot: state.snapshot(), execute: vi.fn(async (command: RailCommandData) => { commands.push(command); const result = state.execute(command); client.latestSnapshot = state.snapshot(); return { ok: true, result }; }) };
     const controller = new RailConstruction(canvas as unknown as HTMLCanvasElement, renderer as unknown as GameRenderer, client as unknown as SimulationClient);
     const click = async (x: number, z: number) => { listeners.get('pointerdown')!({ clientX: x, clientY: z, button: 0, preventDefault: () => {}, stopImmediatePropagation: () => {} } as PointerEvent); await Promise.resolve(); };
-    return { controller, click, commands, state, client };
+    const keydown = (event: KeyboardEvent) => (keyListener.mock.calls.find(c => String(c[0]) === 'keydown')![1] as (event: KeyboardEvent) => void)(event);
+    return { controller, click, commands, state, client, keydown };
   }
   it('continues curves from the previous endpoint and tangent until canceled', async () => {
     const { controller, click, commands, state } = setup(); controller.trackMode = 'continuous'; controller.setEnabled(true);
@@ -37,5 +38,10 @@ describe('railway construction interaction', () => {
     Object.assign(runtime, { construction: { cancel: vi.fn() }, railConstruction: controller, simulation: { undo: vi.fn(), redo: vi.fn() } });
     runtime[method](); await click(200, 0); expect(commands).toHaveLength(0);
     await click(400, 0); expect(commands).toHaveLength(1); controller.dispose();
+  });
+  it.each(['KeyZ', 'KeyY'])('clears partial alignment for Ctrl+%s without a duplicate history command', async code => {
+    const { controller, click, commands, keydown } = setup(); controller.setEnabled(true); await click(-200, 0);
+    keydown({ code, ctrlKey: true, key: code.at(-1)!.toLowerCase(), target: { closest: () => null } } as unknown as KeyboardEvent);
+    await click(200, 0); expect(commands).toHaveLength(0); controller.dispose();
   });
 });

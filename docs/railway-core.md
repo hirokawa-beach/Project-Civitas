@@ -36,8 +36,12 @@ Verification covers deterministic Save resumes during dwell, running, blocked re
 
 ## Scope
 
-Final gates after review fixes: `npm test` **339 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
+Final gates after review fixes: `npm test` **345 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
 
 Codex Review's three P2 findings were addressed with regressions: validate the additional double/island station centerline against side water/grade, cancel the railway controller in common Load/Undo/Redo paths, and reject Formations without an Operation. Line-only advanced definitions also freeze referenced infrastructure until cleared. In the production browser, a one-point alignment → Load → next click correctly became a new **Point 1/2**, without creating a track from the old point; Console warnings/errors remained empty. Fine geometry edges, platform-face lookup, saved owner membership and route reconstruction also use indexes/sets or linear reconstruction to avoid repeated whole-path/model scans.
+
+Two follow-up P2 findings were also fixed: generated station platform/approach tracks are checked against the existing edge index before any template insertion (overlap/crossing rejects atomically; intended connections share graph endpoints); station/depot rectangular footprints sample boundary and interior water at ≤4m. Regression cases include existing parallel track, platform crossing, approach crossing and an interior depot pool with dry corners. The event-budget regression saves after 1,000 due events with overdue work still queued, then compares deterministic continuation: Save stores canonical delays, and a waiting Formation may validly have a reactivation already queued rather than still in the blocked-wait index.
+
+Ctrl+Z / Ctrl+Y also clear partial railway alignments while the existing shared controller sends the single history command; regressions protect this path alongside Runtime cancellation.
 
 No OuDiaSecond converter, coupling/splitting, full interlocking, ATS/ATC, crew scheduling, detailed depot shunting, rail bridges/tunnels or new GIS imports. Internal stable railway IDs, integer game-second calls and separate services/formations/operations will allow a future #10 adapter.

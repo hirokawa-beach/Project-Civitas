@@ -97,6 +97,7 @@ export class RailwayInfrastructure {
           const track = this.requireTrack(command.trackSegmentId), position = pointAtDistance(track.points, track.length / 2).point;
           const outline = this.depotOutline(position), permission = this.ownership.canConstruct({ kind: 'polygon', points: outline });
           if (!permission.allowed) throw new Error(permission.reason);
+          this.validateDryFootprint(outline);
           if (!command.name.trim() || !Number.isInteger(command.capacity) || command.capacity < 1 || command.capacity > 1000) throw new Error('Depot needs a name and capacity from 1 to 1000.');
           const id = this.id('depot'); this.depots.set(id, { id, name: command.name.trim(), connectedTrackId: track.id, capacity: command.capacity, position }); ids = [id]; break;
         }
@@ -195,21 +196,24 @@ export class RailwayInfrastructure {
     const rectangle = (side: number, halfWidth: number) => [at(offset - length / 2, side - halfWidth), at(offset + length / 2, side - halfWidth), at(offset + length / 2, side + halfWidth), at(offset - length / 2, side + halfWidth)];
     const boundary = rectangle(command.template === 'single' ? -2 : 3, command.template === 'single' ? 4 : 8);
     const permission = this.ownership.canConstruct({ kind: 'polygon', points: boundary }); if (!permission.allowed) throw new Error(permission.reason);
-    if (boundary.some(p => this.waterAt(p.x, p.z))) throw new Error('Station cannot be placed in water.');
+    this.validateDryFootprint(boundary);
     const from = offset - length / 2, to = offset + length / 2;
+    const generated = command.template === 'single' ? [] : [
+      [at(from, 6), at(to, 6)],
+      ...[true, false].map(approach => Array.from({ length: 21 }, (_, i) => { const t = i / 20, smooth = t * t * (3 - 2 * t); return approach ? at(from - 80 + t * 80, smooth * 6) : at(to + t * 80, (1 - smooth) * 6); })),
+    ];
+    for (const points of generated) {
+      validateTrack(points, track.trackTypeId, this.height, this.ownership, this.waterAt);
+      this.validateGeneratedTrack(points, track.id);
+    }
     const pieces = this.split(track.id, [from - 80, from, to, to + 80]);
     const base = pieces.find(id => Math.abs(this.requireTrack(id).length - length) < .01 && distance(this.requireTrack(id).points[0], at(from)) < .01)!;
     const stationId = this.id('station'), firstFace: PlatformFace = { platformFaceId: this.id('platform-face'), trackSegmentId: base, offset: length / 2, side: 'left', direction: 'both' };
     const platforms: Station['platforms'] = [{ platformId: this.id('platform'), length, faces: [firstFace], outline: rectangle(command.template === 'island' ? 3 : -3, 1.5) }];
     const connectedTrackIds = [base];
     if (command.template !== 'single') {
-      const parallel = [at(from, 6), at(to, 6)];
-      validateTrack(parallel, track.trackTypeId, this.height, this.ownership, this.waterAt);
-      const second = this.add(parallel, track.trackTypeId); connectedTrackIds.push(second);
-      for (const approach of [true, false]) {
-        const points = Array.from({ length: 21 }, (_, i) => { const t = i / 20, smooth = t * t * (3 - 2 * t); return approach ? at(from - 80 + t * 80, smooth * 6) : at(to + t * 80, (1 - smooth) * 6); });
-        validateTrack(points, track.trackTypeId, this.height, this.ownership, this.waterAt); this.add(points, track.trackTypeId);
-      }
+      const second = this.add(generated[0], track.trackTypeId); connectedTrackIds.push(second);
+      for (const points of generated.slice(1)) this.add(points, track.trackTypeId);
       const face: PlatformFace = { platformFaceId: this.id('platform-face'), trackSegmentId: second, offset: length / 2, side: command.template === 'island' ? 'right' : 'left', direction: 'both' };
       if (command.template === 'island') platforms[0].faces.push(face);
       else platforms.push({ platformId: this.id('platform'), length, faces: [face], outline: rectangle(9, 1.5) });
@@ -217,6 +221,25 @@ export class RailwayInfrastructure {
     this.stations.set(stationId, { stationId, name: command.name.trim(), platforms, connectedTrackIds, boundary }); return stationId;
   }
   depotOutline(p: Vec2): Vec2[] { return [{ x: p.x - 10, z: p.z - 8 }, { x: p.x + 10, z: p.z - 8 }, { x: p.x + 10, z: p.z + 8 }, { x: p.x - 10, z: p.z + 8 }]; }
+  private validateDryFootprint(outline: Vec2[]) {
+    const [a, b, , d] = outline, columns = Math.ceil(distance(a, b) / 4), rows = Math.ceil(distance(a, d) / 4);
+    for (let row = 0; row <= rows; row++) for (let column = 0; column <= columns; column++) {
+      const u = column / columns, v = row / rows;
+      if (this.waterAt(a.x + (b.x - a.x) * u + (d.x - a.x) * v, a.z + (b.z - a.z) * u + (d.z - a.z) * v)) throw new Error('Railway station/depot footprint crosses water.');
+    }
+  }
+  private validateGeneratedTrack(points: Vec2[], baseTrackId: string) {
+    for (let i = 1; i < points.length; i++) for (const edge of this.edges.query(points[i - 1], points[i])) {
+      const [c, d] = edge.points;
+      if (collinearOverlap(points[i - 1], points[i], c, d)) throw new Error('Generated station track overlaps an existing track.');
+      const hit = segmentIntersection(points[i - 1], points[i], c, d); if (!hit) continue;
+      const existing = this.requireTrack(edge.trackId), endpoint = distance(hit.point, points[0]) < .01 || distance(hit.point, points.at(-1)!) < .01;
+      // The template splits its base alignment at approach endpoints. Other
+      // alignments may connect only at an already existing graph endpoint.
+      if (endpoint && (edge.trackId === baseTrackId || distance(hit.point, existing.points[0]) < .01 || distance(hit.point, existing.points.at(-1)!) < .01)) continue;
+      throw new Error('Generated station track collides with an existing track; choose clear approach space.');
+    }
+  }
   protected rebuild(): void {
     this.nodeIndex.clear(); for (const node of this.nodes.values()) { const key = `${Math.round(node.position.x * 100)}:${Math.round(node.position.z * 100)}`, bucket = this.nodeIndex.get(key) ?? []; bucket.push(node); this.nodeIndex.set(key, bucket); }
     this.adjacency.clear(); for (const track of this.segments.values()) for (const node of [track.startNodeId, track.endNodeId]) { const ids = this.adjacency.get(node) ?? []; ids.push(track.id); this.adjacency.set(node, ids); }

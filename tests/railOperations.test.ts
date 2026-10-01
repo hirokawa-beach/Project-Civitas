@@ -109,6 +109,17 @@ describe('event-driven railway operations', () => {
     expect(loaded.railway.save()).toEqual(state.railway.save());
     advance(state, 500); advance(loaded, 500); expect(loaded.railway.save()).toEqual(state.railway.save());
   });
+  it('resumes canonically when a coarse tick exhausts the due-event budget', () => {
+    const state = railwayFixture(), depot = [...state.railway.depots.values()][0];
+    state.execute({ type: 'remove-railway', kind: 'depot', id: depot.id });
+    state.execute({ type: 'place-depot', name: 'Budget depot', trackSegmentId: depot.connectedTrackId, capacity: 512 });
+    state.execute({ type: 'create-rail-frequency', input: input(state, { start: 30, end: 181, frequency: 1 }) }); advance(state, 10000);
+    expect(state.railway.processedEvents).toBe(1000);
+    expect(state.railway.save().operations!.events.some(e => e.at < state.clock.gameSeconds)).toBe(true);
+    const loaded = new SimulationState(); loaded.load(state.serialize());
+    for (let i = 0; i < 30; i++) { state.tick(.1); loaded.tick(.1); }
+    expect(loaded.railway.save()).toEqual(state.railway.save());
+  });
   it('freezes infrastructure during operation without losing the Undo entry or rewinding time', () => {
     const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state) }); advance(state, 40);
     expect(() => state.undo()).toThrow(/clear/); expect(state.railway.depots.size).toBe(1);

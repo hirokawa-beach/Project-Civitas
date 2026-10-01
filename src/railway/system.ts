@@ -40,10 +40,9 @@ export class RailwaySystem extends RailwayInfrastructure {
   override restoreConstruction(save: RailwaySave) { this.assertEditable(); super.restore(save); this.routes.clear(); }
   setClock(now: number) { this.now = now; }
   override save(): RailwaySave {
-    const runtime = this.runtime();
     return { ...super.save(), operations: { ...structuredClone(this.timetable), version: 1, now: this.now, nextEventId: this.nextEventId,
-      events: structuredClone(this.events.values()), waits: structuredClone([...this.waits.values()]), activeTrains: runtime.activeTrains,
-      serviceStates: runtime.serviceStates, passengers: structuredClone([...this.passengers.values()]), arrivedPassengers: this.arrivedPassengers,
+      events: structuredClone(this.events.values()), waits: structuredClone([...this.waits.values()]), activeTrains: structuredClone([...this.trains.values()]),
+      serviceStates: structuredClone([...this.progress.values()]), passengers: structuredClone([...this.passengers.values()]), arrivedPassengers: this.arrivedPassengers,
       leftBehind: this.leftBehind, processedEvents: this.processedEvents } };
   }
   override restore(save: RailwaySave): void {
@@ -87,7 +86,7 @@ export class RailwaySystem extends RailwayInfrastructure {
         || state.actualCalls.some((call, i) => call.sequence !== i || [call.arrivalTime, call.departureTime, call.passTime].some(time => time !== undefined && (!integer(time) || time > data.now)))) throw new Error('Invalid saved rail progress.');
       this.progress.set(state.serviceId, structuredClone(state));
     }
-    const waitingActivationFormations = new Set([...this.waits.values()].filter(w => w.event.type === 'activate').map(w => this.operations.get(w.event.operationId)!.assignedFormationId));
+    const waitingActivationFormations = new Set([...data.events, ...data.waits.map(w => w.event)].filter(e => e.type === 'activate').map(e => this.operations.get(e.operationId)!.assignedFormationId));
     for (const formation of this.formations.values()) {
       const train = this.trains.get(formation.formationId);
       if (train && (formation.currentServiceId !== train.serviceId || formation.currentFaceId !== train.faceId || formation.state !== (train.state === 'dwelling' ? 'waiting' : train.state))) throw new Error('Formation state disagrees with its active train.');
