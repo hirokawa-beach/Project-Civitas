@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "seed": "world-foundation-benchmark",
+  "scenarios": [
+    {
+      "sizeMeters": 1024,
+      "sampleSpacingMeters": 8,
+      "grid": [
+        129,
+        129
+      ],
+      "totalChunks": 16,
+      "terrainBytes": 66564,
+      "normalSnapshotTerrainBytes": 0,
+      "patchBytes": 17493,
+      "dirtyChunks": 4,
+      "assetBytes": 138174,
+      "citySaveBytes": 141058,
+      "waterBodies": 2,
+      "generationMs": 39.65809999999988,
+      "initialLoadMs": 16.170799999999872,
+      "localEditMs": 0.9645000000000437,
+      "waterQuery1000Ms": 2.7673999999999523,
+      "citySaveMs": 2.4185999999999694,
+      "reloadMs": 4.904400000000123
+    },
+    {
+      "sizeMeters": 4096,
+      "sampleSpacingMeters": 8,
+      "grid": [
+        513,
+        513
+      ],
+      "totalChunks": 256,
+      "terrainBytes": 1052676,
+      "normalSnapshotTerrainBytes": 0,
+      "patchBytes": 17493,
+      "dirtyChunks": 4,
+      "assetBytes": 2116446,
+      "citySaveBytes": 2119330,
+      "waterBodies": 2,
+      "generationMs": 160.95330000000013,
+      "initialLoadMs": 146.26639999999998,
+      "localEditMs": 0.3547000000000935,
+      "waterQuery1000Ms": 6.354699999999866,
+      "citySaveMs": 30.1099999999999,
+      "reloadMs": 75.79809999999998
+    }
+  ],
+  "environment": {
+    "runtime": "v22.23.2",
+    "platform": "win32",
+    "cpu": "Intel(R) Core(TM) Ultra 5 125H",
+    "renderer": "CPU only"
+  }
+}

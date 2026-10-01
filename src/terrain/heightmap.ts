@@ -1,9 +1,10 @@
 import {
-  CHUNK_SIZE, HALF_WORLD_SIZE, WORLD_SIZE,
+  CHUNK_SIZE, WORLD_SIZE, createChunks,
   type ChunkDescriptor, type LegacyTerrainState, type TerrainBrushMode,
   type TerrainMetadata, type TerrainPatch, type TerrainPreset, type TerrainSettings,
   type TerrainState, type Vec2,
 } from '../world/types';
+import { createWorldMetadata, type WorldDimensions } from '../world/metadata';
 
 export const TERRAIN_VERSION = 1;
 export const TERRAIN_SAMPLE_SPACING = 4;
@@ -27,10 +28,13 @@ export interface TerrainBrushStamp {
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 const chunkId = (x: number, z: number): ChunkDescriptor['id'] => `chunk-${x}-${z}`;
-const ALL_CHUNK_IDS: ChunkDescriptor['id'][] = Array.from({ length: 16 }, (_, index) => chunkId(index % 4, Math.floor(index / 4)));
 const isFullTerrain = (state: LegacyTerrainState | TerrainState): state is TerrainState => 'heightmap' in state;
 
 export class HeightmapTerrain {
+  readonly dimensions: WorldDimensions;
+  readonly columns: number;
+  readonly rows: number;
+  readonly chunkSizeMeters: number;
   readonly width: number;
   readonly depth: number;
   readonly baseHeight: number;
@@ -38,27 +42,30 @@ export class HeightmapTerrain {
   readonly heights: Float32Array;
 
   constructor(state: LegacyTerrainState | TerrainState = { width: WORLD_SIZE, depth: WORLD_SIZE, baseHeight: 0 }) {
-    if (state.width !== WORLD_SIZE || state.depth !== WORLD_SIZE || !Number.isFinite(state.baseHeight)) {
+    if (!Number.isFinite(state.baseHeight)) {
       throw new Error('Terrain dimensions or base height are invalid.');
     }
     this.width = state.width;
     this.depth = state.depth;
     this.baseHeight = state.baseHeight;
     this.settings = isFullTerrain(state) ? { ...state.settings } : { ...DEFAULT_TERRAIN_SETTINGS };
-    if (this.settings.sampleSpacing !== TERRAIN_SAMPLE_SPACING
-      || !Number.isFinite(this.settings.minHeight) || !Number.isFinite(this.settings.maxHeight)
+    if (!Number.isFinite(this.settings.minHeight) || !Number.isFinite(this.settings.maxHeight)
       || this.settings.minHeight >= this.settings.maxHeight
       || !(['flat', 'hills'] as TerrainPreset[]).includes(this.settings.preset)) {
       throw new Error('Terrain settings are invalid.');
     }
+    this.chunkSizeMeters = 'chunkSizeMeters' in state ? state.chunkSizeMeters as number ?? CHUNK_SIZE : CHUNK_SIZE;
+    this.dimensions = createWorldMetadata({ worldWidthMeters: this.width, worldDepthMeters: this.depth,
+      terrainSampleSpacingMeters: this.settings.sampleSpacing, chunkSizeMeters: this.chunkSizeMeters });
+    this.columns = this.dimensions.terrainColumns; this.rows = this.dimensions.terrainRows;
     if (isFullTerrain(state)) {
-      if (!Array.isArray(state.heightmap) || state.terrainVersion !== TERRAIN_VERSION || state.heightmap.length !== TERRAIN_COLUMNS ** 2
+      if (!Array.isArray(state.heightmap) || state.terrainVersion !== TERRAIN_VERSION || state.heightmap.length !== this.columns * this.rows
         || state.heightmap.some((height) => !Number.isFinite(height) || height < this.settings.minHeight || height > this.settings.maxHeight)) {
         throw new Error('Terrain heightmap is invalid.');
       }
       this.heights = Float32Array.from(state.heightmap);
     } else {
-      this.heights = new Float32Array(TERRAIN_COLUMNS ** 2);
+      this.heights = new Float32Array(this.columns * this.rows);
       this.heights.fill(state.baseHeight);
     }
   }
@@ -70,7 +77,7 @@ export class HeightmapTerrain {
   metadata(): TerrainMetadata {
     return {
       width: this.width, depth: this.depth, baseHeight: this.baseHeight,
-      terrainVersion: TERRAIN_VERSION, settings: { ...this.settings },
+      chunkSizeMeters: this.chunkSizeMeters, terrainVersion: TERRAIN_VERSION, settings: { ...this.settings },
     };
   }
 
@@ -79,12 +86,12 @@ export class HeightmapTerrain {
   get byteLength(): number { return this.heights.byteLength; }
 
   getHeight(x: number, z: number): number {
-    const column = clamp((x + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING, 0, TERRAIN_COLUMNS - 1);
-    const row = clamp((z + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING, 0, TERRAIN_COLUMNS - 1);
+    const column = clamp((x + this.width / 2) / this.settings.sampleSpacing, 0, this.columns - 1);
+    const row = clamp((z + this.depth / 2) / this.settings.sampleSpacing, 0, this.rows - 1);
     const x0 = Math.floor(column);
     const z0 = Math.floor(row);
-    const x1 = Math.min(TERRAIN_COLUMNS - 1, x0 + 1);
-    const z1 = Math.min(TERRAIN_COLUMNS - 1, z0 + 1);
+    const x1 = Math.min(this.columns - 1, x0 + 1);
+    const z1 = Math.min(this.rows - 1, z0 + 1);
     const tx = column - x0;
     const tz = row - z0;
     const top = this.heights[this.index(x0, z0)] * (1 - tx) + this.heights[this.index(x1, z0)] * tx;
@@ -93,7 +100,7 @@ export class HeightmapTerrain {
   }
 
   getNormal(x: number, z: number): Vec3 {
-    const step = TERRAIN_SAMPLE_SPACING;
+    const step = this.settings.sampleSpacing;
     const dx = (this.getHeight(x + step, z) - this.getHeight(x - step, z)) / (2 * step);
     const dz = (this.getHeight(x, z + step) - this.getHeight(x, z - step)) / (2 * step);
     const length = Math.hypot(dx, 1, dz);
@@ -110,16 +117,19 @@ export class HeightmapTerrain {
       throw new Error('Terrain brush settings are invalid.');
     }
     const radius = stamp.size / 2;
-    const left = clamp(Math.floor((stamp.center.x - radius + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING), 0, TERRAIN_COLUMNS - 1);
-    const right = clamp(Math.ceil((stamp.center.x + radius + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING), 0, TERRAIN_COLUMNS - 1);
-    const top = clamp(Math.floor((stamp.center.z - radius + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING), 0, TERRAIN_COLUMNS - 1);
-    const bottom = clamp(Math.ceil((stamp.center.z + radius + HALF_WORLD_SIZE) / TERRAIN_SAMPLE_SPACING), 0, TERRAIN_COLUMNS - 1);
-    const source = stamp.mode === 'smooth' ? this.cloneHeights() : this.heights;
+    const left = clamp(Math.floor((stamp.center.x - radius + this.width / 2) / this.settings.sampleSpacing), 0, this.columns - 1);
+    const right = clamp(Math.ceil((stamp.center.x + radius + this.width / 2) / this.settings.sampleSpacing), 0, this.columns - 1);
+    const top = clamp(Math.floor((stamp.center.z - radius + this.depth / 2) / this.settings.sampleSpacing), 0, this.rows - 1);
+    const bottom = clamp(Math.ceil((stamp.center.z + radius + this.depth / 2) / this.settings.sampleSpacing), 0, this.rows - 1);
+    // Smoothing reads a stable local halo, never a full-world copy per brush stamp.
+    const source = new Map<number, number>();
+    if (stamp.mode === 'smooth') for (let r = Math.max(0, top - 1); r <= Math.min(this.rows - 1, bottom + 1); r++)
+      for (let c = Math.max(0, left - 1); c <= Math.min(this.columns - 1, right + 1); c++) source.set(this.index(c, r), this.heights[this.index(c, r)]);
     const dirty = new Set<ChunkDescriptor['id']>();
     for (let row = top; row <= bottom; row += 1) {
       for (let column = left; column <= right; column += 1) {
-        const x = column * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
-        const z = row * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
+        const x = column * this.settings.sampleSpacing - this.width / 2;
+        const z = row * this.settings.sampleSpacing - this.depth / 2;
         const distance = Math.hypot(x - stamp.center.x, z - stamp.center.z);
         if (distance >= radius) continue;
         const t = 1 - distance / radius;
@@ -134,10 +144,10 @@ export class HeightmapTerrain {
         } else {
           const target = stamp.mode === 'flatten'
             ? stamp.flattenHeight!
-            : (source[this.index(Math.max(0, column - 1), row)]
-              + source[this.index(Math.min(TERRAIN_COLUMNS - 1, column + 1), row)]
-              + source[this.index(column, Math.max(0, row - 1))]
-              + source[this.index(column, Math.min(TERRAIN_COLUMNS - 1, row + 1))]) / 4;
+            : (source.get(this.index(Math.max(0, column - 1), row))!
+              + source.get(this.index(Math.min(this.columns - 1, column + 1), row))!
+              + source.get(this.index(column, Math.max(0, row - 1)))!
+              + source.get(this.index(column, Math.min(this.rows - 1, row + 1)))!) / 4;
           next += (target - height) * Math.min(1, stamp.strength * stamp.seconds * influence);
         }
         next = clamp(next, this.settings.minHeight, this.settings.maxHeight);
@@ -156,17 +166,17 @@ export class HeightmapTerrain {
       if (index < 0 || index >= this.heights.length || !Number.isFinite(height)) throw new Error('Terrain edit is invalid.');
       if (this.heights[index] === height) continue;
       this.heights[index] = height;
-      this.markDirtyVertex(index % TERRAIN_COLUMNS, Math.floor(index / TERRAIN_COLUMNS), dirty);
+      this.markDirtyVertex(index % this.columns, Math.floor(index / this.columns), dirty);
     }
     return [...dirty].sort();
   }
 
   setPreset(preset: TerrainPreset, editWeights?: Float32Array): ChunkDescriptor['id'][] {
     if (preset !== 'flat' && preset !== 'hills') throw new Error('Unknown terrain preset.');
-    for (let row = 0; row < TERRAIN_COLUMNS; row += 1) {
-      for (let column = 0; column < TERRAIN_COLUMNS; column += 1) {
-        const x = column * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
-        const z = row * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
+    for (let row = 0; row < this.rows; row += 1) {
+      for (let column = 0; column < this.columns; column += 1) {
+        const x = column * this.settings.sampleSpacing - this.width / 2;
+        const z = row * this.settings.sampleSpacing - this.depth / 2;
         const index = this.index(column, row);
         const target = preset === 'flat' ? this.baseHeight : this.hillHeight(x, z);
         const weight = editWeights?.[index] ?? 1;
@@ -174,7 +184,7 @@ export class HeightmapTerrain {
       }
     }
     this.settings.preset = preset;
-    return [...ALL_CHUNK_IDS];
+    return createChunks(this.dimensions).map(chunk => chunk.id);
   }
 
   replaceHeights(heights: Float32Array, preset: TerrainPreset): ChunkDescriptor['id'][] {
@@ -183,14 +193,14 @@ export class HeightmapTerrain {
     }
     this.heights.set(heights);
     this.settings.preset = preset;
-    return [...ALL_CHUNK_IDS];
+    return createChunks(this.dimensions).map(chunk => chunk.id);
   }
 
   applyPatch(patch: TerrainPatch): void {
     if (!Number.isInteger(patch.startColumn) || !Number.isInteger(patch.startRow)
       || !Number.isInteger(patch.columns) || !Number.isInteger(patch.rows)
       || patch.startColumn < 0 || patch.startRow < 0 || patch.columns < 1 || patch.rows < 1
-      || patch.startColumn + patch.columns > TERRAIN_COLUMNS || patch.startRow + patch.rows > TERRAIN_COLUMNS
+      || patch.startColumn + patch.columns > this.columns || patch.startRow + patch.rows > this.rows
       || patch.heights.length !== patch.columns * patch.rows
       || patch.heights.some((height) => !Number.isFinite(height))) throw new Error('Terrain patch dimensions are invalid.');
     for (let row = 0; row < patch.rows; row += 1) {
@@ -204,12 +214,12 @@ export class HeightmapTerrain {
     if (!match) throw new Error('Unknown terrain chunk.');
     const x = Number(match[1]);
     const z = Number(match[2]);
-    if (x < 0 || x > 3 || z < 0 || z > 3) throw new Error('Unknown terrain chunk.');
-    const steps = CHUNK_SIZE / TERRAIN_SAMPLE_SPACING;
+    if (x < 0 || x >= Math.ceil(this.width / this.chunkSizeMeters) || z < 0 || z >= Math.ceil(this.depth / this.chunkSizeMeters)) throw new Error('Unknown terrain chunk.');
+    const steps = this.chunkSizeMeters / this.settings.sampleSpacing;
     const startColumn = x * steps;
     const startRow = z * steps;
-    const columns = steps + 1;
-    const rows = steps + 1;
+    const columns = Math.min(steps + 1, this.columns - startColumn);
+    const rows = Math.min(steps + 1, this.rows - startRow);
     const heights = new Float32Array(columns * rows);
     for (let row = 0; row < rows; row += 1) {
       heights.set(this.heights.subarray(this.index(startColumn, startRow + row), this.index(startColumn, startRow + row) + columns), row * columns);
@@ -223,14 +233,14 @@ export class HeightmapTerrain {
     return this.baseHeight + gaussian(-160, -120, 110, 26) + gaussian(190, 140, 145, 34) + gaussian(40, -260, 75, 12);
   }
 
-  private index(column: number, row: number): number { return row * TERRAIN_COLUMNS + column; }
+  private index(column: number, row: number): number { return row * this.columns + column; }
 
   private markDirtyVertex(column: number, row: number, dirty: Set<ChunkDescriptor['id']>): void {
-    const steps = CHUNK_SIZE / TERRAIN_SAMPLE_SPACING;
+    const steps = this.chunkSizeMeters / this.settings.sampleSpacing;
     for (const offsetZ of [-1, 0, 1]) {
       for (const offsetX of [-1, 0, 1]) {
-        const x = clamp(Math.floor((column + offsetX) / steps), 0, 3);
-        const z = clamp(Math.floor((row + offsetZ) / steps), 0, 3);
+        const x = clamp(Math.floor((column + offsetX) / steps), 0, Math.ceil(this.width / this.chunkSizeMeters) - 1);
+        const z = clamp(Math.floor((row + offsetZ) / steps), 0, Math.ceil(this.depth / this.chunkSizeMeters) - 1);
         dirty.add(chunkId(x, z));
       }
     }

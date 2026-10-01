@@ -4,7 +4,7 @@ import { RoadRouter } from '../traffic/routing';
 import { DEFAULT_TRAFFIC_CONFIG } from '../traffic/system';
 import type { RouteLeg, SegmentTraffic, TripEndpoint } from '../traffic/types';
 import type { Vec2 } from '../world/types';
-import { HALF_WORLD_SIZE } from '../world/types';
+import { LEGACY_CHUNK_WORLD, type ChunkWorld } from '../world/types';
 import type { TransitGraph, TransitLine, TransitLineInput, TransitRoute, TransitSaveState, TransitServiceConfig,
   TransitSnapshot, TransitStop, TransitStopMetrics, TransitVehicle, TransitVehicleType, TransitWaitingGroup } from './types';
 
@@ -32,7 +32,7 @@ export interface BusStopPlacement { stop?: TransitStop; valid: boolean; reason?:
 
 /** Shared preview/authority geometry: the click chooses a road and side, then the stop snaps to its lane. */
 export const planBusStopPlacement = (click: Vec2, graph: RoadGraphSnapshot,
-  existing: readonly TransitStop[] = [], id = 'stop-preview', name?: string): BusStopPlacement => {
+  existing: readonly TransitStop[] = [], id = 'stop-preview', name?: string, world: ChunkWorld = LEGACY_CHUNK_WORLD): BusStopPlacement => {
   const invalid = (reason: string): BusStopPlacement => ({ valid: false, reason });
   if (!Number.isFinite(click.x) || !Number.isFinite(click.z)) return invalid('Invalid bus stop position.');
   let best: { segment: RoadSegment; along: number; distance: number } | undefined;
@@ -48,7 +48,7 @@ export const planBusStopPlacement = (click: Vec2, graph: RoadGraphSnapshot,
   if (!lane) return invalid('No bus-compatible lane in that direction.');
   const position = { x: point.x - tangent.z * (best.segment.width / 2 + 2) * (direction === 'forward' ? 1 : -1),
     z: point.z + tangent.x * (best.segment.width / 2 + 2) * (direction === 'forward' ? 1 : -1) };
-  if (Math.abs(position.x) > HALF_WORLD_SIZE || Math.abs(position.z) > HALF_WORLD_SIZE)
+  if (Math.abs(position.x) > world.worldWidthMeters / 2 || Math.abs(position.z) > world.worldDepthMeters / 2)
     return invalid('Bus stop is outside the map.');
   if (existing.some((stop) => distance(stop.position, position) < 8)) return invalid('Another bus stop is too close.');
   const stop: TransitStop = { id, name: name?.trim() || `Stop ${id.slice(5)}`, position,
@@ -60,6 +60,7 @@ export const planBusStopPlacement = (click: Vec2, graph: RoadGraphSnapshot,
 
 /** Worker-authoritative, aggregate bus operation. Rendering never owns stops, buses or passengers. */
 export class TransitSystem {
+  world: ChunkWorld = LEGACY_CHUNK_WORLD;
   private waitingIndexRevision = -1;
   private waitingByStop = new Map<string, TransitWaitingGroup[]>();
   private waitingByCitizen = new Map<string, TransitWaitingGroup>();
@@ -130,7 +131,7 @@ export class TransitSystem {
   get routeCacheSize(): number { return this.passengerRouteCache.size; }
 
   placeStop(click: Vec2, name?: string): TransitStop {
-    const plan = planBusStopPlacement(click, this.graph, this.stops, `stop-${this.nextStopSerial}`, name);
+    const plan = planBusStopPlacement(click, this.graph, this.stops, `stop-${this.nextStopSerial}`, name, this.world);
     if (!plan.valid || !plan.stop) throw new Error(plan.reason ?? 'Invalid bus stop position.');
     const stop = plan.stop;
     this.nextStopSerial += 1;

@@ -1,5 +1,6 @@
 import type { SaveFile } from '../save/serializer';
-import type { UIToWorkerMessage, WorkerToUIMessage, WorldSnapshot } from '../shared/protocol';
+import type { UIToWorkerMessage, WorkerToUIMessage, WorldSnapshot, MapOperation } from '../shared/protocol';
+import type { MapAsset } from '../maps/mapAsset';
 import type { SimulationCommandData, SimulationCommandResult } from '../simulation/commands';
 import type { GameSpeed } from '../simulation/gameClock';
 import type { TerrainBrushMode, TerrainPreset, Vec2 } from '../world/types';
@@ -11,6 +12,11 @@ type NotificationListener = (message: string, level: 'info' | 'error') => void;
 export interface CommandResponse { ok: boolean; result?: SimulationCommandResult }
 
 export class SimulationClient {
+  private readonly mapRequests = new Map<string, { resolve: (asset?: MapAsset) => void; reject: (error: Error) => void }>();
+  mapOperation(operation: MapOperation): Promise<MapAsset | undefined> {
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => { this.mapRequests.set(requestId, { resolve, reject }); this.post({ type: 'map-operation', requestId, operation }); });
+  }
   private readonly snapshotListeners = new Set<SnapshotListener>();
   private readonly notificationListeners = new Set<NotificationListener>();
   private readonly saveRequests = new Map<string, (save: SaveFile) => void>();
@@ -76,7 +82,11 @@ export class SimulationClient {
   private post(message: UIToWorkerMessage): void { this.worker.postMessage(message); }
 
   private onMessage(message: WorkerToUIMessage): void {
-    if (message.type === 'performance-update') {
+    if (message.type === 'map-result') {
+      const request = this.mapRequests.get(message.requestId);
+      if (message.ok) request?.resolve(message.asset); else request?.reject(new Error(message.error ?? 'Map operation failed.'));
+      this.mapRequests.delete(message.requestId);
+    } else if (message.type === 'performance-update') {
       this.performanceMetrics = message;
     } else if (message.type === 'load-result') {
       const request = this.loadRequests.get(message.requestId);

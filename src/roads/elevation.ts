@@ -20,12 +20,15 @@ export interface RoadElevationProfile {
 export function profileRoadElevation(points: readonly Vec2[], structure: RoadStructureType,
   targetElevation: number, terrainHeight: (x: number, z: number) => number,
   config: Pick<RoadTypeDefinition, 'maximumGrade' | 'minimumVerticalClearance' | 'structureTransitionLength'>,
-  waterLevel = Number.NEGATIVE_INFINITY): RoadElevationProfile {
+  waterLevel: number | ((x: number, z: number) => number | undefined) = Number.NEGATIVE_INFINITY): RoadElevationProfile {
   const length = polylineLength(points);
   const start = points[0]; const end = points[points.length - 1];
   const startHeight = terrainHeight(start.x, start.z); const endHeight = terrainHeight(end.x, end.z);
+  const waterAt = (p: Vec2): number => typeof waterLevel === 'number' ? waterLevel : waterLevel(p.x, p.z) ?? Number.NEGATIVE_INFINITY;
+  let maximumWater = Number.NEGATIVE_INFINITY;
+  if (structure === 'bridge') for (let d = 0; d <= length; d += SPACING) maximumWater = Math.max(maximumWater, waterAt(pointAtDistance(points, d).point));
   const deck = structure === 'tunnel' ? Math.min(startHeight, endHeight) - targetElevation
-    : Math.max(startHeight, endHeight, structure === 'bridge' ? waterLevel : Number.NEGATIVE_INFINITY) + targetElevation;
+    : Math.max(startHeight, endHeight, structure === 'bridge' ? maximumWater : Number.NEGATIVE_INFINITY) + targetElevation;
   const startRun = structure === 'ground' ? 0 : Math.max(config.structureTransitionLength, Math.abs(deck - startHeight) / config.maximumGrade);
   const endRun = structure === 'ground' ? 0 : Math.max(config.structureTransitionLength, Math.abs(deck - endHeight) / config.maximumGrade);
   const transitionLength = Math.max(startRun, endRun);
@@ -51,7 +54,7 @@ export function profileRoadElevation(points: readonly Vec2[], structure: RoadStr
         : along > length - endRun ? interpolate(endHeight, deck, clamp01((length - along) / endRun)) : deck;
       if (along >= startRun && along <= length - endRun)
         minimumClearance = Math.min(minimumClearance, structure === 'tunnel' ? terrain - y
-          : y - Math.max(terrain, structure === 'bridge' ? waterLevel : Number.NEGATIVE_INFINITY));
+          : y - Math.max(terrain, structure === 'bridge' ? waterAt(point) : Number.NEGATIVE_INFINITY));
     }
     centerline.push({ x: point.x, y, z: point.z });
     if (index > 0) {

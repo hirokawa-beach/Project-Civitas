@@ -1,3 +1,6 @@
+import { LandOwnership } from '../world/landOwnership';
+import type { ZoningCell } from '../zoning/types';
+import { worldBounds, createWorldMetadata } from '../world/metadata';
 import type { SimulationClient } from '../app/simulationClient';
 import type { GameRenderer, RoadPreviewVisual } from '../renderer/gameRenderer';
 import type { RoadSegmentId, ZoningCellId } from '../shared/ids';
@@ -85,6 +88,11 @@ const DEFAULT_STATUS: ConstructionStatus = {
 };
 
 export class ConstructionController {
+  private landOwnership?: LandOwnership;
+  private canZone(cell: ZoningCell): boolean { return this.zoneBrush === null || (this.landOwnership?.canConstruct({ kind: 'polygon', points: cell.corners }).allowed ?? false); }
+  private editorMode = false;
+  get isEditorMode(): boolean { return this.editorMode; }
+  setEditorMode(enabled: boolean): void { this.editorMode = enabled; if (enabled) this.setTool('terrain'); }
   private tool: ActiveTool = 'road';
   private roadMode: RoadMode = 'straight';
   private structureType: RoadStructureType = 'ground';
@@ -141,8 +149,10 @@ export class ConstructionController {
   }
 
   updateSnapshot(snapshot: WorldSnapshot): void {
+    const ownershipChanged = JSON.stringify(this.snapshot?.landOwnership) !== JSON.stringify(snapshot.landOwnership);
+    this.landOwnership = new LandOwnership(snapshot.worldMetadata, snapshot.worldMetadata.landOwnership, snapshot.landOwnership);
     this.snapshot = snapshot;
-    let changed = false;
+    let changed = ownershipChanged;
     if (snapshot.roadRevision !== this.indexedRoadRevision) {
       this.spatialIndex.rebuild(snapshot.roadGraph);
       this.indexedRoadRevision = snapshot.roadRevision;
@@ -167,6 +177,7 @@ export class ConstructionController {
   }
 
   setTool(tool: ActiveTool): void {
+    if (this.editorMode && tool !== 'terrain' && tool !== 'inspect') return;
     this.cancel();
     this.tool = tool;
     this.emit({
@@ -403,8 +414,9 @@ export class ConstructionController {
     const points = curve?.points ?? this.previewPoints(current);
     const roadType = getRoadType('small');
     const profile = profileRoadElevation(points, this.structureType, this.structureType === 'ground' ? 0 : this.targetElevation,
-      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.water.seaLevel);
+      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.worldMetadata.waterMode === 'explicit' ? (x, z) => this.renderer.getWaterSurface(x, z) : this.snapshot?.water.seaLevel);
     const validation = validateRoadCandidate(this.nearbyGraph(points, 24), points, {
+      bounds: worldBounds(this.snapshot?.worldMetadata ?? createWorldMetadata()),
       candidateWidth: roadType.width,
       minimumCurveRadius: curve ? roadType.minimumCurveRadius : 0,
       analyticalCurveRadius: curve?.minimumRadius ?? Number.POSITIVE_INFINITY,
@@ -459,6 +471,7 @@ export class ConstructionController {
 
   private readonly onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
+    if (this.editorMode) { this.cancel(); return; }
     if (this.tool === 'terrain' || this.tool === 'service' || this.tool === 'bus-stop') {
       this.setTool('road');
       return;
@@ -473,6 +486,8 @@ export class ConstructionController {
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return;
+    if (this.editorMode && !event.ctrlKey) return;
     if (event.code === 'Escape') {
       if (this.tool === 'terrain' || this.tool === 'service') this.setTool('road');
       else this.cancel();
@@ -494,7 +509,7 @@ export class ConstructionController {
     if (this.tool === 'service') {
       const plan = this.snapshot ? planServicePlacement(this.serviceType, rawPoint, this.snapshot.roadGraph,
         this.snapshot.lots, this.snapshot.zoningCells, this.snapshot.services.facilities,
-        (x, z) => this.renderer.getHeight(x, z)) : { facility: undefined, valid: false, reason: 'World is loading.' };
+        (x, z) => this.renderer.getHeight(x, z), 'service-preview', this.snapshot.worldMetadata, this.landOwnership) : { facility: undefined, valid: false, reason: 'World is loading.' };
       this.renderer.setHoveredSegment(undefined);
       this.renderer.setServicePreview(plan.facility, plan.valid);
       this.emit({ ...DEFAULT_STATUS, tool: 'service', roadMode: this.roadMode, serviceType: this.serviceType,
@@ -503,7 +518,7 @@ export class ConstructionController {
       return;
     }
     if (this.tool === 'bus-stop') {
-      const plan = this.snapshot ? planBusStopPlacement(rawPoint, this.snapshot.roadGraph, this.snapshot.transit.stops)
+      const plan = this.snapshot ? planBusStopPlacement(rawPoint, this.snapshot.roadGraph, this.snapshot.transit.stops, 'stop-preview', undefined, this.snapshot.worldMetadata)
         : { stop: undefined, valid: false, reason: 'World is loading.' };
       this.renderer.setHoveredSegment(undefined);
       this.renderer.setTransitStopPreview(plan.stop?.position ?? rawPoint, plan.valid);
@@ -521,7 +536,8 @@ export class ConstructionController {
       return;
     }
     if (this.tool === 'zone') {
-      const hovered = this.zoningIndex.pick(rawPoint);
+      const candidate = this.zoningIndex.pick(rawPoint);
+      const hovered = candidate && this.canZone(candidate) ? candidate : undefined;
       if (this.zonePainting && this.zoneMode === 'box') this.collectZoneBox();
       const cells = this.zonePainting && this.snapshot
         ? this.snapshot.zoningCells.filter((cell) => this.zoneStroke.has(cell.id))
@@ -533,7 +549,7 @@ export class ConstructionController {
         selectedZoneCells: this.zoneStroke.size, hoveredZoneType: hovered?.zoneType,
         prompt: this.zonePainting
           ? `${this.zoneMode === 'box' ? 'Selecting' : 'Painting'} ${this.zoneStroke.size} cell${this.zoneStroke.size === 1 ? '' : 's'}`
-          : this.zoneMode === 'box' ? 'Drag a rectangle to select zoning cells' : hovered ? 'Click or drag to paint this cell' : 'Move over a roadside zoning cell',
+          : candidate && !hovered ? 'Unlock this land tile before zoning' : this.zoneMode === 'box' ? 'Drag a rectangle to select zoning cells' : hovered ? 'Click or drag to paint this cell' : 'Move over a roadside zoning cell',
         analysisMs: performance.now() - analysisStarted });
       return;
     }
@@ -635,13 +651,14 @@ export class ConstructionController {
     const nearbyGraph = this.nearbyGraph(points, 24);
     const roadType = getRoadType('small');
     const profile = profileRoadElevation(points, this.structureType, this.structureType === 'ground' ? 0 : this.targetElevation,
-      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.water.seaLevel);
+      (x, z) => this.renderer.getHeight(x, z), roadType, this.snapshot?.worldMetadata.waterMode === 'explicit' ? (x, z) => this.renderer.getWaterSurface(x, z) : this.snapshot?.water.seaLevel);
     const previewGeometry = { kind: 'polyline' as const, points, centerline: profile.centerline };
     const intersections = this.findIntersections(points, nearbyGraph.segments, previewGeometry);
     const estimatedCost = roadConstructionCost(points, roadType.id);
     const fundsAfterConstruction = (this.snapshot?.economy.funds ?? 0) - estimatedCost;
     const affordable = !this.snapshot || fundsAfterConstruction >= 0;
     const validation = validateRoadCandidate(nearbyGraph, points, {
+      bounds: worldBounds(this.snapshot?.worldMetadata ?? createWorldMetadata()),
       candidateWidth: roadType.width,
       minimumCurveRadius: curve ? roadType.minimumCurveRadius : 0,
       analyticalCurveRadius: curve?.minimumRadius ?? Number.POSITIVE_INFINITY,
@@ -657,7 +674,8 @@ export class ConstructionController {
     const continuousTangentMismatch = this.roadMode === 'continuous' && curve
       ? this.continuousEndTangentMismatch(snap, curve)
       : false;
-    const valid = validation.valid && profile.valid && !oneCurveUnsuitable && !exceedsHalfTurn && !continuousTangentMismatch && affordable;
+    const land = this.landOwnership?.canConstruct({ kind: 'path', points, width: roadType.width }) ?? { allowed: false, reason: 'World is loading.' };
+    const valid = land.allowed && validation.valid && profile.valid && !oneCurveUnsuitable && !exceedsHalfTurn && !continuousTangentMismatch && affordable;
     const guides = [...snap.guides];
     if (curve) {
       guides.push({
@@ -714,7 +732,7 @@ export class ConstructionController {
           ? this.roadMode !== 'straight'
             ? 'Click endpoint to build · right-click goes back one step'
             : 'Click to build · right-click to cancel'
-          : oneCurveUnsuitable
+          : !land.allowed ? `Cannot build · ${land.reason}` : oneCurveUnsuitable
             ? 'Cannot build naturally · use 2-CURVE'
             : exceedsHalfTurn
               ? 'Cannot build · split arcs beyond 180°'
@@ -753,7 +771,7 @@ export class ConstructionController {
         x: previous.x + (point.x - previous.x) * t,
         z: previous.z + (point.z - previous.z) * t,
       });
-      if (cell) this.zoneStroke.add(cell.id);
+      if (cell && this.canZone(cell)) this.zoneStroke.add(cell.id);
     }
     this.lastZonePoint = point;
   }
@@ -766,7 +784,7 @@ export class ConstructionController {
     if (rect.right - rect.left < 4 && rect.bottom - rect.top < 4) {
       const point = this.renderer.pickGround(canvasRect.left + this.zoneSelectionEnd.x, canvasRect.top + this.zoneSelectionEnd.y);
       const cell = point && this.zoningIndex.pick(point);
-      if (cell) this.zoneStroke.add(cell.id);
+      if (cell && this.canZone(cell)) this.zoneStroke.add(cell.id);
       return;
     }
     const groundCorners = [
@@ -782,7 +800,7 @@ export class ConstructionController {
         )
       : this.snapshot.zoningCells;
     for (const cell of candidates) {
-      if (cell.terrainSuitable !== false && cellIntersectsScreenRect(cell, rect, (point) => this.renderer.projectGround(point))) this.zoneStroke.add(cell.id);
+      if (cell.terrainSuitable !== false && this.canZone(cell) && cellIntersectsScreenRect(cell, rect, (point) => this.renderer.projectGround(point))) this.zoneStroke.add(cell.id);
     }
   }
 

@@ -15,3 +15,5 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
+.world-benchmark-run/

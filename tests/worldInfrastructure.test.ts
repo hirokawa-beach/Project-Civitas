@@ -123,7 +123,7 @@ describe('static water and structured roads', () => {
     state.execute({ type: 'build-road', input: { geometry: { kind: 'straight', points: horizontal() },
       roadTypeId: 'small', structureType: 'bridge', targetElevation: 8 } });
     const saved = state.serialize();
-    expect(saved.saveVersion).toBe(12);
+    expect(saved.saveVersion).toBe(13);
     const loaded = new SimulationState(); loaded.load(JSON.parse(JSON.stringify(saved)));
     expect(loaded.water.seaLevel).toBe(2);
     expect(loaded.graph.snapshot().segments[0].geometry.centerline).toEqual(state.graph.snapshot().segments[0].geometry.centerline);

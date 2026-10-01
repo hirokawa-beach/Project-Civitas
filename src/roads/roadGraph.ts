@@ -1,5 +1,6 @@
+import { LandOwnership } from '../world/landOwnership';
 import { numericId, type RoadLineageId, type RoadNodeId, type RoadSegmentId } from '../shared/ids';
-import type { Vec2 } from '../world/types';
+import { LEGACY_CHUNK_WORLD, type ChunkWorld, type Vec2 } from '../world/types';
 import {
   EPSILON,
   closestPointOnPolyline,
@@ -39,6 +40,7 @@ interface Anchor {
 const cloneSnapshot = (snapshot: RoadGraphSnapshot): RoadGraphSnapshot => structuredClone(snapshot);
 
 export class RoadGraph {
+  landOwnership?: LandOwnership;
   readonly nodes = new Map<RoadNodeId, RoadNode>();
   readonly segments = new Map<RoadSegmentId, RoadSegment>();
   readonly lanes = new Map<Lane['id'], Lane>();
@@ -48,7 +50,7 @@ export class RoadGraph {
   private nextLaneId = 1;
   private nextLineageId = 1;
 
-  constructor(snapshot?: RoadGraphSnapshot) {
+  constructor(snapshot?: RoadGraphSnapshot, public world: ChunkWorld = LEGACY_CHUNK_WORLD) {
     if (snapshot) this.restore(snapshot);
   }
 
@@ -113,7 +115,7 @@ export class RoadGraph {
   }
 
   buildRoad(input: BuildRoadInput, terrainHeight: (x: number, z: number) => number = () => 0,
-    waterLevel = Number.NEGATIVE_INFINITY): BuildRoadResult {
+    waterLevel: number | ((x: number, z: number) => number | undefined) = Number.NEGATIVE_INFINITY): BuildRoadResult {
     const before = this.snapshot();
     try {
       return this.buildRoadMutating(input, terrainHeight, waterLevel);
@@ -124,7 +126,7 @@ export class RoadGraph {
   }
 
   private buildRoadMutating(input: BuildRoadInput, terrainHeight: (x: number, z: number) => number,
-    waterLevel: number): BuildRoadResult {
+    waterLevel: number | ((x: number, z: number) => number | undefined)): BuildRoadResult {
     if (input.geometry.points.length < 2) throw new Error('A road needs at least two points.');
     const geometry = structuredClone(input.geometry);
     if (polylineLength(geometry.points) < 4) throw new Error('Road is too short.');
@@ -138,6 +140,8 @@ export class RoadGraph {
     // First pass validates intrinsic geometry only. Endpoint snap intents are
     // resolved before testing against existing road surfaces.
     const validationOptions = {
+      bounds: { minX: -this.world.worldWidthMeters / 2, maxX: this.world.worldWidthMeters / 2,
+        minZ: -this.world.worldDepthMeters / 2, maxZ: this.world.worldDepthMeters / 2 },
       candidateWidth: roadType.width,
       minimumCurveRadius: geometry.kind === 'curve' ? roadType.minimumCurveRadius : 0,
     };
@@ -151,6 +155,8 @@ export class RoadGraph {
     const lastIndex = geometry.points.length - 1;
     const resolvedEndNode = endNode ?? this.resolveEndpoint(geometry.points[lastIndex], 12, 10, terrainHeight);
     geometry.points[lastIndex] = { ...resolvedEndNode.position };
+    const access = (this.landOwnership ?? new LandOwnership(this.world)).canConstruct({ kind: 'path', points: geometry.points, width: roadType.width });
+    if (!access.allowed) throw new Error(access.reason);
 
     const profile = profileRoadElevation(geometry.points, structure, targetElevation, terrainHeight, roadType, waterLevel);
     if (!profile.valid) throw new Error(`Invalid road elevation: ${profile.reason}.`);

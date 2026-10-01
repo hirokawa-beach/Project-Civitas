@@ -31,6 +31,7 @@ export interface RoadValidationResult {
 export interface RoadValidationOptions {
   /** Inclusive center-line boundary. */
   halfWorldSize?: number;
+  bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
   minimumLength?: number;
   candidateWidth?: number;
   /** Directions closer than this angle are considered nearly parallel. */
@@ -68,7 +69,7 @@ export const DEFAULT_ROAD_VALIDATION_OPTIONS = {
   analyticalCurveRadius: Number.POSITIVE_INFINITY,
   maximumGrade: 0.12,
   minimumVerticalClearance: 6,
-} as const satisfies Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType'>>;
+} as const satisfies Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType' | 'bounds'>>;
 
 const GEOMETRY_EPSILON = 1e-6;
 
@@ -193,7 +194,7 @@ const isNearlyParallel = (a: LineSegment, b: LineSegment, angleDegrees: number):
 const hasParallelOverlap = (
   candidateSegments: readonly LineSegment[],
   snapshot: RoadGraphSnapshot,
-  options: Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType'>>,
+  options: Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType' | 'bounds'>>,
   separated: (road: RoadGraphSnapshot['segments'][number], point: Vec2) => boolean,
 ): boolean => {
   for (const candidate of candidateSegments) {
@@ -214,7 +215,7 @@ const hasParallelOverlap = (
 const hasRoadFootprintOverlapWithoutCenterlineContact = (
   candidateSegments: readonly LineSegment[],
   snapshot: RoadGraphSnapshot,
-  options: Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType'>>,
+  options: Required<Omit<RoadValidationOptions, 'terrainHeight' | 'candidateCenterline' | 'candidateStructureType' | 'bounds'>>,
   separated: (road: RoadGraphSnapshot['segments'][number], point: Vec2) => boolean,
 ): boolean => {
   for (const candidate of candidateSegments) {
@@ -292,7 +293,7 @@ export const validateRoadCandidate = (
 
   const finiteGeometry = points.length >= 2 && points.every(isFinitePoint);
   if (finiteGeometry) {
-    if (points.some((point) => Math.abs(point.x) > options.halfWorldSize || Math.abs(point.z) > options.halfWorldSize)) {
+    if (points.some((point) => point.x < (options.bounds?.minX ?? -options.halfWorldSize) || point.x > (options.bounds?.maxX ?? options.halfWorldSize) || point.z < (options.bounds?.minZ ?? -options.halfWorldSize) || point.z > (options.bounds?.maxZ ?? options.halfWorldSize))) {
       addReason(ROAD_VALIDATION_REASON.outOfBounds);
     }
 

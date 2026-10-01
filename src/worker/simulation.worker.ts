@@ -34,6 +34,20 @@ workerScope.onmessage = (event: MessageEvent<UIToWorkerMessage>) => {
 
 const processMessage = (message: UIToWorkerMessage): 'initial' | 'full' | 'terrain' | 'none' => {
   switch (message.type) {
+    case 'map-operation':
+      try {
+        const op = message.operation; let asset;
+        if (op.kind === 'load') { simulation.startMapAsset(op.asset, op.editor); initialized = true; }
+        else if (op.kind === 'water') simulation.setWaterBodies(op.bodies);
+        else if (op.kind === 'outside') simulation.setOutsideConnections(op.connections);
+        else if (op.kind === 'ownership') simulation.setLandOwnershipSettings(op.settings);
+        else asset = simulation.exportMapAsset(op.identity);
+        post({ type: 'map-result', requestId: message.requestId, ok: true, asset });
+        return op.kind === 'load' ? 'initial' : op.kind === 'export' ? 'none' : 'full';
+      } catch (error) {
+        post({ type: 'map-result', requestId: message.requestId, ok: false, error: error instanceof Error ? error.message : String(error) });
+        return 'none';
+      }
     case 'initialize':
       if (message.generatedMap) simulation.startGeneratedCity(message.generatedMap);
       initialized = true;

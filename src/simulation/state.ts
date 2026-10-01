@@ -1,10 +1,14 @@
 import { RoadGraph } from '../roads/roadGraph';
-import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV12 } from '../save/serializer';
+import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV13 } from '../save/serializer';
+import { createWorldMetadata, validateWorldMetadata, type WaterBody } from '../world/metadata';
+import { Hydrography, withShoreline } from '../water/geometry';
+import { assertMapAsset, mapAssetFromTerrain, type MapAsset, type MapIdentity } from '../maps/mapAsset';
+import type { MapOutsideConnection } from '../world/metadata';
 import { validateGenerationMetadata, validateMap, type GeneratedMap, type GenerationMetadata } from '../terrain/generator';
 import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
-import { createChunks, worldToChunk, HALF_WORLD_SIZE, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
-import { HeightmapTerrain, TERRAIN_COLUMNS, TERRAIN_SAMPLE_SPACING } from '../terrain/heightmap';
+import { createChunks, worldToChunk, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
+import { HeightmapTerrain, DEFAULT_TERRAIN_SETTINGS } from '../terrain/heightmap';
 import { buildRoadTerrainProtection, protectServiceLots } from '../terrain/roadProtection';
 import { isZoneType, type ZoneAssignment, type ZoneType, type ZoningCell } from '../zoning/types';
 import { ZoningSystem } from '../zoning/system';
@@ -25,9 +29,13 @@ import { StaticWater } from '../water/staticWater';
 import { AppliedTerrainStrokeCommand, CommandHistory, TerrainPresetCommand, commandFromData, type SimulationCommandData, type SimulationCommandResult, type TerrainEditBounds } from './commands';
 import { GameClock, type GameSpeed } from './gameClock';
 import { PerformanceLedger } from '../performance/metrics';
+import { LandOwnership, type LandOwnershipSettings } from '../world/landOwnership';
 
 export class SimulationState {
   readonly performance = new PerformanceLedger();
+  worldMetadata = createWorldMetadata();
+  landOwnership = new LandOwnership(this.worldMetadata);
+  private mapEditor = false;
   readonly graph = new RoadGraph();
   readonly clock = new GameClock();
   readonly history = new CommandHistory();
@@ -44,7 +52,7 @@ export class SimulationState {
 
   private zoningCells: ZoningCell[] = [];
   private readonly zoneAssignments = new Map<ZoningCellId, ZoneType>();
-  private readonly zoningSystem = new ZoningSystem();
+  private zoningSystem = new ZoningSystem();
   private revision = 0;
   private roadRevision = 0;
   private zoningRevision = 0;
@@ -66,15 +74,60 @@ export class SimulationState {
   startGeneratedCity(map: GeneratedMap): void {
     if (this.graph.segments.size || this.clock.gameSeconds > 0 || this.generation) throw new Error('A city is already active.');
     validateGenerationMetadata(map.metadata);
-    if (!validateMap(map.heights, map.metadata.parameters.seaLevel).valid) throw new Error('Generated map is not buildable.');
-    const terrain = HeightmapTerrain.fromBuffer(new HeightmapTerrain().metadata(), map.heights);
+    const metadata = structuredClone(map.world ?? createWorldMetadata());
+    validateWorldMetadata(metadata);
+    const hydro = metadata.waterMode === 'explicit' ? new Hydrography(metadata.waterBodies, metadata) : undefined;
+    if (!validateMap(map.heights, map.metadata.parameters.seaLevel, metadata, hydro ? (x, z) => hydro.isWaterAt(x, z) : undefined).valid) throw new Error('Generated map is not buildable.');
+    const terrain = HeightmapTerrain.fromBuffer({ width: metadata.worldWidthMeters, depth: metadata.worldDepthMeters, baseHeight: 0,
+      chunkSizeMeters: metadata.chunkSizeMeters, terrainVersion: 1, settings: { ...DEFAULT_TERRAIN_SETTINGS, sampleSpacing: metadata.terrainSampleSpacingMeters } }, map.heights);
     const water = new StaticWater({ version: 1, seaLevel: map.metadata.parameters.seaLevel });
     this.terrain = terrain;
+    this.worldMetadata = metadata;
+    this.configureWorld();
+    this.water.configure(metadata);
     // Keep the Authority instance: its revision must not reset across world replacement.
     this.water.restore(water.save());
     this.generation = structuredClone(map.metadata);
+    this.worldMetadata.generatorMetadata = structuredClone(map.metadata);
+    this.worldMetadata.source.kind = 'procedural';
     this.history.clear();
-    this.terrainChanged(createChunks().map((chunk) => chunk.id));
+    this.terrainChanged(createChunks(this.worldMetadata).map((chunk) => chunk.id));
+  }
+
+  setWaterBodies(bodies: WaterBody[]): void {
+    const next = structuredClone(this.worldMetadata);
+    next.waterMode = 'explicit';
+    next.waterBodies = bodies.map(body => withShoreline(body, next));
+    validateWorldMetadata(next, this.terrain.metadata());
+    this.worldMetadata = next;
+    this.water.configure(next);
+    this.revision++;
+  }
+
+  startMapAsset(asset: MapAsset, editor = false): void {
+    if (editor) { validateWorldMetadata(asset.world, asset.terrain); new HeightmapTerrain(asset.terrain); }
+    else assertMapAsset(asset);
+    this.load(serializeWorld({ terrain: structuredClone(asset.terrain), worldMetadata: structuredClone(asset.world),
+      roadGraph: { nodes: [], segments: [], lanes: [] }, zoningAssignments: [], gameClock: { gameSeconds: 0, speed: editor ? 0 : 1 },
+      generation: structuredClone(asset.world.generatorMetadata), water: asset.legacyWater ?? { version: 1, seaLevel: -12 } }));
+    this.mapEditor = editor;
+  }
+
+  setLandOwnershipSettings(settings: LandOwnershipSettings): void {
+    if (!this.mapEditor) throw new Error('Change starting ownership in the Map Editor before founding a city.');
+    const next = structuredClone(this.worldMetadata); next.landOwnership = structuredClone(settings);
+    validateWorldMetadata(next, this.terrain.metadata());
+    const ownership = new LandOwnership(next, settings);
+    this.worldMetadata = next; this.landOwnership = ownership; this.bindLandOwnership(); this.revision++;
+  }
+
+  exportMapAsset(identity: MapIdentity): MapAsset { return mapAssetFromTerrain(identity, this.terrain.state(), this.worldMetadata); }
+
+  setOutsideConnections(connections: MapOutsideConnection[]): void {
+    const next = structuredClone(this.worldMetadata); next.outsideConnections = structuredClone(connections);
+    validateWorldMetadata(next, this.terrain.metadata());
+    this.worldMetadata = next; this.traffic.mapConnections = next.outsideConnections;
+    this.traffic.updateGraph(this.graph.snapshot(), true); this.revision++;
   }
 
   tick(realSeconds: number): boolean {
@@ -105,11 +158,17 @@ export class SimulationState {
   }
 
   execute(command: SimulationCommandData): SimulationCommandResult {
+    if (command.type === 'unlock-land') {
+      if (this.mapEditor) throw new Error('Set Starting Area in the Map Editor.');
+      this.landOwnership.unlock(command.tile); this.revision++;
+      return { type: 'unlock-land', tile: structuredClone(command.tile) };
+    }
     let accepted = command;
     if (command.type === 'set-zone') {
       if (command.zoneType !== null && !isZoneType(command.zoneType)) throw new Error('Unknown zoning type.');
       const active = new Set(this.zoningCells.filter((cell) => command.zoneType === null
         || (isTerrainSuitableForZone(cell, (x, z) => this.terrain.getHeight(x, z))
+          && this.landOwnership.canConstruct({ kind: 'polygon', points: cell.corners }).allowed
           && !this.services.overlapsCell(cell))).map((cell) => cell.id));
       const cellIds = [...new Set(command.cellIds)];
       if (cellIds.some((id) => !active.has(id))) throw new Error('Zoning cell no longer exists.');
@@ -213,7 +272,7 @@ export class SimulationState {
     const changed = new Set(chunkIds);
     const zoneElevations: Array<{ id: string; terrainHeight: number; terrainSuitable: boolean }> = [];
     this.zoningCells = this.zoningCells.map((cell) => {
-      const chunk = worldToChunk(cell.center);
+      const chunk = worldToChunk(cell.center, this.worldMetadata);
       if (!changed.has(`chunk-${chunk.x}-${chunk.z}`)) return cell;
       zoneElevations.push({ id: cell.id, terrainHeight: cell.terrainHeight ?? this.terrain.getHeight(cell.center.x, cell.center.z),
         terrainSuitable: cell.terrainSuitable ?? isTerrainSuitableForZone(cell, (x, z) => this.terrain.getHeight(x, z)) });
@@ -232,6 +291,7 @@ export class SimulationState {
   snapshot(includeTerrainHeightmap = true): WorldSnapshot {
     this.ensureCitizens();
     return {
+      worldMetadata: structuredClone(this.worldMetadata),
       revision: this.revision,
       roadRevision: this.roadRevision,
       zoningRevision: this.zoningRevision,
@@ -241,7 +301,8 @@ export class SimulationState {
       terrainUpdatedChunkIds: [...this.terrainUpdatedChunkIds],
       terrainEditMs: this.terrainEditMs,
       water: this.water.snapshot(),
-      chunks: createChunks(),
+      landOwnership: this.landOwnership.save(),
+      chunks: createChunks(this.worldMetadata),
       roadGraph: this.graph.snapshot(),
       zoningCells: structuredClone(this.zoningCells),
       lotRevision: this.lotRevision,
@@ -273,7 +334,7 @@ export class SimulationState {
   serviceUpdate(): ServiceSnapshot { return this.services.snapshot(); }
   transitUpdate(): TransitSnapshot { return this.transit.snapshot(); }
 
-  serialize(): SaveFileV12 {
+  serialize(): SaveFileV13 {
     this.ensureCitizens();
     const active = new Set(this.zoningCells.map((cell) => cell.id));
     const zoningAssignments: ZoneAssignment[] = [...this.zoneAssignments]
@@ -283,7 +344,7 @@ export class SimulationState {
     return serializeWorld({ terrain: this.terrain.state(), roadGraph: this.graph.snapshot(), gameClock: this.clock.snapshot(), zoningAssignments,
       lots: this.lots.lots, buildings: this.lots.buildings, population: this.population.save(),
       economy: this.economy.save(), traffic: this.traffic.save(), services: this.services.save(), transit: this.transit.save(),
-      water: this.water.save(), generation: this.generation });
+      water: this.water.save(), generation: this.generation, worldMetadata: this.worldMetadata, landOwnership: this.landOwnership.save() });
   }
 
   load(save: SaveFile): void {
@@ -300,22 +361,29 @@ export class SimulationState {
 
     // Validate into detached instances first. No live Authority state is touched
     // until every save component is known to be safe.
-    const validatedGraph = new RoadGraph(world.roadGraph);
+    const validatedGraph = new RoadGraph(world.roadGraph, world.worldMetadata);
+    const validatedOwnership = new LandOwnership(world.worldMetadata!, world.worldMetadata!.landOwnership, world.landOwnership);
+    for (const road of world.roadGraph.segments) if (!validatedOwnership.canConstruct({ kind: 'path', points: road.geometry.points, width: road.width }).allowed) throw new Error('Saved road is outside owned land.');
     const validatedTerrain = new HeightmapTerrain(world.terrain);
     const validatedWater = new StaticWater(world.water);
     const validatedClock = new GameClock();
     validatedClock.restore(world.gameClock);
-    const validCells = new Set(new ZoningSystem().update(validatedGraph.snapshot()).map((cell) => cell.id));
+    const validatedZoning = new ZoningSystem(world.worldMetadata);
+    const geometryCells = validatedZoning.update(validatedGraph.snapshot());
+    const validCells = new Set(geometryCells.map(cell => cell.id));
     const loadedAssignments = new Map<ZoningCellId, ZoneType>();
     for (const assignment of world.zoningAssignments) {
       if (!assignment || !validCells.has(assignment.cellId) || !isZoneType(assignment.zoneType)
         || loadedAssignments.has(assignment.cellId)) throw new Error('Save contains invalid zoning assignments.');
       loadedAssignments.set(assignment.cellId, assignment.zoneType);
     }
-    const validatedCells = new ZoningSystem().update(validatedGraph.snapshot()).map((cell) => ({ ...cell,
+    const validatedCells = geometryCells.map((cell) => ({ ...cell,
+      terrainHeight: validatedTerrain.getHeight(cell.center.x, cell.center.z),
       zoneType: loadedAssignments.get(cell.id),
       terrainSuitable: isTerrainSuitableForZone(cell, (x, z) => validatedTerrain.getHeight(x, z)) }));
-    const validatedLots = new LotSystem();
+    if (validatedCells.some(cell => cell.zoneType && !validatedOwnership.canConstruct({ kind: 'polygon', points: cell.corners }).allowed)) throw new Error('Saved zoning is outside owned land.');
+    const validatedLots = new LotSystem(world.worldMetadata);
+    validatedLots.landOwnership = validatedOwnership;
     const validRoadIds = new Set(validatedGraph.snapshot().segments.map((segment) => segment.id));
     if (world.lots.some((lot) => !validRoadIds.has(lot.roadAccess?.roadSegmentId))) throw new Error('Save contains invalid lot road access.');
     if (world.hasLotData) validatedLots.restore(world.lots, world.buildings, validatedCells,
@@ -327,38 +395,64 @@ export class SimulationState {
     else validatedPopulation.syncBuildings(validatedLots.buildings, validatedLots.lots, validatedClock.gameSeconds);
     const validatedEconomy = new EconomySystem(undefined, validatedClock.gameSeconds);
     if (world.hasEconomyData) validatedEconomy.restore(world.economy, validatedClock.gameSeconds);
-    const validatedTraffic = new TrafficSystem(validatedGraph.snapshot(), undefined, validatedClock.gameSeconds);
+    const validatedTraffic = new TrafficSystem(validatedGraph.snapshot(), undefined, validatedClock.gameSeconds, world.worldMetadata, world.worldMetadata!.outsideConnections);
     if (world.hasTrafficData) validatedTraffic.restore(world.traffic, validatedClock.gameSeconds);
     validatedTraffic.reconcileLots(validatedLots.lots);
     const validatedServices = new ServiceSystem();
+    validatedServices.world = world.worldMetadata!;
+    validatedServices.landOwnership = validatedOwnership;
     if (world.hasServiceData) validatedServices.restore(world.services, validatedGraph.snapshot(),
       (x, z) => validatedTerrain.getHeight(x, z));
     validatedServices.recalculate(validatedGraph.snapshot(), validatedLots.lots, validatedPopulation.snapshot());
     const validatedTransit = new TransitSystem(validatedGraph.snapshot(), undefined, validatedClock.gameSeconds);
+    validatedTransit.world = world.worldMetadata!;
     if (world.hasTransitData) validatedTransit.restore(world.transit, validatedClock.gameSeconds);
     validatedTraffic.setTransitSystem(validatedTransit);
     validatedTraffic.syncCitizens(validatedPopulation.households, validatedPopulation.snapshot(), validatedLots.lots, validatedClock.gameSeconds);
+    this.graph.world = world.worldMetadata!;
+    this.zoningSystem = validatedZoning;
     this.graph.restore(validatedGraph.snapshot());
     this.clock.restore(validatedClock.snapshot());
     this.terrain = validatedTerrain;
+    this.worldMetadata = structuredClone(world.worldMetadata!);
+    this.mapEditor = false; this.landOwnership = validatedOwnership;
     this.water.restore(validatedWater.save());
+    this.water.configure(this.worldMetadata);
     this.generation = world.generation;
     this.activeTerrainStroke = undefined;
-    this.terrainChanged(createChunks().map((chunk) => chunk.id));
+    // The detached systems were validated against this exact terrain. Publish once,
+    // without reconciling the previous city against all chunks of the new world.
+    this.terrainUpdatedChunkIds = new Set(createChunks(this.worldMetadata).map(chunk => chunk.id));
+    this.terrainRevision++; this.roadRevision++; this.zoningRevision++; this.revision++;
+    this.terrainEditMs = 0; this.zoningCells = validatedCells;
+    this.zoningUpdatedChunkIds = validatedZoning.getUpdatedChunkIds();
     this.zoneAssignments.clear();
     for (const [id, zone] of loadedAssignments) this.zoneAssignments.set(id, zone);
     this.history.clear();
-    this.roadChanged();
     this.lots = validatedLots;
     this.population = validatedPopulation;
     this.economy = validatedEconomy;
     this.traffic = validatedTraffic;
     this.services = validatedServices;
     this.transit = validatedTransit;
+    this.bindLandOwnership();
     this.citizenPopulationRevision = this.population.revision;
     this.citizensDirty = false;
     this.refreshTerrainProtection();
     this.lotRevision += 1;
+  }
+
+  private configureWorld(): void {
+    this.landOwnership = new LandOwnership(this.worldMetadata, this.worldMetadata.landOwnership);
+    this.bindLandOwnership();
+    this.graph.world = this.worldMetadata; this.zoningSystem.setWorld(this.worldMetadata);
+    this.lots.world = this.worldMetadata; this.services.world = this.worldMetadata; this.transit.world = this.worldMetadata;
+    this.traffic.world = this.worldMetadata; this.traffic.mapConnections = this.worldMetadata.outsideConnections;
+    this.refreshTerrainProtection();
+  }
+
+  private bindLandOwnership(): void {
+    this.graph.landOwnership = this.landOwnership; this.lots.landOwnership = this.landOwnership; this.services.landOwnership = this.landOwnership;
   }
 
   private roadChanged(): void {
@@ -400,7 +494,7 @@ export class SimulationState {
     const changed = new Set(chunkIds);
     const affectedCellIds: ZoningCellId[] = [];
     this.zoningCells = this.zoningCells.map((cell) => {
-      const { x, z } = worldToChunk(cell.center);
+      const { x, z } = worldToChunk(cell.center, this.worldMetadata);
       if (!changed.has(`chunk-${x}-${z}`)) return cell;
       if (bounds && (cell.center.x < bounds.minX - 8 || cell.center.x > bounds.maxX + 8
         || cell.center.z < bounds.minZ - 8 || cell.center.z > bounds.maxZ + 8)) return cell;
@@ -426,7 +520,7 @@ export class SimulationState {
     this.zoningUpdatedChunkIds = [...new Set(this.zoningCells
       .filter((cell) => changed.has(cell.id))
       .map((cell) => {
-        const { x, z } = worldToChunk(cell.center);
+        const { x, z } = worldToChunk(cell.center, this.worldMetadata);
         return `chunk-${x}-${z}` as const;
       }))].sort();
     this.lots.reconcile(this.zoningCells, (x, z) => this.terrain.getHeight(x, z), this.clock.gameSeconds, { cellIds });
@@ -466,16 +560,16 @@ export class SimulationState {
 
   private refreshTerrainProtection(): void {
     this.roadTerrainEditWeights = buildRoadTerrainProtection(this.graph.snapshot().segments
-      .filter((segment) => (segment.structureType ?? 'ground') === 'ground'));
-    protectServiceLots(this.roadTerrainEditWeights, this.services.facilities);
+      .filter((segment) => (segment.structureType ?? 'ground') === 'ground'), this.worldMetadata);
+    protectServiceLots(this.roadTerrainEditWeights, this.services.facilities, this.worldMetadata);
   }
 
   private boundsForVertices(values: ReadonlyMap<number, number>): TerrainEditBounds | undefined {
     if (values.size === 0) return undefined;
     const bounds: TerrainEditBounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
     for (const index of values.keys()) {
-      const x = index % TERRAIN_COLUMNS * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
-      const z = Math.floor(index / TERRAIN_COLUMNS) * TERRAIN_SAMPLE_SPACING - HALF_WORLD_SIZE;
+      const x = index % this.terrain.columns * this.terrain.settings.sampleSpacing - this.terrain.width / 2;
+      const z = Math.floor(index / this.terrain.columns) * this.terrain.settings.sampleSpacing - this.terrain.depth / 2;
       bounds.minX = Math.min(bounds.minX, x); bounds.maxX = Math.max(bounds.maxX, x);
       bounds.minZ = Math.min(bounds.minZ, z); bounds.maxZ = Math.max(bounds.maxZ, z);
     }
