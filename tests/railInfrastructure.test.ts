@@ -8,6 +8,31 @@ import type { StationTemplate, TrackMode } from '../src/railway/types';
 import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
+  it('protects the complete depot footprint through brushes, presets, Load and demolition Undo/Redo', () => {
+    const state = new SimulationState();
+    state.execute({ type: 'build-track', input: { points: [{ x: -100, z: 0 }, { x: 100, z: 0 }], trackTypeId: 'standard' } });
+    state.execute({ type: 'place-depot', trackSegmentId: [...state.railway.segments.keys()][0], offset: 100, name: 'Protected', capacity: 8 });
+    const supported = [{ x: -12, z: -8 }, { x: 12, z: 8 }, { x: 0, z: 8 }];
+    for (const mode of ['raise', 'lower', 'flatten', 'smooth'] as const) {
+      state.beginTerrainStroke({ x: 0, z: 8 }, mode, 96, 40); state.applyTerrainStroke([{ x: 0, z: 8 }], .25); state.endTerrainStroke();
+      for (const p of supported) expect(state.terrain.getHeight(p.x, p.z)).toBe(0);
+    }
+    state.setTerrainPreset('hills'); for (const p of supported) expect(state.terrain.getHeight(p.x, p.z)).toBe(0);
+    const loaded = new SimulationState(); loaded.load(state.serialize());
+    loaded.beginTerrainStroke({ x: 0, z: 8 }, 'raise', 96, 40); loaded.endTerrainStroke();
+    for (const p of supported) expect(loaded.terrain.getHeight(p.x, p.z)).toBe(0);
+    const depot = [...loaded.railway.depots.keys()][0]; loaded.execute({ type: 'remove-railway', kind: 'depot', id: depot });
+    loaded.undo(); expect(loaded.railway.depots.has(depot)).toBe(true); loaded.redo(); expect(loaded.railway.depots.has(depot)).toBe(false);
+    loaded.beginTerrainStroke({ x: 0, z: 8 }, 'raise', 48, 40); loaded.endTerrainStroke(); expect(loaded.terrain.getHeight(0, 8)).toBeGreaterThan(0);
+  });
+  it.each(['single', 'double', 'island'] as StationTemplate[])('protects %s station boundary support vertices outside the narrow track mask', template => {
+    const state = new SimulationState();
+    state.execute({ type: 'build-track', input: { points: [{ x: -480, z: 1.3 }, { x: 480, z: 1.3 }], trackTypeId: 'standard' } });
+    state.execute({ type: 'place-station', trackSegmentId: [...state.railway.segments.keys()][0], offset: 180.3, name: 'Protected', template, length: 120 });
+    for (const p of [...state.railway.stations.values()][0].boundary) for (const x of [Math.floor(p.x / 4) * 4, Math.ceil(p.x / 4) * 4]) for (const z of [Math.floor(p.z / 4) * 4, Math.ceil(p.z / 4) * 4]) {
+      state.beginTerrainStroke({ x, z }, 'raise', 48, 40); state.endTerrainStroke(); expect(state.terrain.getHeight(x, z)).toBe(0);
+    }
+  });
   it.each([
     [{ x: -300, z: -300 }, { x: 300, z: 300 }, { x: -300, z: 300 }, { x: 300, z: -300 }],
     [{ x: -300, z: 0 }, { x: 300, z: 0 }, { x: 300, z: 300 }, { x: -300, z: 300 }, { x: -300, z: 0 }, { x: 0, z: 0 }],

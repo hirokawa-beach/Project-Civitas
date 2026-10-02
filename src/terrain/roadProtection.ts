@@ -1,6 +1,7 @@
 import type { RoadSegment } from '../roads/types';
 import { createWorldMetadata, type WorldDimensions } from '../world/metadata';
 import type { ServiceFacility } from '../services/types';
+import type { Vec2 } from '../world/types';
 
 // Keep the vertices used to interpolate the road surface fixed as well as the
 // road itself. Fade edits in beyond the shoulder to avoid a hard terrain step.
@@ -46,23 +47,30 @@ export function buildRoadTerrainProtection(roads: readonly Pick<RoadSegment, 'ge
 
 /** Keep built service lots level while terrain brushes fade in beyond their edges. */
 export function protectServiceLots(weights: Float32Array, facilities: readonly ServiceFacility[], world: WorldDimensions = createWorldMetadata()): void {
-  for (const facility of facilities) {
-    const { corners, width, depth } = facility.lot;
+  protectTerrainFootprints(weights, facilities.map(facility => facility.lot), world, 4);
+}
+
+/** Local rectangle masks; padding covers every bilinear support vertex. */
+export function protectTerrainFootprints(weights: Float32Array, footprints: readonly { corners: readonly Vec2[]; width: number; depth: number }[],
+  world: WorldDimensions, hardPadding = world.terrainSampleSpacingMeters * Math.SQRT2): void {
+  const outerPadding = hardPadding + SHOULDER_FADE;
+  for (const footprint of footprints) {
+    const { corners, width, depth } = footprint;
     const origin = corners[0];
     const ux = (corners[1].x - origin.x) / width; const uz = (corners[1].z - origin.z) / width;
     const vx = (corners[3].x - origin.x) / depth; const vz = (corners[3].z - origin.z) / depth;
-    const left = clampIndex(Math.floor((Math.min(...corners.map((point) => point.x)) - 16 + world.worldWidthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainColumns);
-    const right = clampIndex(Math.ceil((Math.max(...corners.map((point) => point.x)) + 16 + world.worldWidthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainColumns);
-    const top = clampIndex(Math.floor((Math.min(...corners.map((point) => point.z)) - 16 + world.worldDepthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainRows);
-    const bottom = clampIndex(Math.ceil((Math.max(...corners.map((point) => point.z)) + 16 + world.worldDepthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainRows);
+    const left = clampIndex(Math.floor((Math.min(...corners.map((point) => point.x)) - outerPadding + world.worldWidthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainColumns);
+    const right = clampIndex(Math.ceil((Math.max(...corners.map((point) => point.x)) + outerPadding + world.worldWidthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainColumns);
+    const top = clampIndex(Math.floor((Math.min(...corners.map((point) => point.z)) - outerPadding + world.worldDepthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainRows);
+    const bottom = clampIndex(Math.ceil((Math.max(...corners.map((point) => point.z)) + outerPadding + world.worldDepthMeters / 2) / world.terrainSampleSpacingMeters), world.terrainRows);
     for (let row = top; row <= bottom; row += 1) for (let column = left; column <= right; column += 1) {
       const x = column * world.terrainSampleSpacingMeters - world.worldWidthMeters / 2 - origin.x;
       const z = row * world.terrainSampleSpacingMeters - world.worldDepthMeters / 2 - origin.z;
       const along = x * ux + z * uz;
       const across = x * vx + z * vz;
       const outside = Math.hypot(Math.max(0, -along, along - width), Math.max(0, -across, across - depth));
-      if (outside >= 16) continue;
-      const fade = Math.max(0, (outside - 4) / 12);
+      if (outside >= outerPadding) continue;
+      const fade = Math.max(0, (outside - hardPadding) / SHOULDER_FADE);
       const smooth = fade * fade * (3 - 2 * fade);
       const index = row * world.terrainColumns + column;
       weights[index] = Math.min(weights[index], smooth);

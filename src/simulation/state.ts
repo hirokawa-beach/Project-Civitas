@@ -10,7 +10,7 @@ import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
 import { createChunks, worldToChunk, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
 import { HeightmapTerrain, DEFAULT_TERRAIN_SETTINGS } from '../terrain/heightmap';
-import { buildRoadTerrainProtection, protectServiceLots } from '../terrain/roadProtection';
+import { buildRoadTerrainProtection, protectServiceLots, protectTerrainFootprints } from '../terrain/roadProtection';
 import { isZoneType, type ZoneAssignment, type ZoneType, type ZoningCell } from '../zoning/types';
 import { ZoningSystem } from '../zoning/system';
 import { isTerrainSuitableForZone } from '../zoning/terrainSuitability';
@@ -591,6 +591,14 @@ export class SimulationState {
       ...[...this.railway.segments.values()].map(segment => ({ width: 4, geometry: { kind: 'straight' as const, points: segment.points } })),
     ], this.worldMetadata);
     protectServiceLots(this.roadTerrainEditWeights, this.services.facilities, this.worldMetadata);
+    const railwayOutlines = [
+      ...[...this.railway.depots.values()].map(depot => this.railway.depotOutline(depot.position)),
+      ...[...this.railway.stations.values()].map(station => station.boundary),
+    ];
+    protectTerrainFootprints(this.roadTerrainEditWeights, railwayOutlines.map(corners => ({ corners,
+      width: Math.hypot(corners[1].x - corners[0].x, corners[1].z - corners[0].z),
+      depth: Math.hypot(corners[3].x - corners[0].x, corners[3].z - corners[0].z),
+    })), this.worldMetadata);
   }
 
   private boundsForVertices(values: ReadonlyMap<number, number>): TerrainEditBounds | undefined {
