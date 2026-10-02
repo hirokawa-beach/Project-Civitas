@@ -18,6 +18,7 @@ import type { PerformanceProfile } from '../visual/agentBudget';
 import type { AgentDetails } from '../citizens/types';
 import { downloadReport } from '../performance/download';
 import { LandOwnershipPanel } from './LandOwnershipPanel';
+import { RailwayPanel } from './RailwayPanel';
 
 interface AppProps {
   runtime: GameRuntime;
@@ -53,6 +54,7 @@ const formatClock = (seconds: number): string => {
 const money = (amount: number): string => amount.toLocaleString();
 
 const toolLabel = (status: ConstructionStatus): string => {
+  if (status.tool === 'railway') return 'RAILWAY';
   if (status.tool === 'inspect') return 'CITIZEN INSPECTOR';
   if (status.tool === 'demolish') return 'DEMOLISH';
   if (status.tool === 'zone') return `${status.zoneBrush ? status.zoneBrush.toUpperCase() : 'ERASE'} ZONING`;
@@ -87,6 +89,7 @@ const SNAP_CONTROLS: ReadonlyArray<{ key: SnapSettingKey; label: string; title: 
 
 export function App({ runtime, simulation }: AppProps) {
   const [showLand, setShowLand] = useState(false);
+  const [showRail, setShowRail] = useState(false);
   const [snapshot, setSnapshot] = useState<WorldSnapshot | undefined>(simulation.latestSnapshot);
   const [construction, setConstruction] = useState<ConstructionStatus>();
   const [metrics, setMetrics] = useState<Metrics>({ fps: 0, frameTime: 0, chunk: { x: 2, z: 2 }, terrainMeshMs: 0,
@@ -202,12 +205,14 @@ export function App({ runtime, simulation }: AppProps) {
           </div>
         </div>
         <div class="file-actions">
+          <button onClick={() => setShowRail(!showRail)}>RAIL</button>
           <button onClick={() => setShowLand(!showLand)}>LAND</button>
           <button onClick={save}>SAVE</button>
           <button onClick={load}>LOAD</button>
         </div>
       </header>
       {showLand && snapshot && <LandOwnershipPanel snapshot={snapshot} runtime={runtime} simulation={simulation} onClose={() => setShowLand(false)} />}
+      {showRail && snapshot && <RailwayPanel snapshot={snapshot} runtime={runtime} simulation={simulation} onClose={() => setShowRail(false)} />}
 
       {snapshot && !inspecting && <aside class="city-stats panel" aria-label="Population and RCIO demand">
         <div class="panel-title">CITY LIFE</div>
@@ -413,7 +418,7 @@ export function App({ runtime, simulation }: AppProps) {
 
       <div class={`construction-readout panel ${construction?.valid ? 'is-valid' : ''} ${construction?.tool === 'service' ? 'service-mode' : ''}`}>
         <div class="mode-tag">{construction ? toolLabel(construction) : 'CONNECTING'}</div>
-        <strong>{construction?.prompt ?? 'Starting simulation worker…'}</strong>
+        <strong>{construction?.tool === 'railway' ? 'Railway controls are in the Railway panel.' : construction?.prompt ?? 'Starting simulation worker…'}</strong>
         {construction?.tool === 'road' && construction.length > 0 && (
           <div class="readout-data">
             <span>{construction.length.toFixed(1)} m</span>

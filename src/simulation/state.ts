@@ -1,4 +1,5 @@
 import { RoadGraph } from '../roads/roadGraph';
+import { RailwaySystem } from '../railway/system';
 import { deserializeWorld, serializeWorld, type SaveFile, type SaveFileV13 } from '../save/serializer';
 import { createWorldMetadata, validateWorldMetadata, type WaterBody } from '../world/metadata';
 import { Hydrography, withShoreline } from '../water/geometry';
@@ -9,7 +10,7 @@ import type { WorldSnapshot } from '../shared/protocol';
 import type { ZoningCellId } from '../shared/ids';
 import { createChunks, worldToChunk, type ChunkDescriptor, type TerrainBrushMode, type TerrainPatch, type TerrainPreset, type Vec2 } from '../world/types';
 import { HeightmapTerrain, DEFAULT_TERRAIN_SETTINGS } from '../terrain/heightmap';
-import { buildRoadTerrainProtection, protectServiceLots } from '../terrain/roadProtection';
+import { buildRoadTerrainProtection, protectServiceLots, protectTerrainFootprints } from '../terrain/roadProtection';
 import { isZoneType, type ZoneAssignment, type ZoneType, type ZoningCell } from '../zoning/types';
 import { ZoningSystem } from '../zoning/system';
 import { isTerrainSuitableForZone } from '../zoning/terrainSuitability';
@@ -37,6 +38,7 @@ export class SimulationState {
   landOwnership = new LandOwnership(this.worldMetadata);
   private mapEditor = false;
   readonly graph = new RoadGraph();
+  railway = new RailwaySystem();
   readonly clock = new GameClock();
   readonly history = new CommandHistory();
   terrain = new HeightmapTerrain();
@@ -67,6 +69,7 @@ export class SimulationState {
   private citizensDirty = true;
 
   constructor() {
+    this.bindRailway();
     this.zoningCells = this.withZoneTypes(this.zoningSystem.update(this.graph.snapshot()));
     this.traffic.setTransitSystem(this.transit);
   }
@@ -133,6 +136,7 @@ export class SimulationState {
   tick(realSeconds: number): boolean {
     const started = performance.now();
     this.clock.advance(realSeconds);
+    if (this.clock.speed !== 0) this.performance.measure('railwayEventMs', () => this.railway.advance(this.clock.gameSeconds));
     const buildingChanged = this.lots.advance(this.clock.gameSeconds, this.population.demandValues);
     if (buildingChanged) {
       this.lotRevision += 1;
@@ -158,6 +162,9 @@ export class SimulationState {
   }
 
   execute(command: SimulationCommandData): SimulationCommandResult {
+    if (command.type === 'create-rail-frequency' || command.type === 'set-rail-timetable' || command.type === 'clear-rail-operations' || command.type === 'extend-rail-dwell' || command.type === 'add-rail-passengers') {
+      const ids = this.railway.executeOperation(command, this.clock.gameSeconds); this.revision++; return { type: 'railway', ids };
+    }
     if (command.type === 'unlock-land') {
       if (this.mapEditor) throw new Error('Set Starting Area in the Map Editor.');
       this.landOwnership.unlock(command.tile); this.revision++;
@@ -178,8 +185,9 @@ export class SimulationState {
     }
     const result = this.history.execute(commandFromData(accepted, this.zoneAssignments,
       (x, z) => this.terrain.getHeight(x, z), this.economy, () => this.clock.gameSeconds, this.services,
-      () => this.lots.lots, () => this.zoningCells, this.transit, this.water), this.graph);
-    if (this.history.lastDomain === 'road') {
+      () => this.lots.lots, () => this.zoningCells, this.transit, this.water, this.railway), this.graph);
+    if (this.history.lastDomain === 'railway') { this.refreshTerrainProtection(); this.revision++; }
+    else if (this.history.lastDomain === 'road') {
       this.roadChanged();
       this.history.finalizeLastRoadCommand();
     } else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
@@ -191,7 +199,8 @@ export class SimulationState {
   undo(): boolean {
     const changed = this.history.undo(this.graph);
     if (changed) {
-      if (this.history.lastDomain === 'road') this.roadChanged();
+      if (this.history.lastDomain === 'railway') { this.refreshTerrainProtection(); this.revision++; }
+      else if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
       else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
       else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') { this.citizensDirty = true; this.revision += 1; }
@@ -203,7 +212,8 @@ export class SimulationState {
   redo(): boolean {
     const changed = this.history.redo(this.graph);
     if (changed) {
-      if (this.history.lastDomain === 'road') this.roadChanged();
+      if (this.history.lastDomain === 'railway') { this.refreshTerrainProtection(); this.revision++; }
+      else if (this.history.lastDomain === 'road') this.roadChanged();
       else if (this.history.lastDomain === 'terrain') this.terrainChanged(this.history.lastAffectedChunkIds, this.history.lastTerrainBounds);
       else if (this.history.lastDomain === 'service') { this.refreshServices(); this.refreshTerrainProtection(); this.revision += 1; }
       else if (this.history.lastDomain === 'transit' || this.history.lastDomain === 'water') { this.citizensDirty = true; this.revision += 1; }
@@ -300,6 +310,8 @@ export class SimulationState {
       terrainHeightmap: includeTerrainHeightmap ? this.terrain.cloneHeights() : undefined,
       terrainUpdatedChunkIds: [...this.terrainUpdatedChunkIds],
       terrainEditMs: this.terrainEditMs,
+      railway: this.railway.snapshot(),
+      railwayRuntime: this.railway.runtime(),
       water: this.water.snapshot(),
       landOwnership: this.landOwnership.save(),
       chunks: createChunks(this.worldMetadata),
@@ -344,7 +356,7 @@ export class SimulationState {
     return serializeWorld({ terrain: this.terrain.state(), roadGraph: this.graph.snapshot(), gameClock: this.clock.snapshot(), zoningAssignments,
       lots: this.lots.lots, buildings: this.lots.buildings, population: this.population.save(),
       economy: this.economy.save(), traffic: this.traffic.save(), services: this.services.save(), transit: this.transit.save(),
-      water: this.water.save(), generation: this.generation, worldMetadata: this.worldMetadata, landOwnership: this.landOwnership.save() });
+      railway: this.railway.save(), water: this.water.save(), generation: this.generation, worldMetadata: this.worldMetadata, landOwnership: this.landOwnership.save() });
   }
 
   load(save: SaveFile): void {
@@ -366,6 +378,13 @@ export class SimulationState {
     for (const road of world.roadGraph.segments) if (!validatedOwnership.canConstruct({ kind: 'path', points: road.geometry.points, width: road.width }).allowed) throw new Error('Saved road is outside owned land.');
     const validatedTerrain = new HeightmapTerrain(world.terrain);
     const validatedWater = new StaticWater(world.water);
+    validatedWater.configure(world.worldMetadata!);
+    const validatedRailway = new RailwaySystem();
+    validatedRailway.ownership = validatedOwnership; validatedRailway.height = (x, z) => validatedTerrain.getHeight(x, z);
+    validatedRailway.waterAt = (x, z) => validatedWater.isWaterAt(x, z, validatedTerrain);
+    if (world.railway) validatedRailway.restore(world.railway);
+    if (world.railway?.operations && world.railway.operations.now !== world.gameClock.gameSeconds) throw new Error('Railway and GameClock disagree.');
+    validatedRailway.setClock(world.gameClock.gameSeconds);
     const validatedClock = new GameClock();
     validatedClock.restore(world.gameClock);
     const validatedZoning = new ZoningSystem(world.worldMetadata);
@@ -435,6 +454,7 @@ export class SimulationState {
     this.traffic = validatedTraffic;
     this.services = validatedServices;
     this.transit = validatedTransit;
+    validatedRailway.revision = this.railway.revision + 1; validatedRailway.networkRevision = this.railway.networkRevision + 1; this.railway = validatedRailway;
     this.bindLandOwnership();
     this.citizenPopulationRevision = this.population.revision;
     this.citizensDirty = false;
@@ -452,7 +472,14 @@ export class SimulationState {
   }
 
   private bindLandOwnership(): void {
+    this.bindRailway();
     this.graph.landOwnership = this.landOwnership; this.lots.landOwnership = this.landOwnership; this.services.landOwnership = this.landOwnership;
+  }
+
+  private bindRailway(): void {
+    this.railway.ownership = this.landOwnership;
+    this.railway.height = (x, z) => this.terrain.getHeight(x, z);
+    this.railway.waterAt = (x, z) => this.water.isWaterAt(x, z, this.terrain);
   }
 
   private roadChanged(): void {
@@ -559,9 +586,19 @@ export class SimulationState {
   }
 
   private refreshTerrainProtection(): void {
-    this.roadTerrainEditWeights = buildRoadTerrainProtection(this.graph.snapshot().segments
-      .filter((segment) => (segment.structureType ?? 'ground') === 'ground'), this.worldMetadata);
+    this.roadTerrainEditWeights = buildRoadTerrainProtection([
+      ...this.graph.snapshot().segments.filter((segment) => (segment.structureType ?? 'ground') === 'ground'),
+      ...[...this.railway.segments.values()].map(segment => ({ width: 4, geometry: { kind: 'straight' as const, points: segment.points } })),
+    ], this.worldMetadata);
     protectServiceLots(this.roadTerrainEditWeights, this.services.facilities, this.worldMetadata);
+    const railwayOutlines = [
+      ...[...this.railway.depots.values()].map(depot => this.railway.depotOutline(depot.position)),
+      ...[...this.railway.stations.values()].map(station => station.boundary),
+    ];
+    protectTerrainFootprints(this.roadTerrainEditWeights, railwayOutlines.map(corners => ({ corners,
+      width: Math.hypot(corners[1].x - corners[0].x, corners[1].z - corners[0].z),
+      depth: Math.hypot(corners[3].x - corners[0].x, corners[3].z - corners[0].z),
+    })), this.worldMetadata);
   }
 
   private boundsForVertices(values: ReadonlyMap<number, number>): TerrainEditBounds | undefined {

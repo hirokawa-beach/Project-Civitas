@@ -9,7 +9,7 @@ import type { AgentDetails } from '../citizens/types';
 
 type SnapshotListener = (snapshot: WorldSnapshot) => void;
 type NotificationListener = (message: string, level: 'info' | 'error') => void;
-export interface CommandResponse { ok: boolean; result?: SimulationCommandResult }
+export interface CommandResponse { ok: boolean; result?: SimulationCommandResult; error?: string }
 
 export class SimulationClient {
   private readonly mapRequests = new Map<string, { resolve: (asset?: MapAsset) => void; reject: (error: Error) => void }>();
@@ -82,6 +82,10 @@ export class SimulationClient {
   private post(message: UIToWorkerMessage): void { this.worker.postMessage(message); }
 
   private onMessage(message: WorkerToUIMessage): void {
+    if (message.type === 'rail-runtime-update') {
+      if (this.latestSnapshot) { this.latestSnapshot = { ...this.latestSnapshot, railwayRuntime: message.railwayRuntime }; for (const listener of this.snapshotListeners) listener(this.latestSnapshot); }
+      return;
+    }
     if (message.type === 'map-result') {
       const request = this.mapRequests.get(message.requestId);
       if (message.ok) request?.resolve(message.asset); else request?.reject(new Error(message.error ?? 'Map operation failed.'));
@@ -154,7 +158,7 @@ export class SimulationClient {
       };
       for (const listener of this.snapshotListeners) listener(this.latestSnapshot);
     } else if (message.type === 'command-result') {
-      this.commandRequests.get(message.requestId)?.({ ok: message.ok, result: message.result });
+      this.commandRequests.get(message.requestId)?.({ ok: message.ok, result: message.result, error: message.error });
       this.commandRequests.delete(message.requestId);
     } else if (message.type === 'save-data') {
       this.saveRequests.get(message.requestId)?.(message.save);

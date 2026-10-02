@@ -12,6 +12,17 @@
   --danger: #ee796a;
 }
 
+.railway-panel { position: absolute; top: 96px; right: 18px; width: 360px; max-height: calc(100vh - 230px); overflow: auto; padding: 16px; pointer-events: auto; z-index: 30; }
+.railway-panel header { display: flex; align-items: center; justify-content: space-between; }
+.railway-panel h2 { margin: 0; font-size: 20px; }
+.railway-panel p { font-size: 11px; line-height: 1.5; color: var(--muted); }
+.railway-panel label { display: grid; gap: 6px; margin: 12px 0; font: 10px Consolas, monospace; }
+.railway-panel select, .railway-panel input { width: 100%; padding: 9px; background: #172925; color: #e9eee8; border: 1px solid var(--line); }
+.railway-panel input[type="checkbox"] { width: 18px; height: 18px; }
+.railway-panel li { font: 11px Consolas, monospace; overflow-wrap: anywhere; }
+.railway-panel button { padding: 8px; margin: 3px; font: 10px Consolas, monospace; }
+.railway-panel summary { padding: 10px 0; font: 11px Consolas, monospace; cursor: pointer; }
+
 * { box-sizing: border-box; }
 html, body, #app, .game-shell { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 button { font: inherit; }
