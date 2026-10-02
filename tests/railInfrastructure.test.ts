@@ -8,6 +8,23 @@ import type { StationTemplate, TrackMode } from '../src/railway/types';
 import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
+  it.each([
+    [{ x: -300, z: -300 }, { x: 300, z: 300 }, { x: -300, z: 300 }, { x: 300, z: -300 }],
+    [{ x: -300, z: 0 }, { x: 300, z: 0 }, { x: 300, z: 300 }, { x: -300, z: 300 }, { x: -300, z: 0 }, { x: 0, z: 0 }],
+  ].map(points => ({ points })))('rejects a self-crossing/touching alignment before changing any existing graph state (%#)', ({ points }) => {
+    const rail = new RailwayInfrastructure();
+    rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: -450 }, { x: 400, z: -450 }], trackTypeId: 'standard' } });
+    const before = rail.save();
+    expect(() => rail.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } })).toThrow(/self-crosses|overlaps itself/);
+    expect(rail.save()).toEqual(before);
+  });
+  it('accepts a 16km densely sampled simple alignment with local self-intersection queries', () => {
+    const rail = new RailwayInfrastructure();
+    rail.ownership = new LandOwnership(createWorldMetadata({ worldWidthMeters: 32768, worldDepthMeters: 32768, terrainSampleSpacingMeters: 64 }));
+    const points = Array.from({ length: 4001 }, (_, i) => ({ x: i * 4 - 8000, z: 0 }));
+    rail.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } });
+    expect([...rail.segments.values()][0].length).toBe(16000);
+  });
   it('validates depot offsets at their actual footprint and preserves placement through Save/Undo', () => {
     const state = new SimulationState();
     state.execute({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } });

@@ -1,6 +1,6 @@
 import type { Vec2 } from '../world/types';
 import { buildCurveGeometry, buildTwoCurveGeometry, buildContinuousCurveGeometry } from '../roads/curveGeometry';
-import { distance, subtract, cross, polylineLength, dot } from '../roads/geometry';
+import { distance, subtract, cross, polylineLength, dot, segmentIntersection } from '../roads/geometry';
 import { TRACK_TYPES, type TrackMode } from './types';
 import type { LandOwnership } from '../world/landOwnership';
 
@@ -86,4 +86,26 @@ export class TrackEdgeIndex {
     this.index.rebuild(values);
   }
   query(a: Vec2, b: Vec2) { return this.index.query(a, b).map(edge => this.edges.get(edge.id)!); }
+}
+
+/** Reject unsupported crossings within one alignment, using local sampled edges. */
+export function validateSimpleTrackPath(points: Vec2[]): void {
+  const sampleCount = 1 + points.slice(1).reduce((n, p, i) => n + Math.ceil(distance(points[i], p) / 4), 0);
+  if (sampleCount > 16384) throw new Error('Track path is too long. Construct it in shorter sections.');
+  const sampled = sampleTrackPath(points), index = new TrackEdgeIndex();
+  index.rebuild([{ id: 'candidate', points: sampled }]);
+  let along = 0;
+  for (let i = 1; i < sampled.length; i++) {
+    const a = sampled[i - 1], b = sampled[i];
+    for (const edge of index.query(a, b)) {
+      // Compare only earlier nonadjacent edges; neighbours share one endpoint.
+      if (edge.along + edge.length >= along - 1e-7) continue;
+      const [c, d] = edge.points;
+      if (segmentIntersection(a, b, c, d) || collinearOverlap(a, b, c, d)
+        || [distance(a, c), distance(a, d), distance(b, c), distance(b, d)].some(n => n < .01)) {
+        throw new Error('Track self-crosses or overlaps itself. Build separate connected sections for a junction.');
+      }
+    }
+    along += distance(a, b);
+  }
 }

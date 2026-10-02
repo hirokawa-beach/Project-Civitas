@@ -2,7 +2,7 @@ import { closestPointOnPolyline, distance, normalize, pointAtDistance, polylineL
 import { LandOwnership } from '../world/landOwnership';
 import type { Vec2 } from '../world/types';
 import type { TrackNode, TrackSegment, Junction, Station, Depot, RailwaySave, RailwaySnapshot, RailCommandData, RailBlock, PlatformFace } from './types';
-import { sampleTrackPath, collinearOverlap, TrackIndex, TrackEdgeIndex, validateTrack } from './geometry';
+import { sampleTrackPath, collinearOverlap, TrackIndex, TrackEdgeIndex, validateTrack, validateSimpleTrackPath } from './geometry';
 
 export class RailwayInfrastructure {
   revision = 0;
@@ -149,6 +149,7 @@ export class RailwayInfrastructure {
       if (nearest.distance <= 6) points[endpoint] = nearest.point;
     }
     validateTrack(points, typeId, this.height, this.ownership, this.waterAt);
+    validateSimpleTrackPath(points);
     const cuts = new Map<string, number[]>(), ownCuts = [0, polylineLength(points)]; let traversed = 0;
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1], b = points[i], legLength = distance(a, b);
