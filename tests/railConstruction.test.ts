@@ -52,4 +52,12 @@ describe('railway construction interaction', () => {
     keydown({ code, ctrlKey: true, key: code.at(-1)!.toLowerCase(), target: { closest: () => null } } as unknown as KeyboardEvent);
     await click(200, 0); expect(commands).toHaveLength(0); controller.dispose();
   });
+  it.each([{ enabled: false, editor: false }, { enabled: true, editor: false }, { enabled: true, editor: true }])('ending railway controls preserves unrelated tools (enabled=$enabled, editor=$editor)', ({ enabled, editor }) => {
+    const { controller } = setup(); controller.setEnabled(enabled);
+    const runtime = Object.create(GameRuntime.prototype) as GameRuntime, setTool = vi.fn();
+    Object.assign(runtime, { construction: { isEditorMode: editor }, railConstruction: controller, setTool });
+    runtime.endRailConstruction(); expect(controller.enabled).toBe(false);
+    if (enabled && !editor) expect(setTool).toHaveBeenCalledExactlyOnceWith('road'); else expect(setTool).not.toHaveBeenCalled();
+    controller.dispose();
+  });
 });

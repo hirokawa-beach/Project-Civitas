@@ -2,7 +2,7 @@ import { closestPointOnPolyline, distance, normalize, pointAtDistance, polylineL
 import { LandOwnership } from '../world/landOwnership';
 import type { Vec2 } from '../world/types';
 import type { TrackNode, TrackSegment, Junction, Station, Depot, RailwaySave, RailwaySnapshot, RailCommandData, RailBlock, PlatformFace } from './types';
-import { sampleTrackPath, collinearOverlap, TrackIndex, TrackEdgeIndex, validateTrack, validateSimpleTrackPath, trackType } from './geometry';
+import { sampleTrackPath, collinearOverlap, TrackIndex, TrackEdgeIndex, validateTrack, validateSimpleTrackPath, trackType, segmentIntersectsFootprint } from './geometry';
 
 const validRectangle = (points: Vec2[]): boolean => {
   if (!Array.isArray(points) || points.length !== 4 || points.some(p => !p || ![p.x, p.z].every(Number.isFinite))) return false;
@@ -23,6 +23,8 @@ export class RailwayInfrastructure {
   readonly blocks = new Map<string, RailBlock>();
   readonly index = new TrackIndex();
   private edges = new TrackEdgeIndex();
+  private footprintIndex = new TrackIndex();
+  private footprints = new Map<string, Vec2[]>();
   private faceIndex = new Map<string, { station: Station; face: PlatformFace; length: number }>();
   protected adjacency = new Map<string, string[]>();
   private nodeIndex = new Map<string, TrackNode[]>();
@@ -109,6 +111,7 @@ export class RailwayInfrastructure {
           const outline = this.depotOutline(position), permission = this.ownership.canConstruct({ kind: 'polygon', points: outline });
           if (!permission.allowed) throw new Error(permission.reason);
           this.validateFootprint(outline, track.trackTypeId);
+          this.validateStructureSpace(outline, track.id);
           if (!command.name.trim() || !Number.isInteger(command.capacity) || command.capacity < 1 || command.capacity > 1000) throw new Error('Depot needs a name and capacity from 1 to 1000.');
           const id = this.id('depot'); this.depots.set(id, { id, name: command.name.trim(), connectedTrackId: track.id, capacity: command.capacity, position }); ids = [id]; break;
         }
@@ -147,7 +150,7 @@ export class RailwayInfrastructure {
   }
   protected ensureUnreferenced(id: string): void { if ([...this.stations.values()].some(s => s.connectedTrackIds.includes(id)) || [...this.depots.values()].some(d => d.connectedTrackId === id)) throw new Error('Remove the station/depot before changing its track.'); }
   protected build(input: Vec2[], typeId: string): string[] {
-    const points = structuredClone(input);
+    let points = structuredClone(input);
     // Snap endpoints to nearby existing tracks. Splits stay strictly within this Track Graph.
     for (const endpoint of [0, points.length - 1]) {
       const p = points[endpoint]; if (!p) continue;
@@ -158,7 +161,9 @@ export class RailwayInfrastructure {
       if (nearest.distance <= 6) points[endpoint] = nearest.point;
     }
     validateTrack(points, typeId, this.height, this.ownership, this.waterAt);
-    validateSimpleTrackPath(points);
+    points = validateSimpleTrackPath(points);
+    validateTrack(points, typeId, this.height, this.ownership, this.waterAt);
+    this.validateTrackFootprints(points);
     const cuts = new Map<string, number[]>(), ownCuts = [0, polylineLength(points)]; let traversed = 0;
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1], b = points[i], legLength = distance(a, b);
@@ -209,6 +214,8 @@ export class RailwayInfrastructure {
     const boundary = rectangle(command.template === 'single' ? -2 : 3, command.template === 'single' ? 4 : 8);
     const permission = this.ownership.canConstruct({ kind: 'polygon', points: boundary }); if (!permission.allowed) throw new Error(permission.reason);
     this.validateFootprint(boundary, track.trackTypeId);
+    const platformOutlines = command.template === 'double' ? [rectangle(-3, 1.5), rectangle(9, 1.5)] : [rectangle(command.template === 'island' ? 3 : -3, 1.5)];
+    for (const outline of platformOutlines) this.validateStructureSpace(outline, track.id);
     const from = offset - length / 2, to = offset + length / 2;
     const generated = command.template === 'single' ? [] : [
       [at(from, 6), at(to, 6)],
@@ -216,6 +223,7 @@ export class RailwayInfrastructure {
     ];
     for (const points of generated) {
       validateTrack(points, track.trackTypeId, this.height, this.ownership, this.waterAt);
+      this.validateTrackFootprints(points);
       this.validateGeneratedTrack(points, track.id);
     }
     const pieces = this.split(track.id, [from - 80, from, to, to + 80]);
@@ -233,6 +241,26 @@ export class RailwayInfrastructure {
     this.stations.set(stationId, { stationId, name: command.name.trim(), platforms, connectedTrackIds, boundary }); return stationId;
   }
   depotOutline(p: Vec2): Vec2[] { return [{ x: p.x - 10, z: p.z - 8 }, { x: p.x + 10, z: p.z - 8 }, { x: p.x + 10, z: p.z + 8 }, { x: p.x - 10, z: p.z + 8 }]; }
+  private footprintBounds(outline: Vec2[]) {
+    return [{ x: Math.min(...outline.map(p => p.x)), z: Math.min(...outline.map(p => p.z)) },
+      { x: Math.max(...outline.map(p => p.x)), z: Math.max(...outline.map(p => p.z)) }];
+  }
+  private validateTrackFootprints(points: Vec2[]) {
+    for (let i = 1; i < points.length; i++) for (const candidate of this.footprintIndex.query(points[i - 1], points[i])) {
+      if (segmentIntersectsFootprint(points[i - 1], points[i], this.footprints.get(candidate.id)!)) throw new Error('Track crosses an existing platform/depot footprint.');
+    }
+  }
+  private validateStructureSpace(outline: Vec2[], connectedTrackId: string) {
+    const [min, max] = this.footprintBounds(outline);
+    for (const candidate of this.footprintIndex.query(min, max)) {
+      const existing = this.footprints.get(candidate.id)!;
+      if (outline.some((a, i) => segmentIntersectsFootprint(a, outline[(i + 1) % outline.length], existing))
+        || segmentIntersectsFootprint(existing[0], existing[1], outline)) throw new Error('Railway footprint overlaps an existing platform/depot.');
+    }
+    for (const edge of this.edges.query(min, max)) if (edge.trackId !== connectedTrackId && segmentIntersectsFootprint(edge.points[0], edge.points[1], outline)) {
+      throw new Error('Railway footprint crosses an unrelated track.');
+    }
+  }
   private validateFootprint(outline: Vec2[], typeId: string) {
     const [a, b, , d] = outline, columns = Math.ceil(distance(a, b) / 4), rows = Math.ceil(distance(a, d) / 4);
     const columnSpacing = distance(a, b) / columns, rowSpacing = distance(a, d) / rows, maxGrade = trackType(typeId).maxGrade;
@@ -266,6 +294,10 @@ export class RailwayInfrastructure {
     this.index.rebuild(this.segments.values());
     this.edges.rebuild(this.segments.values());
     this.faceIndex.clear(); for (const station of this.stations.values()) for (const platform of station.platforms) for (const face of platform.faces) this.faceIndex.set(face.platformFaceId, { station, face, length: platform.length });
+    this.footprints.clear();
+    for (const station of this.stations.values()) for (const platform of station.platforms) this.footprints.set(platform.platformId, platform.outline);
+    for (const depot of this.depots.values()) this.footprints.set(depot.id, this.depotOutline(depot.position));
+    this.footprintIndex.rebuild([...this.footprints].map(([id, outline]) => ({ id, points: this.footprintBounds(outline) })));
   }
   protected resourceIds(): Set<string> { return new Set([...this.segments.keys(), ...this.junctions.keys(), ...[...this.stations.values()].flatMap(s => s.platforms.flatMap(p => p.faces.map(f => f.platformFaceId)))]); }
   protected reconcile(): void {

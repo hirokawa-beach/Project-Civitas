@@ -16,6 +16,16 @@ export function collinearOverlap(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
   const p = dot(subtract(c, a), u) / length, q = dot(subtract(d, a), u) / length;
   return Math.min(length, Math.max(p, q)) - Math.max(0, Math.min(p, q)) > .05;
 }
+export function segmentIntersectsFootprint(a: Vec2, b: Vec2, outline: Vec2[]): boolean {
+  const origin = outline[0], u = subtract(outline[1], origin), v = subtract(outline[3], origin);
+  const contains = (point: Vec2) => {
+    const delta = subtract(point, origin), along = dot(delta, u) / dot(u, u), across = dot(delta, v) / dot(v, v);
+    return along >= -1e-7 && along <= 1 + 1e-7 && across >= -1e-7 && across <= 1 + 1e-7;
+  };
+  return contains(a) || contains(b) || outline.some((c, i) => {
+    const d = outline[(i + 1) % outline.length]; return !!segmentIntersection(a, b, c, d) || collinearOverlap(a, b, c, d);
+  });
+}
 export function trackGeometry(mode: TrackMode, anchors: Vec2[]): Vec2[] {
   if (mode === 'straight' && anchors.length === 2) return anchors.map(p => ({ ...p }));
   if (mode === 'one-curve' && anchors.length === 3) return buildCurveGeometry({ start: anchors[0], directionPoint: anchors[1], end: anchors[2], sampleSpacing: 4 }).points;
@@ -89,7 +99,7 @@ export class TrackEdgeIndex {
 }
 
 /** Reject unsupported crossings within one alignment, using local sampled edges. */
-export function validateSimpleTrackPath(points: Vec2[]): void {
+export function validateSimpleTrackPath(points: Vec2[]): Vec2[] {
   const sampleCount = 1 + points.slice(1).reduce((n, p, i) => n + Math.ceil(distance(points[i], p) / 4), 0);
   if (sampleCount > 16384) throw new Error('Track path is too long. Construct it in shorter sections.');
   const sampled = sampleTrackPath(points), index = new TrackEdgeIndex();
@@ -108,4 +118,5 @@ export function validateSimpleTrackPath(points: Vec2[]): void {
     }
     along += distance(a, b);
   }
+  return sampled;
 }

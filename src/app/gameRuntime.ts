@@ -86,6 +86,11 @@ export class GameRuntime {
   setTerrainPreset(preset: TerrainPreset): void { this.construction.setTerrainPreset(preset); }
   toggleSnap(setting: SnapSettingKey): void { this.construction.toggleSnap(setting); }
   cancelConstruction(): void { this.construction.cancel(); this.railConstruction.cancel(); }
+  endRailConstruction(): void {
+    const wasEnabled = this.railConstruction.enabled;
+    this.railConstruction.setEnabled(false);
+    if (wasEnabled && !this.construction.isEditorMode) this.setTool('road');
+  }
   undo(): void {
     this.cancelConstruction();
     this.simulation.undo();

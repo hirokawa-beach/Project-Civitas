@@ -8,6 +8,50 @@ import type { StationTemplate, TrackMode } from '../src/railway/types';
 import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
+  it('rejects a sharp sparse corner before inserting an alignment that cannot survive Save Load', () => {
+    const rail = new RailwayInfrastructure(), before = rail.save();
+    expect(() => rail.mutate({ type: 'build-track', input: { points: [{ x: -200, z: 0 }, { x: 200, z: 0 }, { x: 200, z: 200 }], trackTypeId: 'standard' } })).toThrow(/curve/);
+    expect(rail.save()).toEqual(before);
+  });
+  it.each(['platform', 'depot'] as const)('rejects a track through an existing %s without graph mutation and releases space after removal', kind => {
+    const rail = new RailwayInfrastructure();
+    const track = rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } })[0];
+    const id = kind === 'platform' ? rail.mutate({ type: 'place-station', trackSegmentId: track, offset: 400, name: 'Station', template: 'single', length: 120 })[0]
+      : rail.mutate({ type: 'place-depot', trackSegmentId: track, offset: 400, name: 'Depot', capacity: 8 })[0];
+    const points = kind === 'platform' ? [{ x: -200, z: 0 }, { x: -100, z: -3 }, { x: 100, z: -3 }, { x: 200, z: 0 }]
+      : [{ x: -200, z: 8 }, { x: -100, z: 4 }, { x: 100, z: 4 }, { x: 200, z: 8 }];
+    const before = rail.save();
+    expect(() => rail.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } })).toThrow(/footprint/); expect(rail.save()).toEqual(before);
+    const loaded = new RailwayInfrastructure(); loaded.restore(before);
+    expect(() => loaded.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } })).toThrow(/footprint/);
+    rail.mutate({ type: 'remove-railway', kind: kind === 'platform' ? 'station' : 'depot', id });
+    expect(rail.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } }).length).toBeGreaterThan(0);
+  });
+  it.each(['single', 'double', 'island', 'depot'] as const)('rejects a %s footprint over an unrelated existing track', kind => {
+    const rail = new RailwayInfrastructure();
+    const track = rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } })[0];
+    const side = kind === 'island' || kind === 'depot' ? 3 : -3, end = Math.sign(side) * 12;
+    const easing = (t: number) => t * t * (3 - 2 * t);
+    const points = [...Array.from({ length: 26 }, (_, i) => ({ x: -200 + i * 4, z: end + (side - end) * easing(i / 25) })),
+      ...Array.from({ length: 50 }, (_, i) => ({ x: -96 + i * 4, z: side })),
+      ...Array.from({ length: 25 }, (_, i) => ({ x: 104 + i * 4, z: side + (end - side) * easing((i + 1) / 25) }))];
+    rail.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } });
+    const before = rail.save();
+    const command = kind === 'depot' ? { type: 'place-depot' as const, trackSegmentId: track, offset: 400, name: 'Depot', capacity: 8 }
+      : { type: 'place-station' as const, trackSegmentId: track, offset: 400, name: 'Station', template: kind, length: 120 };
+    expect(() => rail.mutate(command)).toThrow(/footprint/); expect(rail.save()).toEqual(before);
+  });
+  it('rejects overlapping station/depot structures before mutation', () => {
+    for (const first of ['station', 'depot']) {
+      const rail = new RailwayInfrastructure(); let track = rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } })[0];
+      if (first === 'station') { const id = rail.mutate({ type: 'place-station', trackSegmentId: track, offset: 400, name: 'Station', template: 'single', length: 120 })[0]; track = rail.stations.get(id)!.connectedTrackIds[0]; }
+      else rail.mutate({ type: 'place-depot', trackSegmentId: track, offset: 400, name: 'Depot', capacity: 8 });
+      const before = rail.save();
+      const command = first === 'station' ? { type: 'place-depot' as const, trackSegmentId: track, offset: 60, name: 'Overlap', capacity: 8 }
+        : { type: 'place-station' as const, trackSegmentId: track, offset: 400, name: 'Overlap', template: 'single' as const, length: 120 };
+      expect(() => rail.mutate(command)).toThrow(/footprint/); expect(rail.save()).toEqual(before);
+    }
+  });
   it('rejects inconsistent station track references and malformed footprints before replacing the live city', () => {
     const state = railwayFixture('island'), before = state.railway.save();
     for (const kind of ['wrong-track', 'duplicate-track', 'triangle', 'skew-platform']) {
@@ -97,7 +141,7 @@ describe('Railway Infrastructure authority', () => {
     ]) {
       const rail = new RailwayInfrastructure(); rail.mutate({ type: 'build-track', input: { points, trackTypeId: 'standard' } });
       const ids = rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } }), before = rail.save();
-      expect(() => rail.mutate({ type: 'place-station', name: 'Collision', trackSegmentId: ids[0], offset: 400, length: 120, template })).toThrow(/overlaps|collides/);
+      expect(() => rail.mutate({ type: 'place-station', name: 'Collision', trackSegmentId: ids[0], offset: 400, length: 120, template })).toThrow(/overlaps|collides|footprint/);
       expect(rail.save()).toEqual(before);
     }
   });

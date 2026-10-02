@@ -36,7 +36,7 @@ Verification covers deterministic Save resumes during dwell, running, blocked re
 
 ## Scope
 
-Final gates after review fixes: `npm test` **361 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
+Final gates after review fixes: `npm test` **372 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
 
 Codex Review's three P2 findings were addressed with regressions: validate the additional double/island station centerline against side water/grade, cancel the railway controller in common Load/Undo/Redo paths, and reject Formations without an Operation. Line-only advanced definitions also freeze referenced infrastructure until cleared. In the production browser, a one-point alignment → Load → next click correctly became a new **Point 1/2**, without creating a track from the old point; Console warnings/errors remained empty. Fine geometry edges, platform-face lookup, saved owner membership and route reconstruction also use indexes/sets or linear reconstruction to avoid repeated whole-path/model scans.
 
@@ -54,4 +54,10 @@ The depot terrain-protection P2 is fixed: a generic local rectangle mask now pro
 
 Three subsequent P2 findings were fixed: detached Save validation requires exact equality between station connected tracks and PlatformFace tracks, and validates rectangular station/platform footprints before protection-mask rebuilding. New footprint placement samples finite elevations and the 2D grade across the entire station/depot under the TrackType grade limit; existing infrastructure Load still skips current suitability checks. OD endpoints must belong to their selected line, using indexed station membership on commands and Load. Regressions cover wrong/duplicate connected tracks, malformed rectangles, steep/missing terrain with a valid centerline, valid gentle slopes and invalid command/saved OD groups, preserving live state on rejected Load.
 
+The track/structure collision P2 is fixed with a local footprint index: new tracks and generated station tracks cannot cross existing platforms/depots; placing a structure cannot overlap other structures or unrelated tracks. The depot's explicitly connected track is allowed. Regressions cover paths that cross no existing track edges, reverse placement order, atomic rollback, Load and releasing space after removal. The actual sampled track path is also radius-validated before insertion, preventing sparse sharp corners from creating an unloadable alignment.
+
+The panel-cleanup P2 is fixed through `GameRuntime.endRailConstruction`: only an active rail construction tool returns to Road. Inspection-only panel closure preserves other tools and partial road input. Timetable creation uses the same cleanup so a finished railway interaction does not strand the shared tool. Unit regressions cover inactive, active and editor cases.
+
 No OuDiaSecond converter, coupling/splitting, full interlocking, ATS/ATC, crew scheduling, detailed depot shunting, rail bridges/tunnels or new GIS imports. Internal stable railway IDs, integer game-second calls and separate services/formations/operations will allow a future #10 adapter.
+
+Production-browser panel-cleanup regression: selected a road start point, opened/closed Railway for inspection, and completed the road with the next canvas click (2 RoadNodes / 1 segment). Selected Raise Terrain, opened/closed Railway again, and verified Raise Terrain remained selected. Console warnings/errors: none. Screenshot: docs/screenshots/railway-panel-close.png.
