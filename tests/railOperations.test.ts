@@ -43,14 +43,18 @@ describe('event-driven railway operations', () => {
   });
   it('reserves the itinerary while occupying only the current platform or active leg, including Save/Load', () => {
     const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state) });
-    for (const [time, phase] of [[10, 'dwelling'], [30, 'running'], [57, 'dwelling'], [77, 'turnback'], [97, 'dwelling']] as const) {
+    for (const [time, phase] of [[10, 'dwelling'], [30, 'running'], [40, 'running'], [57, 'dwelling'], [77, 'turnback'], [97, 'dwelling'], [117, 'running'], [144, 'dwelling']] as const) {
       advance(state, time); const train = state.railway.runtime().activeTrains[0]; expect(train.state).toBe(phase);
-      const occupied = phase === 'running' ? train.leg!.route.resources.filter(id => id !== train.faceId)
+      const occupied = phase === 'running' ? train.leg!.route.resources.filter(id => state.railway.segments.has(id) || state.railway.junctions.has(id))
         : [train.faceId, state.railway.face(train.faceId).face.trackSegmentId];
       expect([...state.railway.blocks.values()].filter(b => b.occupancyOwner === train.formationId).map(b => b.id).sort()).toEqual(occupied.sort());
       for (const id of train.resources) expect(state.railway.blocks.get(id)!.reservationOwner).toBe(train.formationId);
       if (phase === 'dwelling') expect(train.resources.length).toBeGreaterThan(occupied.length);
       const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.save()).toEqual(state.railway.save());
+      if (phase === 'running') for (const station of loaded.railway.stations.values()) for (const platform of station.platforms) for (const face of platform.faces) {
+        expect(loaded.railway.blocks.get(face.platformFaceId)!.occupancyOwner).toBeNull();
+        expect(loaded.railway.blocks.get(face.platformFaceId)!.reservationOwner).toBe(train.formationId);
+      }
     }
     advance(state, 200); expect(state.railway.runtime().ownedBlocks).toHaveLength(0);
   });
@@ -82,12 +86,45 @@ describe('event-driven railway operations', () => {
     advance(state, 300); const states = state.railway.runtime().serviceStates;
     expect(states.map(s => s.delay)).toEqual([40, 40]); expect(states[0].actualCalls[0].departureTime).toBe(70);
   });
-  it.each(['local', 'deadhead'])('uses aggregate OD capacity and preserves waiting passengers for %s', serviceTypeId => {
-    const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state, { serviceTypeId, returnService: false }) });
+  it('uses aggregate OD capacity and preserves passengers left behind', () => {
+    const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state, { returnService: false }) });
     const ops = state.railway.save().operations!, line = ops.lines[0], service = ops.services[0];
     state.execute({ type: 'add-rail-passengers', group: { id: 'od', lineId: line.id, origin: service.origin, destination: service.destination, count: 200 } });
-    advance(state, 200); expect(state.railway.runtime()).toMatchObject(serviceTypeId === 'local' ? { arrivedPassengers: 160, waitingPassengers: 40, leftBehind: 40 } : { arrivedPassengers: 0, waitingPassengers: 200, leftBehind: 0 });
+    advance(state, 200); expect(state.railway.runtime()).toMatchObject({ arrivedPassengers: 160, waitingPassengers: 40, leftBehind: 40 });
+    const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.runtime().waitingPassengers).toBe(40);
     expect(state.population.snapshot().totals.population).toBe(0);
+  });
+  it.each(['reverse', 'pass-origin', 'pass-destination', 'deadhead'] as const)('rejects an unserviceable %s OD on commands and detached Save Load', kind => {
+    const state = railwayFixture();
+    state.execute({ type: 'create-rail-frequency', input: input(state, { returnService: false,
+      serviceTypeId: kind === 'deadhead' ? 'deadhead' : 'local',
+      stopTypes: kind === 'pass-origin' ? ['pass', 'stop'] : kind === 'pass-destination' ? ['stop', 'pass'] : ['stop', 'stop'] }) });
+    const ops = state.railway.save().operations!, service = ops.services[0];
+    const group = { id: 'unserved', lineId: service.lineId, origin: kind === 'reverse' ? service.destination : service.origin,
+      destination: kind === 'reverse' ? service.origin : service.destination, count: 5 }, before = state.railway.save();
+    expect(() => state.execute({ type: 'add-rail-passengers', group })).toThrow(/OD group/); expect(state.railway.save()).toEqual(before);
+    const saved = state.serialize(); saved.railway!.operations!.passengers.push(group);
+    expect(() => state.load(saved)).toThrow(/OD group/); expect(state.railway.save()).toEqual(before);
+  });
+  it('keeps passengers for a later passenger service while deadhead runs on the same line', () => {
+    const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state, { serviceTypeId: 'deadhead', returnService: false }) });
+    const data = state.railway.save().operations!; state.execute({ type: 'clear-rail-operations' });
+    const passenger = structuredClone(data.services[0]); passenger.id = 'passenger'; passenger.trainNumber = 'P1'; passenger.serviceTypeId = 'local'; passenger.passengerService = true;
+    for (const call of passenger.stopCalls) { call.arrivalTime += 300; call.departureTime += 300; }
+    data.services.push(passenger); data.formations.push({ ...data.formations[0], formationId: 'passenger-formation' });
+    data.operations.push({ operationId: 'passenger-operation', operationNumber: 'P1', trainServiceIds: [passenger.id], assignedFormationId: 'passenger-formation' });
+    state.execute({ type: 'set-rail-timetable', timetable: data });
+    state.execute({ type: 'add-rail-passengers', group: { id: 'od', lineId: passenger.lineId, origin: passenger.origin, destination: passenger.destination, count: 200 } });
+    advance(state, 200); expect(state.railway.runtime()).toMatchObject({ arrivedPassengers: 0, waitingPassengers: 200, leftBehind: 0 });
+    const loaded = new SimulationState(); loaded.load(state.serialize()); advance(loaded, 600);
+    expect(loaded.railway.runtime()).toMatchObject({ arrivedPassengers: 160, waitingPassengers: 40, leftBehind: 40 });
+  });
+  it('accepts reverse-direction OD when a separate return passenger service can carry it', () => {
+    const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state) });
+    const service = state.railway.save().operations!.services[1];
+    state.execute({ type: 'add-rail-passengers', group: { id: 'return-od', lineId: service.lineId, origin: service.origin, destination: service.destination, count: 5 } });
+    const loaded = new SimulationState(); loaded.load(state.serialize()); advance(loaded, 200);
+    expect(loaded.railway.runtime()).toMatchObject({ arrivedPassengers: 5, waitingPassengers: 0, leftBehind: 0 });
   });
   it('creates individual frequency services with stable operation assignments and following waits', () => {
     const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state, { end: 91, frequency: 30 }) });

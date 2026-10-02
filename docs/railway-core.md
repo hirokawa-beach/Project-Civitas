@@ -36,7 +36,7 @@ Verification covers deterministic Save resumes during dwell, running, blocked re
 
 ## Scope
 
-Final gates after review fixes: `npm test` **372 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
+Final gates after review fixes: `npm test` **377 tests / 44 files passed**; `npm run build` passed. The existing Vite warning for a >500kB Babylon-related chunk remains. Railway changes add no browser warning/error in the smoke run. Screenshot: `docs/screenshots/railway-core.png`.
 
 Codex Review's three P2 findings were addressed with regressions: validate the additional double/island station centerline against side water/grade, cancel the railway controller in common Load/Undo/Redo paths, and reject Formations without an Operation. Line-only advanced definitions also freeze referenced infrastructure until cleared. In the production browser, a one-point alignment → Load → next click correctly became a new **Point 1/2**, without creating a track from the old point; Console warnings/errors remained empty. Fine geometry edges, platform-face lookup, saved owner membership and route reconstruction also use indexes/sets or linear reconstruction to avoid repeated whole-path/model scans.
 
@@ -61,3 +61,5 @@ The panel-cleanup P2 is fixed through `GameRuntime.endRailConstruction`: only an
 No OuDiaSecond converter, coupling/splitting, full interlocking, ATS/ATC, crew scheduling, detailed depot shunting, rail bridges/tunnels or new GIS imports. Internal stable railway IDs, integer game-second calls and separate services/formations/operations will allow a future #10 adapter.
 
 Production-browser panel-cleanup regression: selected a road start point, opened/closed Railway for inspection, and completed the road with the next canvas click (2 RoadNodes / 1 segment). Selected Raise Terrain, opened/closed Railway again, and verified Raise Terrain remained selected. Console warnings/errors: none. Screenshot: docs/screenshots/railway-panel-close.png.
+
+The next operations review fixes distinguish both endpoint platform reservations from running occupancy: only active-leg track/junction resources are occupied during motion, and the destination face becomes occupied on arrival. Regressions check both directions and Save/Load. OD admission requires a stopping origin followed by a stopping destination in one passenger service of the selected line. Stopping-call positions and origin services are indexed linearly without expanding all station pairs. Command/Load regressions reject reverse-only, pass-only endpoints and deadhead-only groups, accept a real return service, and verify deadhead does not board passengers waiting for a later passenger service. Capacity overflow remains loadable even after the last service finishes.

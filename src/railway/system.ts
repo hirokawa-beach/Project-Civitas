@@ -21,6 +21,8 @@ export class RailwaySystem extends RailwayInfrastructure {
   private progress = new Map<string, RailServiceProgress>();
   private services = new Map<string, TrainService>();
   private lineStations = new Map<string, Set<string>>();
+  private passengerCalls = new Map<string, Map<string, { first: number; last: number }>>();
+  private passengerOrigins = new Map<string, Map<string, string[]>>();
   private formations = new Map<string, Formation>();
   private formationTypes = new Map<string, FormationType>();
   private operations = new Map<string, Operation>();
@@ -149,6 +151,18 @@ export class RailwaySystem extends RailwayInfrastructure {
     this.lineStations = new Map(this.timetable.lines.map(line => [line.id, new Set(line.stationIds)]));
     this.services = new Map(this.timetable.services.map(s => [s.id, s])); this.formations = new Map(this.timetable.formations.map(f => [f.formationId, f]));
     this.formationTypes = new Map(this.timetable.formationTypes.map(t => [t.id, t])); this.operations = new Map(this.timetable.operations.map(o => [o.operationId, o]));
+    this.passengerCalls.clear(); this.passengerOrigins.clear();
+    // Index stopping calls once, without expanding every origin/destination pair.
+    for (const service of this.services.values()) if (service.passengerService) {
+      const calls = new Map<string, { first: number; last: number }>();
+      for (const call of service.stopCalls) if (call.stopType === 'stop') {
+        const previous = calls.get(call.stationId); calls.set(call.stationId, { first: previous?.first ?? call.sequence, last: call.sequence });
+      }
+      this.passengerCalls.set(service.id, calls);
+      const origins = this.passengerOrigins.get(service.lineId) ?? new Map<string, string[]>();
+      for (const station of calls.keys()) { const ids = origins.get(station) ?? []; ids.push(service.id); origins.set(station, ids); }
+      this.passengerOrigins.set(service.lineId, origins);
+    }
   }
   private route(from: string, to: string, formationTypeId: string): RailRoute {
     const key = `${from}|${to}|${formationTypeId}`, cached = this.routes.get(key); if (cached) return cached;
@@ -286,7 +300,7 @@ export class RailwaySystem extends RailwayInfrastructure {
     train.delay = Math.max(train.delay, event.at - call.departureTime); state.delay = train.delay; state.status = 'running'; state.actualCalls[event.callIndex].departureTime = event.at;
     train.leg = { route, startAt: event.at, endAt: Math.max(target.arrivalTime + train.delay, event.at + route.duration) };
     train.delay = Math.max(train.delay, train.leg.endAt - target.arrivalTime); state.delay = train.delay;
-    this.occupyCurrent(train, route.resources.filter(id => id !== call.platformFaceId));
+    this.occupyCurrent(train, route.resources.filter(id => id !== call.platformFaceId && id !== target.platformFaceId));
     train.callIndex++; train.state = 'running'; formation.state = 'running';
     this.schedule('arrival', train.leg.endAt, op.operationId, event.serviceIndex, train.callIndex);
   }
@@ -315,7 +329,11 @@ export class RailwaySystem extends RailwayInfrastructure {
   private addPassengers(group: RailPassengerGroup) {
     const stations = this.lineStations.get(group?.lineId);
     if (!group || !group.id?.trim() || this.passengers.has(group.id) || this.passengers.size >= 100000 || !stations?.has(group.origin) || !stations.has(group.destination)
-      || !this.stations.has(group.origin) || !this.stations.has(group.destination) || group.origin === group.destination || !integer(group.count) || group.count < 1 || group.count > 1000000) throw new Error('Invalid rail passenger OD group.');
+      || !this.stations.has(group.origin) || !this.stations.has(group.destination) || group.origin === group.destination || !integer(group.count) || group.count < 1 || group.count > 1000000
+      || !this.passengerOrigins.get(group.lineId)?.get(group.origin)?.some(id => {
+        const calls = this.passengerCalls.get(id)!, destination = calls.get(group.destination);
+        return destination !== undefined && calls.get(group.origin)!.first < destination.last;
+      })) throw new Error('Invalid rail passenger OD group.');
     this.passengers.set(group.id, structuredClone(group)); const ids = this.passengersByOrigin.get(group.origin) ?? new Set(); ids.add(group.id); this.passengersByOrigin.set(group.origin, ids); this.waitingPassengers += group.count;
   }
   private departPassengers(train: ActiveRailTrain, service: TrainService, call: StopCall) {
