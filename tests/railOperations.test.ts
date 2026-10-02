@@ -24,6 +24,23 @@ function opposing(state: SimulationState): RailTimetable {
 }
 
 describe('event-driven railway operations', () => {
+  it('requires OD endpoints to belong to the selected line on commands and detached Save Load', () => {
+    const state = railwayFixture();
+    state.execute({ type: 'build-track', input: { points: [{ x: -200, z: 200 }, { x: 200, z: 200 }], trackTypeId: 'standard' } });
+    const track = [...state.railway.segments.values()].find(t => t.points[0].z === 200)!;
+    state.execute({ type: 'place-station', trackSegmentId: track.id, offset: 200, name: 'Unserved', template: 'single', length: 80 });
+    const stations = [...state.railway.stations.values()], [origin, destination, other] = stations;
+    state.execute({ type: 'create-rail-frequency', input: input(state, { faceIds: stations.slice(0, 2).map(s => s.platforms[0].faces[0].platformFaceId) }) });
+    const lineId = state.railway.save().operations!.lines[0].id, before = state.railway.save();
+    for (const [a, b] of [[other, destination], [origin, other]]) {
+      expect(() => state.execute({ type: 'add-rail-passengers', group: { id: 'od', lineId, origin: a.stationId, destination: b.stationId, count: 5 } })).toThrow(/OD group/);
+      expect(state.railway.save()).toEqual(before);
+    }
+    state.execute({ type: 'add-rail-passengers', group: { id: 'od', lineId, origin: origin.stationId, destination: destination.stationId, count: 5 } });
+    const good = state.railway.save(), saved = state.serialize(); saved.railway!.operations!.passengers[0].destination = other.stationId;
+    expect(() => state.load(saved)).toThrow(/OD group/); expect(state.railway.save()).toEqual(good);
+    const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.runtime().waitingPassengers).toBe(5);
+  });
   it('reserves the itinerary while occupying only the current platform or active leg, including Save/Load', () => {
     const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state) });
     for (const [time, phase] of [[10, 'dwelling'], [30, 'running'], [57, 'dwelling'], [77, 'turnback'], [97, 'dwelling']] as const) {

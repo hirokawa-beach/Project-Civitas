@@ -2,7 +2,14 @@ import { closestPointOnPolyline, distance, normalize, pointAtDistance, polylineL
 import { LandOwnership } from '../world/landOwnership';
 import type { Vec2 } from '../world/types';
 import type { TrackNode, TrackSegment, Junction, Station, Depot, RailwaySave, RailwaySnapshot, RailCommandData, RailBlock, PlatformFace } from './types';
-import { sampleTrackPath, collinearOverlap, TrackIndex, TrackEdgeIndex, validateTrack, validateSimpleTrackPath } from './geometry';
+import { sampleTrackPath, collinearOverlap, TrackIndex, TrackEdgeIndex, validateTrack, validateSimpleTrackPath, trackType } from './geometry';
+
+const validRectangle = (points: Vec2[]): boolean => {
+  if (!Array.isArray(points) || points.length !== 4 || points.some(p => !p || ![p.x, p.z].every(Number.isFinite))) return false;
+  const u = subtract(points[1], points[0]), v = subtract(points[3], points[0]), width = Math.hypot(u.x, u.z), depth = Math.hypot(v.x, v.z);
+  return width > .01 && depth > .01 && Math.abs(u.x * v.x + u.z * v.z) / (width * depth) < 1e-5
+    && distance(points[2], { x: points[0].x + u.x + v.x, z: points[0].z + u.z + v.z }) < .01;
+};
 
 export class RailwayInfrastructure {
   revision = 0;
@@ -62,16 +69,18 @@ export class RailwayInfrastructure {
       if (junction.selectedRoute && (junction.selectedRoute.length !== 2 || junction.selectedRoute[0] === junction.selectedRoute[1] || junction.selectedRoute.some(id => !ids.includes(id)))) throw new Error('Invalid switch route.');
     }
     for (const station of this.stations.values()) {
-      if (!station.name?.trim() || !station.platforms?.length || !this.ownership.canConstruct({ kind: 'polygon', points: station.boundary }).allowed) throw new Error('Invalid station.');
+      if (!station.name?.trim() || !station.platforms?.length || !validRectangle(station.boundary) || !this.ownership.canConstruct({ kind: 'polygon', points: station.boundary }).allowed) throw new Error('Invalid station.');
       for (const platform of station.platforms) {
-        if (!Number.isFinite(platform.length) || platform.length < 20 || !platform.faces?.length || !this.ownership.canConstruct({ kind: 'polygon', points: platform.outline }).allowed) throw new Error('Invalid platform.');
+        if (!Number.isFinite(platform.length) || platform.length < 20 || !platform.faces?.length || !validRectangle(platform.outline) || !this.ownership.canConstruct({ kind: 'polygon', points: platform.outline }).allowed) throw new Error('Invalid platform.');
         for (const face of platform.faces) {
           const track = this.segments.get(face.trackSegmentId);
           if (!track || !Number.isFinite(face.offset) || face.offset < platform.length / 2 - .01 || face.offset + platform.length / 2 > track.length + .01
             || !['both', 'forward', 'reverse'].includes(face.direction) || !['left', 'right'].includes(face.side)) throw new Error('Invalid platform face.');
         }
       }
-      if (station.connectedTrackIds.length !== station.platforms.flatMap(p => p.faces).length || station.connectedTrackIds.some(id => !this.segments.has(id))) throw new Error('Invalid station connected tracks.');
+      const faceTracks = new Set(station.platforms.flatMap(p => p.faces.map(face => face.trackSegmentId)));
+      if (!Array.isArray(station.connectedTrackIds) || station.connectedTrackIds.length !== faceTracks.size
+        || new Set(station.connectedTrackIds).size !== faceTracks.size || station.connectedTrackIds.some(id => !faceTracks.has(id))) throw new Error('Invalid station connected tracks.');
     }
     const faceIds = [...this.stations.values()].flatMap(s => s.platforms.flatMap(p => p.faces.map(f => f.platformFaceId)));
     const platformIds = [...this.stations.values()].flatMap(s => s.platforms.map(p => p.platformId));
@@ -99,7 +108,7 @@ export class RailwayInfrastructure {
           const position = pointAtDistance(track.points, offset).point;
           const outline = this.depotOutline(position), permission = this.ownership.canConstruct({ kind: 'polygon', points: outline });
           if (!permission.allowed) throw new Error(permission.reason);
-          this.validateDryFootprint(outline);
+          this.validateFootprint(outline, track.trackTypeId);
           if (!command.name.trim() || !Number.isInteger(command.capacity) || command.capacity < 1 || command.capacity > 1000) throw new Error('Depot needs a name and capacity from 1 to 1000.');
           const id = this.id('depot'); this.depots.set(id, { id, name: command.name.trim(), connectedTrackId: track.id, capacity: command.capacity, position }); ids = [id]; break;
         }
@@ -199,7 +208,7 @@ export class RailwayInfrastructure {
     const rectangle = (side: number, halfWidth: number) => [at(offset - length / 2, side - halfWidth), at(offset + length / 2, side - halfWidth), at(offset + length / 2, side + halfWidth), at(offset - length / 2, side + halfWidth)];
     const boundary = rectangle(command.template === 'single' ? -2 : 3, command.template === 'single' ? 4 : 8);
     const permission = this.ownership.canConstruct({ kind: 'polygon', points: boundary }); if (!permission.allowed) throw new Error(permission.reason);
-    this.validateDryFootprint(boundary);
+    this.validateFootprint(boundary, track.trackTypeId);
     const from = offset - length / 2, to = offset + length / 2;
     const generated = command.template === 'single' ? [] : [
       [at(from, 6), at(to, 6)],
@@ -224,11 +233,19 @@ export class RailwayInfrastructure {
     this.stations.set(stationId, { stationId, name: command.name.trim(), platforms, connectedTrackIds, boundary }); return stationId;
   }
   depotOutline(p: Vec2): Vec2[] { return [{ x: p.x - 10, z: p.z - 8 }, { x: p.x + 10, z: p.z - 8 }, { x: p.x + 10, z: p.z + 8 }, { x: p.x - 10, z: p.z + 8 }]; }
-  private validateDryFootprint(outline: Vec2[]) {
+  private validateFootprint(outline: Vec2[], typeId: string) {
     const [a, b, , d] = outline, columns = Math.ceil(distance(a, b) / 4), rows = Math.ceil(distance(a, d) / 4);
+    const columnSpacing = distance(a, b) / columns, rowSpacing = distance(a, d) / rows, maxGrade = trackType(typeId).maxGrade;
+    const previousRow = new Float64Array(columns + 1);
     for (let row = 0; row <= rows; row++) for (let column = 0; column <= columns; column++) {
       const u = column / columns, v = row / rows;
-      if (this.waterAt(a.x + (b.x - a.x) * u + (d.x - a.x) * v, a.z + (b.z - a.z) * u + (d.z - a.z) * v)) throw new Error('Railway station/depot footprint crosses water.');
+      const x = a.x + (b.x - a.x) * u + (d.x - a.x) * v, z = a.z + (b.z - a.z) * u + (d.z - a.z) * v, height = this.height(x, z);
+      if (!Number.isFinite(height)) throw new Error('Railway footprint has missing terrain.');
+      if (this.waterAt(x, z)) throw new Error('Railway station/depot footprint crosses water.');
+      const alongGrade = column ? (height - previousRow[column - 1]) / columnSpacing : 0;
+      const crossGrade = row ? (height - previousRow[column]) / rowSpacing : 0;
+      if (Math.hypot(alongGrade, crossGrade) > maxGrade + 1e-6) throw new Error('Railway footprint grade exceeds the track type limit.');
+      previousRow[column] = height;
     }
   }
   private validateGeneratedTrack(points: Vec2[], baseTrackId: string) {

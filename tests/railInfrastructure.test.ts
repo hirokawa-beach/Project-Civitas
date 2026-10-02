@@ -8,6 +8,29 @@ import type { StationTemplate, TrackMode } from '../src/railway/types';
 import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
+  it('rejects inconsistent station track references and malformed footprints before replacing the live city', () => {
+    const state = railwayFixture('island'), before = state.railway.save();
+    for (const kind of ['wrong-track', 'duplicate-track', 'triangle', 'skew-platform']) {
+      const saved = state.serialize(), station = saved.railway!.stations[0];
+      if (kind === 'wrong-track') station.connectedTrackIds[0] = saved.railway!.segments.find(track => !station.connectedTrackIds.includes(track.id))!.id;
+      else if (kind === 'duplicate-track') station.connectedTrackIds[1] = station.connectedTrackIds[0];
+      else if (kind === 'triangle') station.boundary.pop();
+      else station.platforms[0].outline[2].x += 1;
+      expect(() => state.load(saved)).toThrow(/station|platform/i); expect(state.railway.save()).toEqual(before);
+    }
+  });
+  it.each(['single', 'double', 'island', 'depot'] as const)('rejects steep/missing terrain across a %s footprint even with a valid centerline', kind => {
+    const rail = new RailwayInfrastructure();
+    rail.mutate({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } });
+    const id = [...rail.segments.keys()][0], before = rail.save();
+    const command = kind === 'depot' ? { type: 'place-depot' as const, trackSegmentId: id, offset: 400, name: 'Slope', capacity: 8 }
+      : { type: 'place-station' as const, trackSegmentId: id, offset: 400, name: 'Slope', template: kind, length: 120 };
+    for (const bank of [10, NaN]) {
+      rail.height = (_x, z) => z < -2 ? bank : 0;
+      expect(() => rail.mutate(command)).toThrow(/grade|missing terrain/); expect(rail.save()).toEqual(before);
+    }
+    rail.height = (_x, z) => z * .01; expect(rail.mutate(command)).toHaveLength(1);
+  });
   it('protects the complete depot footprint through brushes, presets, Load and demolition Undo/Redo', () => {
     const state = new SimulationState();
     state.execute({ type: 'build-track', input: { points: [{ x: -100, z: 0 }, { x: 100, z: 0 }], trackTypeId: 'standard' } });
