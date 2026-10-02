@@ -204,7 +204,8 @@ export class RailwaySystem extends RailwayInfrastructure {
           const call = s.stopCalls[i], face = this.face(call.platformFaceId), prev = s.stopCalls[i - 1];
           if (call.sequence !== i || face.station.stationId !== call.stationId || !lineStations.get(s.lineId)!.has(call.stationId) || !integer(call.arrivalTime) || !integer(call.departureTime)
             || call.departureTime < call.arrivalTime || !['stop', 'pass'].includes(call.stopType) || call.stopType === 'pass' && call.arrivalTime !== call.departureTime
-            || prev && call.arrivalTime < prev.departureTime || !restoring && i === 0 && call.arrivalTime < now || call.stopType === 'stop' && !this.fitsPlatform(call.platformFaceId, type.length)) throw new Error('Invalid StopCall timing, station or platform length.');
+            || prev && call.arrivalTime < prev.departureTime || !restoring && i === 0 && call.arrivalTime < now
+            || (call.stopType === 'stop' || i === 0 || i === s.stopCalls.length - 1) && !this.fitsPlatform(call.platformFaceId, type.length)) throw new Error('Invalid StopCall timing, station or platform length.');
           if (prev) { if (prev.platformFaceId === call.platformFaceId) throw new Error('Consecutive StopCalls need distinct platform faces.'); const key = `${prev.platformFaceId}|${call.platformFaceId}|${type.id}`; if (!routes.has(key)) routes.set(key, railRoute(this, prev.platformFaceId, call.platformFaceId, type)); }
         }
         if (previous && (previous.stopCalls.at(-1)!.platformFaceId !== s.stopCalls[0].platformFaceId || s.stopCalls[0].arrivalTime < previous.stopCalls.at(-1)!.departureTime + TURNBACK_SECONDS)) throw new Error('Operation continuity requires the same face and at least 20s turnback between separate TrainServices.');

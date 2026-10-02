@@ -137,10 +137,24 @@ describe('event-driven railway operations', () => {
     state.execute({ type: 'place-station', trackSegmentId: middle.id, offset: 160, length: 40, template: 'single', name: 'Center' });
     const [west, east, center] = [...state.railway.stations.values()], face = (s: typeof west) => s.platforms[0].faces[0].platformFaceId;
     const spec = input(state, { faceIds: [face(west), face(center), face(east)], stopTypes: ['stop', 'pass', 'stop'] });
-    state.execute({ type: 'create-rail-frequency', input: spec }); advance(state, 500);
+    state.execute({ type: 'create-rail-frequency', input: { ...spec, formationTypeId: 'commuter-6' } }); advance(state, 500);
     const pass = state.railway.runtime().serviceStates[0].actualCalls[1]; expect(pass.passTime).toBe(pass.arrivalTime); expect(pass.departureTime).toBe(pass.arrivalTime);
     state.execute({ type: 'clear-rail-operations' }); state.clock.restore({ gameSeconds: 0, speed: 1 }); state.railway.setClock(0);
     expect(() => state.execute({ type: 'create-rail-frequency', input: { ...spec, formationTypeId: 'commuter-6', stopTypes: ['stop', 'stop', 'stop'] } })).toThrow(/length/);
+  });
+  it.each(['origin', 'destination'] as const)('checks formation length at a pass-only %s face on commands and Load', endpoint => {
+    const state = railwayFixture(), middle = [...state.railway.segments.values()].find(t => t.points[0].x === -160 && t.points.at(-1)!.x === 160)!;
+    state.execute({ type: 'place-station', trackSegmentId: middle.id, offset: 160, length: 40, template: 'single', name: 'Short' });
+    const [west, east, short] = [...state.railway.stations.values()], face = (s: typeof west) => s.platforms[0].faces[0].platformFaceId;
+    const spec = input(state, { faceIds: endpoint === 'origin' ? [face(short), face(east)] : [face(west), face(short)],
+      stopTypes: ['pass', 'pass'], returnService: false }), before = state.railway.save();
+    expect(() => state.execute({ type: 'create-rail-frequency', input: { ...spec, formationTypeId: 'commuter-6' } })).toThrow(/length/);
+    expect(state.railway.save()).toEqual(before);
+    state.execute({ type: 'create-rail-frequency', input: spec }); const good = state.railway.save(), saved = state.serialize();
+    saved.railway!.operations!.formations[0].formationTypeId = 'commuter-6';
+    expect(() => state.load(saved)).toThrow(/length/); expect(state.railway.save()).toEqual(good);
+    const loaded = new SimulationState(); loaded.load(state.serialize()); advance(loaded, 200);
+    expect(loaded.railway.runtime().activeTrains).toHaveLength(0); expect(loaded.railway.runtime().serviceStates[0].status).toBe('completed');
   });
   it('rejects duplicated Formation assignments and invalid pass times', () => {
     const state = railwayFixture(), data = opposing(state), duplicate = structuredClone(data);
