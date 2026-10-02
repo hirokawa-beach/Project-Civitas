@@ -8,6 +8,22 @@ import type { StationTemplate, TrackMode } from '../src/railway/types';
 import { railwayFixture } from './fixtures/railway';
 
 describe('Railway Infrastructure authority', () => {
+  it('validates depot offsets at their actual footprint and preserves placement through Save/Undo', () => {
+    const state = new SimulationState();
+    state.execute({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } });
+    const id = [...state.railway.segments.keys()][0];
+    state.execute({ type: 'place-depot', trackSegmentId: id, offset: 100, name: 'Clicked depot', capacity: 8 });
+    const saved = state.railway.save(); expect(saved.depots[0].position).toEqual({ x: -300, z: 0 });
+    const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.save()).toEqual(saved);
+    state.undo(); expect(state.railway.depots.size).toBe(0); state.redo(); expect(state.railway.save()).toEqual(saved);
+    for (const offset of [NaN, Infinity, -1, 801]) {
+      expect(() => state.execute({ type: 'place-depot', trackSegmentId: id, offset, name: 'Invalid depot', capacity: 8 })).toThrow(/offset/);
+      expect(state.railway.save()).toEqual(saved);
+    }
+    state.railway.waterAt = (x, z) => Math.abs(x - 300) < 3 && Math.abs(z - 4) < 1;
+    expect(() => state.execute({ type: 'place-depot', trackSegmentId: id, offset: 700, name: 'Wet click', capacity: 8 })).toThrow(/water/);
+    expect(state.railway.save()).toEqual(saved);
+  });
   it.each(['double', 'island'] as StationTemplate[])('rejects %s generated parallel/platform/approach collisions with existing tracks', template => {
     for (const points of [
       [{ x: -100, z: 6 }, { x: 100, z: 6 }],

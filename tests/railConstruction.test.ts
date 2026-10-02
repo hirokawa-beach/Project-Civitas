@@ -32,6 +32,14 @@ describe('railway construction interaction', () => {
     controller.trackMode = 'continuous'; controller.setEnabled(true); await click(-200, -200); await click(100, -200); await click(200, 200);
     controller.cancel(); resolve({ ok: true }); await Promise.resolve(); await click(0, 400); expect(commands).toHaveLength(0); controller.dispose();
   });
+  it('places a depot at the clicked track offset instead of the segment midpoint', async () => {
+    const { controller, click, commands, state, client } = setup();
+    state.execute({ type: 'build-track', input: { points: [{ x: -400, z: 0 }, { x: 400, z: 0 }], trackTypeId: 'standard' } });
+    client.latestSnapshot = state.snapshot(); controller.mode = 'depot'; controller.setEnabled(true);
+    await click(-300, 5);
+    expect(commands[0]).toMatchObject({ type: 'place-depot', offset: 100 });
+    expect([...state.railway.depots.values()][0].position).toEqual({ x: -300, z: 0 }); controller.dispose();
+  });
   it.each(['cancelConstruction', 'undo', 'redo'] as const)('%s clears railway anchors through the shared runtime path', async method => {
     const { controller, click, commands } = setup(); controller.setEnabled(true); await click(-200, 0);
     const runtime = Object.create(GameRuntime.prototype) as GameRuntime;

@@ -24,6 +24,19 @@ function opposing(state: SimulationState): RailTimetable {
 }
 
 describe('event-driven railway operations', () => {
+  it('reserves the itinerary while occupying only the current platform or active leg, including Save/Load', () => {
+    const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state) });
+    for (const [time, phase] of [[10, 'dwelling'], [30, 'running'], [57, 'dwelling'], [77, 'turnback'], [97, 'dwelling']] as const) {
+      advance(state, time); const train = state.railway.runtime().activeTrains[0]; expect(train.state).toBe(phase);
+      const occupied = phase === 'running' ? train.leg!.route.resources.filter(id => id !== train.faceId)
+        : [train.faceId, state.railway.face(train.faceId).face.trackSegmentId];
+      expect([...state.railway.blocks.values()].filter(b => b.occupancyOwner === train.formationId).map(b => b.id).sort()).toEqual(occupied.sort());
+      for (const id of train.resources) expect(state.railway.blocks.get(id)!.reservationOwner).toBe(train.formationId);
+      if (phase === 'dwelling') expect(train.resources.length).toBeGreaterThan(occupied.length);
+      const loaded = new SimulationState(); loaded.load(state.serialize()); expect(loaded.railway.save()).toEqual(state.railway.save());
+    }
+    advance(state, 200); expect(state.railway.runtime().ownedBlocks).toHaveLength(0);
+  });
   it('arrives, dwells, departs and turns back using separate service IDs and one Formation', () => {
     const state = railwayFixture(); state.execute({ type: 'create-rail-frequency', input: input(state) });
     const timetable = state.railway.save().operations!;

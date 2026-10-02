@@ -62,7 +62,7 @@ export class RailConstruction {
       catch (error) { this.cancel(); this.emit(String(error)); }
     } else if (!snap.id) this.emit('Click within 12m of an existing track.');
     else if (this.mode === 'station') void this.submit({ type: 'place-station', trackSegmentId: snap.id, offset: snap.along, name: this.name, template: this.template, length: this.length });
-    else if (this.mode === 'depot') void this.submit({ type: 'place-depot', trackSegmentId: snap.id, name: this.name === 'Station' ? 'Depot' : this.name, capacity: this.capacity });
+    else if (this.mode === 'depot') void this.submit({ type: 'place-depot', trackSegmentId: snap.id, offset: snap.along, name: this.name === 'Station' ? 'Depot' : this.name, capacity: this.capacity });
     else void this.submit({ type: 'remove-railway', kind: 'track', id: snap.id });
   };
   private async submit(command: import('./types').RailCommandData, continuation?: Vec2[]) {

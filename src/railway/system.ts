@@ -243,6 +243,16 @@ export class RailwaySystem extends RailwayInfrastructure {
     super.release(owner, resources); const wake = new Set<string>(); for (const id of resources) for (const key of this.waitersByResource.get(id) ?? []) wake.add(key);
     for (const key of [...wake].sort()) { const wait = this.waits.get(key); if (!wait) continue; this.waits.delete(key); for (const id of wait.resources) { const keys = this.waitersByResource.get(id); keys?.delete(key); if (!keys?.size) this.waitersByResource.delete(id); } this.schedule(wait.event.type, at, wait.event.operationId, wait.event.serviceIndex, wait.event.callIndex); }
   }
+  private occupyCurrent(train: ActiveRailTrain, resources: string[]) {
+    if (!this.occupy(train.formationId, resources)) throw new Error('Reserved current train resources were lost.');
+    // Retain the service-wide reservation, but clear physical occupancy behind
+    // the train and on future legs. Work is bounded to this train's itinerary.
+    const current = new Set(resources);
+    for (const id of train.resources) {
+      const block = this.blocks.get(id)!;
+      if (!current.has(id) && block.occupancyOwner === train.formationId) block.occupancyOwner = null;
+    }
+  }
   private process(event: RailEvent) {
     const op = this.operations.get(event.operationId)!; const service = this.services.get(op.trainServiceIds[event.serviceIndex])!, formation = this.formations.get(op.assignedFormationId)!, call = service.stopCalls[event.callIndex];
     let train = this.trains.get(formation.formationId), state = this.progress.get(service.id);
@@ -253,7 +263,6 @@ export class RailwaySystem extends RailwayInfrastructure {
       const resources = [...new Set([call.platformFaceId, this.face(call.platformFaceId).face.trackSegmentId,
         ...service.stopCalls.slice(1).flatMap((next, i) => this.route(service.stopCalls[i].platformFaceId, next.platformFaceId, formation.formationTypeId).resources)])];
       if (!this.reserve(formation.formationId, resources)) { if (!train) { formation.state = 'waiting'; formation.currentServiceId = service.id; } this.wait(event, resources); return; }
-      if (!this.occupy(formation.formationId, resources)) { if (!train) { formation.state = 'waiting'; formation.currentServiceId = service.id; } this.wait(event, resources); return; }
       train = { formationId: formation.formationId, operationId: op.operationId, serviceId: service.id, callIndex: 0, state: 'dwelling', delay: Math.max(0, event.at - call.arrivalTime), faceId: call.platformFaceId, resources, onboard: train?.onboard ?? [], dwellUntil: 0 };
       this.trains.set(formation.formationId, train); formation.currentServiceId = service.id; formation.currentFaceId = call.platformFaceId;
       this.arrive(event, train, state); return;
@@ -275,14 +284,14 @@ export class RailwaySystem extends RailwayInfrastructure {
     train.delay = Math.max(train.delay, event.at - call.departureTime); state.delay = train.delay; state.status = 'running'; state.actualCalls[event.callIndex].departureTime = event.at;
     train.leg = { route, startAt: event.at, endAt: Math.max(target.arrivalTime + train.delay, event.at + route.duration) };
     train.delay = Math.max(train.delay, train.leg.endAt - target.arrivalTime); state.delay = train.delay;
-    this.occupy(formation.formationId, route.resources.filter(id => id !== call.platformFaceId));
+    this.occupyCurrent(train, route.resources.filter(id => id !== call.platformFaceId));
     train.callIndex++; train.state = 'running'; formation.state = 'running';
     this.schedule('arrival', train.leg.endAt, op.operationId, event.serviceIndex, train.callIndex);
   }
   private arrive(event: RailEvent, train: ActiveRailTrain, state: RailServiceProgress) {
     const op = this.operations.get(event.operationId)!, service = this.services.get(train.serviceId)!, call = service.stopCalls[event.callIndex], formation = this.formations.get(train.formationId)!;
     const resources = [call.platformFaceId, this.face(call.platformFaceId).face.trackSegmentId];
-    if (!this.occupy(train.formationId, resources)) throw new Error('Reserved destination platform was lost.');
+    this.occupyCurrent(train, resources);
     train.faceId = call.platformFaceId; train.leg = undefined; formation.currentFaceId = call.platformFaceId; formation.state = 'waiting';
     train.delay = Math.max(train.delay, event.at - call.arrivalTime); state.delay = train.delay;
     state.actualCalls.push({ sequence: event.callIndex, arrivalTime: event.at, ...(call.stopType === 'pass' ? { passTime: event.at } : {}) });

@@ -94,7 +94,9 @@ export class RailwayInfrastructure {
         case 'build-track': ids = this.build(command.input.points, command.input.trackTypeId); break;
         case 'place-station': ids = [this.placeStation(command)]; break;
         case 'place-depot': {
-          const track = this.requireTrack(command.trackSegmentId), position = pointAtDistance(track.points, track.length / 2).point;
+          const track = this.requireTrack(command.trackSegmentId), offset = command.offset ?? track.length / 2;
+          if (!Number.isFinite(offset) || offset < 0 || offset > track.length) throw new Error('Choose a depot offset within the connected track.');
+          const position = pointAtDistance(track.points, offset).point;
           const outline = this.depotOutline(position), permission = this.ownership.canConstruct({ kind: 'polygon', points: outline });
           if (!permission.allowed) throw new Error(permission.reason);
           this.validateDryFootprint(outline);

@@ -28,7 +28,7 @@ export type StationTemplate = 'single' | 'double' | 'island';
 export type RailCommandData =
   | { type: 'build-track'; input: BuildTrackInput }
   | { type: 'place-station'; trackSegmentId: string; offset: number; name: string; template: StationTemplate; length: number }
-  | { type: 'place-depot'; trackSegmentId: string; name: string; capacity: number }
+  | { type: 'place-depot'; trackSegmentId: string; offset?: number; name: string; capacity: number }
   | { type: 'remove-railway'; kind: 'track' | 'station' | 'depot'; id: string }
   | { type: 'set-rail-switch'; junctionId: string; route: [string, string] | null };
 export interface RailCommandResult { type: 'railway'; ids: string[] }
